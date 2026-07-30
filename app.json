@@ -1,0 +1,67 @@
+{
+  "expo": {
+    "name": "KindredCube",
+    "slug": "kindredcube",
+    "scheme": "kindredcube",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/kindredcube-horizontal-logo-transparent.png",
+    "splash": {
+      "image": "./assets/kindredcube-horizontal-logo-transparent.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F7F1E7"
+    },
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "uber",
+          "lyft"
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F7F1E7",
+        "foregroundImage": "./assets/kindredcube-horizontal-logo-transparent.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/kindredcube-horizontal-logo-transparent.png"
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "KindredCube uses selected photos to build and improve your dating profile.",
+          "cameraPermission": "KindredCube uses your camera only when you choose to take a photo or record a verification video."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "KindredCube uses your camera only when you choose to record an in-app video selfie for safer Ready to Meet verification.",
+          "microphonePermission": "KindredCube uses your microphone only while recording your in-app video selfie."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "KindredCube uses your approximate location to show people in nearby communities."
+        }
+      ],
+      "expo-web-browser",
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "KindredCube needs microphone access when you choose to record and send a voice note."
+        }
+      ]
+    ]
+  }
+}

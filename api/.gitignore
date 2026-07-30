@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+coverage/
+.postgres-data/
+.postgres.log
+.postgres-bootstrap-password
