@@ -90,8 +90,8 @@ export class PostMeetChecksController {
           WHERE user_id = $1
             AND other_user_id = $2
             AND (
-              meeting_started_at BETWEEN $3::timestamptz - interval '7 days'
-                                      AND $3::timestamptz + interval '7 days'
+              meeting_started_at BETWEEN $3::timestamptz - interval '30 days'
+                                      AND $3::timestamptz + interval '30 days'
               OR ($4 <> '' AND lower(regexp_replace(trim(venue), '\\s+', ' ', 'g')) = $4)
             )
           ORDER BY ABS(EXTRACT(EPOCH FROM (meeting_started_at - $3::timestamptz))) ASC
@@ -104,8 +104,8 @@ export class PostMeetChecksController {
           WHERE user_id = $2
             AND other_user_id = $1
             AND (
-              meeting_started_at BETWEEN $3::timestamptz - interval '7 days'
-                                      AND $3::timestamptz + interval '7 days'
+              meeting_started_at BETWEEN $3::timestamptz - interval '30 days'
+                                      AND $3::timestamptz + interval '30 days'
               OR ($4 <> '' AND lower(regexp_replace(trim(venue), '\\s+', ' ', 'g')) = $4)
             )
           ORDER BY ABS(EXTRACT(EPOCH FROM (meeting_started_at - $3::timestamptz))) ASC

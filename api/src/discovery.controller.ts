@@ -92,11 +92,7 @@ export class DiscoveryController {
                 d.recently_active_at,
                 ${publicMeetupVerifiedSql("d.user_id")} AS meetup_verified,
                 ts.rolling_score::text AS trust_score,
-                EXISTS (
-                  SELECT 1 FROM identity_verification_sessions iv
-                   WHERE iv.user_id = d.user_id AND iv.status = 'verified' AND iv.provider = 'stripe'
-                    
-                ) AS identity_verified,
+                ${publicStripeVerifiedSql("d.user_id")} AS identity_verified,
                 ${publicSelfieVerifiedSql("d.user_id")} AS selfie_verified
            FROM discovery_profiles d
            JOIN users u ON u.id = d.user_id
@@ -161,11 +157,7 @@ export class DiscoveryController {
                 d.recently_active_at,
                 ${publicMeetupVerifiedSql("d.user_id")} AS meetup_verified,
                 ts.rolling_score::text AS trust_score,
-                EXISTS (
-                  SELECT 1 FROM identity_verification_sessions iv
-                   WHERE iv.user_id = d.user_id AND iv.status = 'verified' AND iv.provider = 'stripe'
-                    
-                ) AS identity_verified,
+                ${publicStripeVerifiedSql("d.user_id")} AS identity_verified,
                 ${publicSelfieVerifiedSql("d.user_id")} AS selfie_verified
            FROM discovery_profiles d
            JOIN users u ON u.id = d.user_id
@@ -251,11 +243,7 @@ export class DiscoveryController {
                   d.recently_active_at,
                   ${publicMeetupVerifiedSql("d.user_id")} AS meetup_verified,
                   ts.rolling_score::text AS trust_score,
-                  EXISTS (
-                    SELECT 1 FROM identity_verification_sessions iv
-                     WHERE iv.user_id = d.user_id AND iv.status = 'verified' AND iv.provider = 'stripe'
-                      
-                  ) AS identity_verified,
+                  ${publicStripeVerifiedSql("d.user_id")} AS identity_verified,
                   ${publicSelfieVerifiedSql("d.user_id")} AS selfie_verified
              FROM discovery_profiles d
              LEFT JOIN user_trust_scores ts ON ts.user_id = d.user_id
@@ -426,6 +414,18 @@ function publicMeetupVerifiedSql(userExpression: string) {
                                                   AND pm.meeting_started_at + interval '36 hours'
        )
   ))`;
+}
+
+function publicStripeVerifiedSql(userExpression: string) {
+  return `EXISTS (
+    SELECT 1 FROM identity_verification_sessions iv
+     WHERE iv.user_id = ${userExpression}
+       AND iv.status = 'verified'
+       AND (
+         iv.provider = 'stripe'
+         OR iv.verification_type = 'document_and_selfie'
+       )
+  )`;
 }
 
 function publicSelfieVerifiedSql(userExpression: string) {

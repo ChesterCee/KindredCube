@@ -119,11 +119,7 @@ export class MemberLikesController {
                 d.occupation,
                 d.matching_data,
                 d.recently_active_at,
-                EXISTS (
-                  SELECT 1 FROM identity_verification_sessions iv
-                   WHERE iv.user_id = d.user_id AND iv.status = 'verified' AND iv.provider = 'stripe'
-                    
-                ) AS identity_verified,
+                ${publicStripeVerifiedSql("d.user_id")} AS identity_verified,
                 ${publicSelfieVerifiedSql("d.user_id")} AS selfie_verified,
                 ${publicMeetupVerifiedSql("d.user_id")} AS meetup_verified,
                 (SELECT has_plan FROM recipient_plan) AS recipient_has_plan,
@@ -258,6 +254,18 @@ function publicMeetupVerifiedSql(userExpression: string) {
                                                   AND pm.meeting_started_at + interval '36 hours'
        )
   ))`;
+}
+
+function publicStripeVerifiedSql(userExpression: string) {
+  return `EXISTS (
+    SELECT 1 FROM identity_verification_sessions iv
+     WHERE iv.user_id = ${userExpression}
+       AND iv.status = 'verified'
+       AND (
+         iv.provider = 'stripe'
+         OR iv.verification_type = 'document_and_selfie'
+       )
+  )`;
 }
 
 function publicSelfieVerifiedSql(userExpression: string) {

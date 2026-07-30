@@ -182,11 +182,7 @@ export class ChatService {
                 last_message.ciphertext AS last_ciphertext,
                 last_message.iv AS last_iv,
                 last_message.auth_tag AS last_auth_tag,
-                EXISTS (
-                  SELECT 1 FROM identity_verification_sessions iv
-                   WHERE iv.user_id = d.user_id AND iv.status = 'verified' AND iv.provider = 'stripe'
-                    
-                ) AS identity_verified,
+                ${publicStripeVerifiedSql("d.user_id")} AS identity_verified,
                 ${publicSelfieVerifiedSql("d.user_id")} AS selfie_verified
            FROM latest
            JOIN users u ON u.id = latest.other_user_id
@@ -643,6 +639,18 @@ function publicMeetupVerifiedSql(userExpression: string) {
                                                   AND pm.meeting_started_at + interval '36 hours'
        )
   ))`;
+}
+
+function publicStripeVerifiedSql(userExpression: string) {
+  return `EXISTS (
+    SELECT 1 FROM identity_verification_sessions iv
+     WHERE iv.user_id = ${userExpression}
+       AND iv.status = 'verified'
+       AND (
+         iv.provider = 'stripe'
+         OR iv.verification_type = 'document_and_selfie'
+       )
+  )`;
 }
 
 function publicSelfieVerifiedSql(userExpression: string) {

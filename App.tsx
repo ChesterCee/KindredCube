@@ -2262,6 +2262,7 @@ function VerificationBadges({ profile }: { profile: Profile }) {
         flexWrap: "wrap",
         justifyContent: orderedBadges.length > 1 ? "space-between" : "flex-start",
         alignItems: "center",
+        width: "100%",
         gap: 6,
       }}
     >
@@ -2332,7 +2333,7 @@ function profileVerificationBadges(profile: Profile, variant: "icon" | "full" = 
     identityKind === "stripe"
       ? { label: "Verified securely by Stripe", shortLabel: "Stripe", icon: BadgeCheck, color: "#1685E5", background: "#E8F3FD" }
       : identityKind === "selfie"
-        ? { label: "Selfie verified", shortLabel: "Selfie", icon: Camera, color: KINDREDCUBE_ORANGE, background: "#FFF1E4" }
+        ? { label: "Selfie verified", shortLabel: "Selfie", icon: BadgeCheck, color: KINDREDCUBE_ORANGE, background: "#FFF1E4" }
         : null,
     profileMeetupVerified(profile)
       ? { label: "Meetup verified", shortLabel: "Meetup", icon: ShieldCheck, color: "#2DA85E", background: "#E7F7EA" }
@@ -2361,8 +2362,8 @@ function ProfileVerificationBadgeIcons({
       <View
         accessibilityLabel={`${identityBadge.label} and ${meetupBadge.label}`}
         style={{
-          width: size * 1.55,
-          height: size * 1.32,
+          width: size * 1.65,
+          height: size * 1.42,
           position: "relative",
         }}
       >
@@ -2372,7 +2373,7 @@ function ProfileVerificationBadgeIcons({
           color={meetupBadge.color}
           fill={meetupBadge.color}
           stroke={stroke}
-          style={{ position: "absolute", left: 0, top: size * 0.23 }}
+          style={{ position: "absolute", left: 0, top: size * 0.28 }}
         />
         <BadgeCheck
           width={size}
@@ -2380,7 +2381,7 @@ function ProfileVerificationBadgeIcons({
           color={identityBadge.color}
           fill={identityBadge.color}
           stroke={stroke}
-          style={{ position: "absolute", left: size * 0.46, top: 0 }}
+          style={{ position: "absolute", left: size * 0.54, top: 0 }}
         />
       </View>
     );
@@ -10364,7 +10365,9 @@ function ReadyMeetChat({
     ? proposal.scheduledAt + proposal.durationMinutes * 60_000
     : Number.POSITIVE_INFINITY;
   const meetingEnded = accepted && now >= meetingEnd;
+  const meetingIsStale = accepted && meetingEnd < now - 7 * 24 * 60 * 60 * 1000;
   const postMeetDue = meetingEnded &&
+    !meetingIsStale &&
     !postMeetSubmitted &&
     !postMeetStatusChecking &&
     Boolean(currentPostMeetKey) &&
@@ -10545,6 +10548,17 @@ function ReadyMeetChat({
     if (!profile.id || !proposal?.scheduledAt) return;
     let active = true;
     const key = postMeetCheckKey(proposal);
+    const proposalMeetingEnd = proposal.scheduledAt + proposal.durationMinutes * 60_000;
+    if (proposal.status === "accepted" && proposalMeetingEnd < Date.now() - 7 * 24 * 60 * 60 * 1000) {
+      if (key) {
+        setCompletedPostMeetKeys((current) => current.includes(key) ? current : [...current, key]);
+      }
+      setPostMeetSubmitted(true);
+      setPostMeetOpen(false);
+      setPostMeetThanksVisible(false);
+      setProposal(null);
+      return;
+    }
     if (key && completedPostMeetKeys.includes(key)) {
       setPostMeetSubmitted(true);
       setPostMeetOpen(false);
@@ -12153,7 +12167,7 @@ function ReadyToMeetFeature({
             </Pressable>
           </View>
         </View>
-        <Text selectable style={{ alignSelf: "center", maxWidth: 275, color: "#AAB2C8", fontSize: 14, lineHeight: 18, fontWeight: "900", textAlign: "center" }}>
+        <Text selectable style={{ alignSelf: "center", width: 218, color: C.paper, fontSize: 12, lineHeight: 16, fontWeight: "400", textAlign: "center" }}>
           {showAllReadyProfiles ? "All profiles currently available" : "People who are available now"}
         </Text>
         {readyMeetFilterOpen ? (
@@ -13280,7 +13294,7 @@ function LikedYouExperience({
                         bottom: 0,
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: "rgba(34,31,27,0.76)",
+                        backgroundColor: "rgba(34,31,27,0.44)",
                       }}
                     >
                       <View
@@ -13290,7 +13304,7 @@ function LikedYouExperience({
                           right: 0,
                           top: 0,
                           bottom: 0,
-                          backgroundColor: "rgba(255,253,249,0.34)",
+                          backgroundColor: "rgba(255,253,249,0.12)",
                           opacity: 1,
                         }}
                       />
@@ -13301,7 +13315,7 @@ function LikedYouExperience({
                           right: 0,
                           top: 0,
                           bottom: 0,
-                          backgroundColor: "rgba(34,31,27,0.34)",
+                          backgroundColor: "rgba(34,31,27,0.16)",
                         }}
                       />
                       <View
@@ -16909,14 +16923,8 @@ function SignedInHome({
     if (hiddenUntil === "never") return false;
     return new Date(hiddenUntil).getTime() <= Date.now();
   };
-  const activeChatProfileKeys = new Set(
-    memberChats
-      .filter((profile) => Boolean(profile.chatPreview) || Boolean(profile.chatLastMessageAt))
-      .map(likeProfileKey),
-  );
   const filteredIncomingLikes = incomingLikes.filter((like) =>
     !(like.chatStarted && incomingLikeMatchIsActive(like)) &&
-    !activeChatProfileKeys.has(likeProfileKey(discoveryCandidateToProfile(like.profile))) &&
     datingDirectionMatches(viewerDating, discoveryCandidateToProfile(like.profile)),
   );
   const rankedRecommendations = rankMatches(
