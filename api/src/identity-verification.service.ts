@@ -110,8 +110,8 @@ export class IdentityVerificationService {
     await this.database.withUser(userId, (client) =>
       client.query(
         `INSERT INTO identity_verification_sessions
-          (user_id, provider_session_id, status)
-         VALUES ($1, $2, $3)`,
+          (user_id, provider, provider_session_id, verification_type, status)
+         VALUES ($1, 'stripe', $2, 'document_and_selfie', $3)`,
         [userId, session.id, session.status],
       ),
     );
