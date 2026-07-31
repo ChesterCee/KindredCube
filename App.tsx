@@ -12135,7 +12135,7 @@ function ReadyToMeetFeature({
         }}
         style={{ flex: 1, minHeight: screenHeight, paddingHorizontal: 18, paddingTop: insets.top + 34, paddingBottom: insets.bottom + 18, gap: 13, backgroundColor: "#070A18" }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <View style={{ minHeight: 54, flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back from Ready to Meet"
@@ -12150,10 +12150,15 @@ function ReadyToMeetFeature({
           >
             <ChevronLeft width={25} height={25} color={C.paper} />
           </Pressable>
-          <Text selectable style={{ flex: 1, color: C.paper, fontSize: 24, fontWeight: "900", textAlign: "center" }}>
-            {showAllReadyProfiles ? "More Online" : "Ready to Meet"}
-          </Text>
-          <View style={{ minWidth: 72, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text selectable numberOfLines={1} style={{ color: C.paper, fontSize: 28, lineHeight: 31, fontWeight: "900", letterSpacing: -0.8 }}>
+              {showAllReadyProfiles ? "More Online" : "Ready to Meet"}
+            </Text>
+            <Text selectable numberOfLines={1} style={{ color: "#AAB2C8", fontSize: 14, lineHeight: 17, fontWeight: "400" }}>
+              {showAllReadyProfiles ? "All profiles currently available" : "People who are available now"}
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
             <Text selectable style={{ color: "#AAB2C8", fontSize: 11, fontWeight: "900", fontVariant: ["tabular-nums"] }}>
               {readyPeopleTotal} online
             </Text>
@@ -12167,9 +12172,6 @@ function ReadyToMeetFeature({
             </Pressable>
           </View>
         </View>
-        <Text selectable style={{ alignSelf: "center", width: 218, color: C.paper, fontSize: 12, lineHeight: 16, fontWeight: "400", textAlign: "center" }}>
-          {showAllReadyProfiles ? "All profiles currently available" : "People who are available now"}
-        </Text>
         {readyMeetFilterOpen ? (
           <>
             <Pressable
