@@ -2357,10 +2357,10 @@ function ProfileVerificationBadgeIcons({
   if (!badges.length) return null;
   const meetupBadge = badges.find((badge) => badge.shortLabel === "Meetup");
   const identityBadge = badges.find((badge) => badge.shortLabel !== "Meetup");
-  if (stacked && meetupBadge && identityBadge) {
+  if (meetupBadge && identityBadge) {
     return (
       <View
-        accessibilityLabel={`${identityBadge.label} and ${meetupBadge.label}`}
+        accessibilityLabel={`${meetupBadge.label} and ${identityBadge.label}`}
         style={{
           width: size * 1.65,
           height: size * 1.42,
@@ -2401,6 +2401,16 @@ function ProfileVerificationBadgeIcons({
       ))}
     </View>
   );
+}
+
+function verificationStrengthCap(status: IdentityVerificationStatus, method: IdentityVerificationMethod) {
+  if (status !== "verified") return 90;
+  return method === "video_selfie" ? 95 : 100;
+}
+
+function verificationStrengthBonus(status: IdentityVerificationStatus, method: IdentityVerificationMethod) {
+  if (status !== "verified") return 0;
+  return method === "video_selfie" ? 5 : 10;
 }
 
 function mergeFreshProfileIntoChatProfile(fresh: Profile, existing?: Profile): Profile {
@@ -7505,14 +7515,15 @@ function EditableProfileScreen({
     Object.keys(details).length >= 4,
     languages.length > 0,
   ];
-  const verificationBonus = verificationStatus === "verified" ? 10 : 0;
+  const verificationBonus = verificationStrengthBonus(verificationStatus, verificationMethod);
+  const maximumProfileStrength = verificationStrengthCap(verificationStatus, verificationMethod);
   const baseCompletionScore = Math.round(
     (completionItems.filter(Boolean).length / completionItems.length) * 54,
   );
   const promptCompletionScore = Math.min(12, validPromptCount * 4);
   const photoCompletionScore = Math.min(24, photos.length * 8);
   const profileStrength = Math.min(
-    100,
+    maximumProfileStrength,
     Math.min(90, photoCompletionScore + promptCompletionScore + baseCompletionScore) +
       verificationBonus,
   );
@@ -16755,26 +16766,28 @@ function SignedInHome({
     const currentStrength = typeof privateProfileRef.current.profileStrength === "number"
       ? privateProfileRef.current.profileStrength
       : 0;
-    if (currentStrength >= 100) return;
-    const nextStrength = Math.min(100, currentStrength + 10);
+    const nextCap = verificationStrengthCap(identityVerificationStatus, identityVerificationMethod);
+    const nextStrength = Math.min(nextCap, Math.max(currentStrength, Math.min(90, currentStrength) + verificationStrengthBonus(identityVerificationStatus, identityVerificationMethod)));
+    if (currentStrength === nextStrength) return;
     setProfileStrength(nextStrength);
     persistProfileData({
       profileStrength: nextStrength,
       verificationStrengthBonusApplied: true,
     });
-  }, [identityVerificationStatus, persistProfileData, privateSpaceLoaded]);
+  }, [identityVerificationMethod, identityVerificationStatus, persistProfileData, privateSpaceLoaded]);
   useEffect(() => {
-    if (!privateSpaceLoaded || identityVerificationStatus === "verified") return;
+    if (!privateSpaceLoaded) return;
     const currentStrength = typeof privateProfileRef.current.profileStrength === "number"
       ? privateProfileRef.current.profileStrength
       : 0;
-    if (currentStrength <= 90) return;
-    setProfileStrength(90);
+    const nextCap = verificationStrengthCap(identityVerificationStatus, identityVerificationMethod);
+    if (currentStrength <= nextCap) return;
+    setProfileStrength(nextCap);
     persistProfileData({
-      profileStrength: 90,
-      verificationStrengthBonusApplied: false,
+      profileStrength: nextCap,
+      verificationStrengthBonusApplied: identityVerificationStatus === "verified",
     });
-  }, [identityVerificationStatus, persistProfileData, privateSpaceLoaded]);
+  }, [identityVerificationMethod, identityVerificationStatus, persistProfileData, privateSpaceLoaded]);
   const blockMember = useCallback((profile: Profile, reason?: MemberReportReason, details = "") => {
     const profileId = profile.id || `dummy-${profile.name.toLowerCase()}`;
     const next = blockedProfileIds.includes(profileId) ? blockedProfileIds : [...blockedProfileIds, profileId];
