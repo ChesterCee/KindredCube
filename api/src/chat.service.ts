@@ -191,8 +191,14 @@ export class ChatService {
            LEFT JOIN LATERAL (
              SELECT sender_id, content_kind, ciphertext, iv, auth_tag
                FROM chat_messages cm
-              WHERE (cm.sender_id = $1 AND cm.recipient_id = latest.other_user_id)
+              WHERE (
+                    (cm.sender_id = $1 AND cm.recipient_id = latest.other_user_id)
                  OR (cm.sender_id = latest.other_user_id AND cm.recipient_id = $1)
+              )
+                AND (
+                  (cm.sender_id = $1 AND cm.deleted_for_sender_at IS NULL)
+                  OR (cm.recipient_id = $1 AND cm.deleted_for_recipient_at IS NULL)
+                )
               ORDER BY cm.created_at DESC
               LIMIT 1
            ) last_message ON true
@@ -642,29 +648,10 @@ function publicMeetupVerifiedSql(userExpression: string) {
 }
 
 function publicStripeVerifiedSql(userExpression: string) {
-  return `EXISTS (
-    SELECT 1 FROM identity_verification_sessions iv
-     WHERE iv.user_id = ${userExpression}
-       AND (iv.status = 'verified' OR iv.verified_at IS NOT NULL)
-       AND (
-         iv.provider = 'stripe'
-         OR iv.provider_session_id LIKE 'vs_%'
-         OR iv.verification_type = 'document_and_selfie'
-       )
-  )`;
+  return `public_identity_verified(${userExpression})`;
 }
 
 function publicSelfieVerifiedSql(userExpression: string) {
-  return `(EXISTS (
-    SELECT 1 FROM identity_verification_sessions iv
-     WHERE iv.user_id = ${userExpression}
-       AND (iv.status = 'verified' OR iv.verified_at IS NOT NULL)
-       AND iv.provider = 'kindredcube'
-       AND iv.verification_type = 'video_selfie'
-  ) OR EXISTS (
-    SELECT 1 FROM video_selfie_verifications vsv
-     WHERE vsv.user_id = ${userExpression}
-       AND vsv.status = 'verified'
-  ))`;
+  return `public_selfie_verified(${userExpression})`;
 }
 

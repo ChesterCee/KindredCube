@@ -659,7 +659,9 @@ function discoveryCandidateToProfile(candidate: DiscoveryCandidate): Profile {
   const role = typeof candidate.matching?.occupation === "string" && candidate.matching.occupation.trim()
     ? candidate.matching.occupation.trim()
     : candidate.role;
-  return {
+  const idVerified = candidate.idVerified === true;
+  const selfieVerified = !idVerified && candidate.selfieVerified === true;
+  return normalizeProfileVerification({
     id: candidate.id,
     name: candidate.name,
     gender: candidate.gender,
@@ -670,11 +672,11 @@ function discoveryCandidateToProfile(candidate: DiscoveryCandidate): Profile {
     photoUri: photoUris[0],
     photoUris,
     realMember: true,
-    idVerified: candidate.idVerified,
-    selfieVerified: candidate.selfieVerified,
+    idVerified,
+    selfieVerified,
     meetupVerified: candidate.meetupVerified,
-    discovery: candidate,
-  };
+    discovery: { ...candidate, idVerified, selfieVerified },
+  });
 }
 
 function seekingMatchesGender(seeking: string | undefined, gender: string | undefined) {
@@ -2290,10 +2292,37 @@ function VerificationBadges({ profile }: { profile: Profile }) {
   );
 }
 
+function profileHasStripeVerification(profile: Profile) {
+  return profile.idVerified === true || profile.discovery?.idVerified === true;
+}
+
+function profileHasSelfieVerification(profile: Profile) {
+  return profile.selfieVerified === true || profile.discovery?.selfieVerified === true;
+}
+
+function normalizeProfileVerification(profile: Profile): Profile {
+  const idVerified = profileHasStripeVerification(profile);
+  const selfieVerified = !idVerified && profileHasSelfieVerification(profile);
+  const meetupVerified = profileMeetupVerified(profile);
+  return {
+    ...profile,
+    idVerified,
+    selfieVerified,
+    meetupVerified,
+    discovery: profile.discovery
+      ? {
+          ...profile.discovery,
+          idVerified,
+          selfieVerified,
+          meetupVerified,
+        }
+      : profile.discovery,
+  };
+}
+
 function profileIdentityVerificationKind(profile: Profile): "stripe" | "selfie" | "" {
-  const signals = profile.discovery;
-  if (profile.idVerified === true || signals?.idVerified === true) return "stripe";
-  if (profile.selfieVerified === true || signals?.selfieVerified === true) return "selfie";
+  if (profileHasStripeVerification(profile)) return "stripe";
+  if (profileHasSelfieVerification(profile)) return "selfie";
   return "";
 }
 
@@ -2325,6 +2354,15 @@ function profileVerificationBadgeText(profile: Profile) {
   if (kind === "selfie") return "Selfie verified";
   if (profileMeetupVerified(profile)) return "Meetup verified";
   return "";
+}
+
+function profileVerificationSummaryText(profile: Profile) {
+  const identityKind = profileIdentityVerificationKind(profile);
+  const identityText = identityKind === "stripe" ? "ID" : identityKind === "selfie" ? "Selfie" : "";
+  const meetupText = profileMeetupVerified(profile) ? "Meetup verified" : "";
+  if (identityText && meetupText) return `${identityText} + Meetup Verified`;
+  if (identityText) return `${identityText} Verified`;
+  return identityText || meetupText;
 }
 
 function profileVerificationBadges(profile: Profile, variant: "icon" | "full" = "icon") {
@@ -2362,8 +2400,8 @@ function ProfileVerificationBadgeIcons({
       <View
         accessibilityLabel={`${meetupBadge.label} and ${identityBadge.label}`}
         style={{
-          width: size * 1.65,
-          height: size * 1.42,
+          width: size * 1.78,
+          height: size * 1.5,
           position: "relative",
         }}
       >
@@ -2373,7 +2411,15 @@ function ProfileVerificationBadgeIcons({
           color={meetupBadge.color}
           fill={meetupBadge.color}
           stroke={stroke}
-          style={{ position: "absolute", left: 0, top: size * 0.28 }}
+          style={{
+            position: "absolute",
+            left: 0,
+            top: size * 0.3,
+            shadowColor: "#000",
+            shadowOpacity: 0.18,
+            shadowRadius: 2,
+            shadowOffset: { width: 0, height: 1 },
+          }}
         />
         <BadgeCheck
           width={size}
@@ -2381,7 +2427,15 @@ function ProfileVerificationBadgeIcons({
           color={identityBadge.color}
           fill={identityBadge.color}
           stroke={stroke}
-          style={{ position: "absolute", left: size * 0.54, top: 0 }}
+          style={{
+            position: "absolute",
+            left: size * 0.62,
+            top: 0,
+            shadowColor: "#000",
+            shadowOpacity: 0.22,
+            shadowRadius: 2.5,
+            shadowOffset: { width: 0, height: 1 },
+          }}
         />
       </View>
     );
@@ -2414,17 +2468,31 @@ function verificationStrengthBonus(status: IdentityVerificationStatus, method: I
 }
 
 function mergeFreshProfileIntoChatProfile(fresh: Profile, existing?: Profile): Profile {
-  const merged = existing ? { ...existing, ...fresh } : fresh;
-  return {
+  const freshNormalized = normalizeProfileVerification(fresh);
+  const existingNormalized = existing ? normalizeProfileVerification(existing) : undefined;
+  const discovery = freshNormalized.discovery || existingNormalized?.discovery;
+  const merged = existingNormalized ? { ...existingNormalized, ...freshNormalized, discovery } : { ...freshNormalized, discovery };
+  const idVerified = Boolean(profileHasStripeVerification(freshNormalized) || (existingNormalized ? profileHasStripeVerification(existingNormalized) : false));
+  const selfieVerified = !idVerified && Boolean(profileHasSelfieVerification(freshNormalized) || (existingNormalized ? profileHasSelfieVerification(existingNormalized) : false));
+  const meetupVerified = Boolean(profileMeetupVerified(freshNormalized) || (existingNormalized ? profileMeetupVerified(existingNormalized) : false));
+  return normalizeProfileVerification({
     ...merged,
+    discovery: merged.discovery
+      ? {
+          ...merged.discovery,
+          idVerified,
+          selfieVerified,
+          meetupVerified,
+        }
+      : merged.discovery,
     chatPreview: existing?.chatPreview ?? fresh.chatPreview,
     chatPreviewFromMe: existing?.chatPreviewFromMe ?? fresh.chatPreviewFromMe,
     chatLastMessageAt: existing?.chatLastMessageAt ?? fresh.chatLastMessageAt,
     chatLastMessageSenderId: existing?.chatLastMessageSenderId ?? fresh.chatLastMessageSenderId,
-    idVerified: Boolean(fresh.idVerified === true || fresh.discovery?.idVerified === true),
-    selfieVerified: Boolean(fresh.selfieVerified === true || fresh.discovery?.selfieVerified === true),
-    meetupVerified: Boolean(fresh.meetupVerified === true || fresh.discovery?.meetupVerified === true),
-  };
+    idVerified,
+    selfieVerified,
+    meetupVerified,
+  });
 }
 
 function NearbyMap({
@@ -3651,7 +3719,7 @@ function ProfileDetail({
           {profileGoalsForCard(profile).map((goal) => (
             <View key={goal} style={{ borderRadius: 15, backgroundColor: "#F7F3ED", borderWidth: 1, borderColor: C.line, paddingHorizontal: 10, paddingVertical: 7 }}>
               <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "800" }}>
-                {goal}
+                {goalEmoji(goal)} {goal}
               </Text>
             </View>
           ))}
@@ -3702,7 +3770,7 @@ function ProfileDetail({
             {profileLanguagesForCard(profile).map((language) => (
               <View key={language} style={{ borderRadius: 15, backgroundColor: "#F7F3ED", borderWidth: 1, borderColor: C.line, paddingHorizontal: 10, paddingVertical: 7 }}>
                 <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "800" }}>
-                  {profileDetailEmoji("language")} {language}
+                  {languageFlagEmoji(language)} {language}
                 </Text>
               </View>
             ))}
@@ -4392,6 +4460,7 @@ function MessagesScreen({
   verificationMethod,
   onVerificationStatusChange,
   onVerificationMethodChange,
+  onCurrentUserMeetupVerified,
 }: {
   username: string;
   assistantAvailable: boolean;
@@ -4413,6 +4482,7 @@ function MessagesScreen({
   verificationMethod: IdentityVerificationMethod;
   onVerificationStatusChange: (status: IdentityVerificationStatus) => void;
   onVerificationMethodChange: (method: IdentityVerificationMethod) => void;
+  onCurrentUserMeetupVerified: () => void;
 }) {
   const [conversationOpen, setConversationOpen] = useState(false);
   const chatProfiles = memberChats && memberChats.length > 0
@@ -4428,7 +4498,7 @@ function MessagesScreen({
         keyboardVerticalOffset={8}
       >
         <View style={{ flex: 1, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 30, gap: 10 }}>
-          <ReadyMeetChat currentUserId={currentUserId} profile={activeMemberChat} onBack={onCloseMemberChat} onProfilePress={onProfilePress} onBlock={onBlockMember} onReport={onReportMember} onMessageSent={onMemberMessageSent} readyNearby={memberReadyNearby} online={false} verificationStatus={verificationStatus} verificationMethod={verificationMethod} onVerificationStatusChange={onVerificationStatusChange} onVerificationMethodChange={onVerificationMethodChange} />
+          <ReadyMeetChat currentUserId={currentUserId} profile={activeMemberChat} onBack={onCloseMemberChat} onProfilePress={onProfilePress} onBlock={onBlockMember} onReport={onReportMember} onMessageSent={onMemberMessageSent} readyNearby={memberReadyNearby} online={false} verificationStatus={verificationStatus} verificationMethod={verificationMethod} onVerificationStatusChange={onVerificationStatusChange} onVerificationMethodChange={onVerificationMethodChange} onCurrentUserMeetupVerified={onCurrentUserMeetupVerified} />
         </View>
       </KeyboardAvoidingView>
     );
@@ -6687,6 +6757,7 @@ function HelpHubPage({
 
 function ProfileHubScreen({
   balance,
+  profile,
   displayName,
   profilePhotoUri,
   profileStrength,
@@ -6701,6 +6772,7 @@ function ProfileHubScreen({
   kindredPassActive,
 }: {
   balance: number;
+  profile: Profile;
   displayName: string;
   profilePhotoUri: string;
   profileStrength: number;
@@ -6721,6 +6793,8 @@ function ProfileHubScreen({
   const [planBusy, setPlanBusy] = useState<"premium" | "kindred_pass" | "">("");
   const [planNotices, setPlanNotices] = useState({ premium: "", kindred_pass: "" });
   if (helpOpen) return <HelpHubPage onBack={() => setHelpOpen(false)} onDeleteAccount={onDeleteAccount} />;
+  const hubProfile = normalizeProfileVerification(profile);
+  const hubVerificationSummary = profileVerificationSummaryText(hubProfile);
   const Benefit = ({ label, dark = false }: { label: string; dark?: boolean }) => (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       <View
@@ -6870,24 +6944,17 @@ function ProfileHubScreen({
             >
               {displayName}
             </Text>
-            {verificationStatus === "verified" ? (
-              <BadgeCheck
-                width={21}
-                height={21}
-                color={verificationMethod === "video_selfie" ? KINDREDCUBE_ORANGE : "#1685E5"}
-                fill={verificationMethod === "video_selfie" ? KINDREDCUBE_ORANGE : "#1685E5"}
-                stroke={C.paper}
-              />
-            ) : null}
+            <ProfileVerificationBadgeIcons profile={hubProfile} size={21} stacked />
           </View>
           <Text selectable style={{ color: C.muted, fontSize: 11 }}>
-            {verificationStatus === "verified"
-              ? verificationMethod === "video_selfie"
-                ? "Selfie Verified"
-                : "Verified securely by Stripe"
+            {hubVerificationSummary ||
+              (verificationStatus === "verified"
+                ? verificationMethod === "video_selfie"
+                  ? "Selfie Verified"
+                  : "Verified securely by Stripe"
               : verificationStatus === "processing"
                 ? "Verification is processing"
-                : "Verification not completed"}
+                : "Verification not completed")}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -9541,7 +9608,7 @@ function PostMeetCheckModal({
   visible: boolean;
   profile: Profile;
   proposal: MeetProposal;
-  onDone: () => void;
+  onDone: (result?: { meetupVerified?: boolean }) => void;
   onCancel: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -9575,7 +9642,7 @@ function PostMeetCheckModal({
     setSubmitting(true);
     setError("");
     try {
-      await submitPostMeetCheck({
+      const result = await submitPostMeetCheck({
         otherUserId: memberId,
         meetingStartedAt: meetingStartedAt.toISOString(),
         meetingEndedAt: meetingEndedAt.toISOString(),
@@ -9591,7 +9658,7 @@ function PostMeetCheckModal({
       });
       setAnswers({});
       setNotes("");
-      onDone();
+      onDone(result);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "We could not save this check-in yet. Please try again.");
     } finally {
@@ -10265,6 +10332,7 @@ function ReadyMeetChat({
   verificationMethod = "",
   onVerificationStatusChange,
   onVerificationMethodChange,
+  onCurrentUserMeetupVerified,
 }: {
   currentUserId?: string;
   profile: Profile;
@@ -10279,6 +10347,7 @@ function ReadyMeetChat({
   verificationMethod?: IdentityVerificationMethod;
   onVerificationStatusChange?: (status: IdentityVerificationStatus) => void;
   onVerificationMethodChange?: (method: IdentityVerificationMethod) => void;
+  onCurrentUserMeetupVerified?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
@@ -10839,6 +10908,28 @@ function ReadyMeetChat({
     setDeleteMode(false);
     setSelectedDeleteIds([]);
   };
+  const syncChatPreviewFromMessages = (messages: typeof chatMessages) => {
+    const lastVisible = [...messages]
+      .reverse()
+      .find((item) => item.kind && item.createdAt);
+    if (!lastVisible) {
+      onMessageSent?.({
+        ...profile,
+        chatPreview: "You matched. Start the conversation.",
+        chatPreviewFromMe: false,
+        chatLastMessageAt: "",
+        chatLastMessageSenderId: undefined,
+      });
+      return;
+    }
+    onMessageSent?.({
+      ...profile,
+      chatPreview: chatMessagePreview(lastVisible as ChatMessage),
+      chatPreviewFromMe: lastVisible.sender === "me",
+      chatLastMessageAt: lastVisible.createdAt,
+      chatLastMessageSenderId: lastVisible.senderId,
+    });
+  };
   const saveEditedMessage = async () => {
     const target = messageActionTarget;
     const text = editDraft.trim();
@@ -10872,7 +10963,11 @@ function ReadyMeetChat({
     setMessageActionBusy(true);
     try {
       await deleteChatMessageForMe(target.id);
-      setChatMessages((current) => current.filter((item) => item.id !== target.id));
+      setChatMessages((current) => {
+        const next = current.filter((item) => item.id !== target.id);
+        syncChatPreviewFromMessages(next);
+        return next;
+      });
       closeMessageActions();
     } catch (caught) {
       setComposerNotice(caught instanceof Error ? caught.message : "Message could not be deleted.");
@@ -10931,7 +11026,11 @@ function ReadyMeetChat({
     setMessageActionBusy(true);
     try {
       await Promise.all(selectedDeleteIds.map((id) => deleteChatMessageForMe(id)));
-      setChatMessages((current) => current.filter((item) => !selectedDeleteIds.includes(item.id)));
+      setChatMessages((current) => {
+        const next = current.filter((item) => !selectedDeleteIds.includes(item.id));
+        syncChatPreviewFromMessages(next);
+        return next;
+      });
       closeMessageActions();
     } catch (caught) {
       setComposerNotice(caught instanceof Error ? caught.message : "Messages could not be deleted.");
@@ -11136,6 +11235,9 @@ function ReadyMeetChat({
     }
   };
 
+  const chatHeaderProfile = normalizeProfileVerification(profile);
+  const chatVerificationSummary = profileVerificationSummaryText(chatHeaderProfile);
+
   return (
     <KeyboardAvoidingView
       behavior={process.env.EXPO_OS === "ios" ? "padding" : "height"}
@@ -11160,17 +11262,17 @@ function ReadyMeetChat({
           <Pressable accessibilityRole="button" accessibilityLabel="Back to chats" onPress={onBack} style={{ width: 34, height: 44, alignItems: "center", justifyContent: "center" }}>
             <ChevronLeft width={27} height={27} color={C.ink} />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={`View ${profile.name}\'s profile`} onPress={() => onProfilePress?.(profile)} style={{ width: 50, height: 50, borderRadius: 25, overflow: "hidden", borderWidth: 1, borderColor: C.line }}>
-            <ProfileImage profile={profile} size={50} />
+          <Pressable accessibilityRole="button" accessibilityLabel={`View ${chatHeaderProfile.name}\'s profile`} onPress={() => onProfilePress?.(chatHeaderProfile)} style={{ width: 50, height: 50, borderRadius: 25, overflow: "hidden", borderWidth: 1, borderColor: C.line }}>
+            <ProfileImage profile={chatHeaderProfile} size={50} />
           </Pressable>
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 }}>
-              <Text selectable numberOfLines={1} style={{ flexShrink: 1, color: C.ink, fontSize: 19, fontWeight: "900" }}>{profile.name}, {profile.age}</Text>
-              <ProfileVerificationBadgeIcons profile={profile} size={17} />
+              <Text selectable numberOfLines={1} style={{ flexShrink: 1, color: C.ink, fontSize: 19, fontWeight: "900" }}>{chatHeaderProfile.name}, {chatHeaderProfile.age}</Text>
+              <ProfileVerificationBadgeIcons profile={chatHeaderProfile} size={17} stacked />
             </View>
-            {profileIdentityVerificationKind(profile) ? (
-              <Text selectable numberOfLines={1} style={{ color: profileVerificationBadgeColor(profile), fontSize: 10, fontWeight: "900" }}>
-                {profileVerificationBadgeText(profile)}
+            {chatVerificationSummary ? (
+              <Text selectable numberOfLines={1} style={{ color: profileVerificationBadgeColor(chatHeaderProfile), fontSize: 10, fontWeight: "900" }}>
+                {chatVerificationSummary}
               </Text>
             ) : readyNearby ? (
               <Text selectable numberOfLines={1} style={{ color: C.sage, fontSize: 10, fontWeight: "900" }}>Ready nearby</Text>
@@ -11203,20 +11305,20 @@ function ReadyMeetChat({
         <Pressable accessibilityRole="button" accessibilityLabel="Back to Ready to Meet map" onPress={onBack}>
           <ChevronLeft width={26} height={26} color={C.ink} />
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={`View ${profile.name}\'s profile`} onPress={() => onProfilePress?.(profile)} style={{ width: 48, height: 48, borderRadius: 24, overflow: "hidden", boxShadow: "0 8px 18px rgba(0,29,48,0.22)" }}><ProfileImage profile={profile} size={48} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={`View ${chatHeaderProfile.name}\'s profile`} onPress={() => onProfilePress?.(chatHeaderProfile)} style={{ width: 48, height: 48, borderRadius: 24, overflow: "hidden", boxShadow: "0 8px 18px rgba(0,29,48,0.22)" }}><ProfileImage profile={chatHeaderProfile} size={48} /></Pressable>
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 }}>
-            <Text selectable numberOfLines={1} style={{ flexShrink: 1, color: C.ink, fontSize: 17, fontWeight: "900" }}>{profile.name}, {profile.age}</Text>
-            <ProfileVerificationBadgeIcons profile={profile} size={17} />
+            <Text selectable numberOfLines={1} style={{ flexShrink: 1, color: C.ink, fontSize: 17, fontWeight: "900" }}>{chatHeaderProfile.name}, {chatHeaderProfile.age}</Text>
+            <ProfileVerificationBadgeIcons profile={chatHeaderProfile} size={17} stacked />
           </View>
           {readyNearby ? (
             <Text selectable numberOfLines={1} style={{ color: C.sage, fontSize: 11, fontWeight: "800" }}>
               Ready nearby{online ? " · online" : ""}
             </Text>
           ) : null}
-          {profileIdentityVerificationKind(profile) ? (
-            <Text selectable numberOfLines={1} style={{ color: profileVerificationBadgeColor(profile), fontSize: 10, fontWeight: "900" }}>
-              {profileVerificationBadgeText(profile)}
+          {chatVerificationSummary ? (
+            <Text selectable numberOfLines={1} style={{ color: profileVerificationBadgeColor(chatHeaderProfile), fontSize: 10, fontWeight: "900" }}>
+              {chatVerificationSummary}
             </Text>
           ) : null}
         </View>
@@ -11420,11 +11522,12 @@ function ReadyMeetChat({
           profile={profile}
           proposal={proposal}
           onCancel={() => setPostMeetOpen(false)}
-          onDone={() => {
+          onDone={(result) => {
             const key = postMeetCheckKey(proposal);
             if (key) {
               setCompletedPostMeetKeys((current) => current.includes(key) ? current : [...current, key]);
             }
+            if (result?.meetupVerified) onCurrentUserMeetupVerified?.();
             setPostMeetOpen(false);
             setPostMeetSubmitted(true);
             setPostMeetThanksVisible(true);
@@ -11917,7 +12020,6 @@ function ReadyToMeetFeature({
   const insets = useSafeAreaInsets();
   const pulse = useRef(new Animated.Value(0.35)).current;
   const arrivalProgress = useRef(new Animated.Value(0)).current;
-  const readyMeetSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [showAllReadyProfiles, setShowAllReadyProfiles] = useState(false);
   const [coordinates, setCoordinates] = useState<{
@@ -12073,6 +12175,22 @@ function ReadyToMeetFeature({
     setShowAllReadyProfiles(false);
     setSelected(null);
   };
+  const readyMeetSwipeResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        gesture.dx > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 0.9,
+      onMoveShouldSetPanResponderCapture: (_, gesture) =>
+        gesture.dx > 10 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 0.85,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx > 24 && Math.abs(gesture.dy) < 180) closeReadyToMeet();
+      },
+      onPanResponderTerminate: (_, gesture) => {
+        if (gesture.dx > 24 && Math.abs(gesture.dy) < 180) closeReadyToMeet();
+      },
+    }),
+  ).current;
   const takeReadyMeetOffline = () => {
     setAvailableToMeet(false);
     setAvailabilitySaved(false);
@@ -12122,28 +12240,7 @@ function ReadyToMeetFeature({
     return (
       <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={closeReadyToMeet}>
       <View
-        onTouchStart={(event) => {
-          const touch = event.nativeEvent.touches[0];
-          readyMeetSwipeStart.current = touch ? { x: touch.pageX, y: touch.pageY } : null;
-        }}
-        onTouchEnd={(event) => {
-          const start = readyMeetSwipeStart.current;
-          const touch = event.nativeEvent.changedTouches[0];
-          readyMeetSwipeStart.current = null;
-          if (!start || !touch) return;
-          const dx = touch.pageX - start.x;
-          const dy = Math.abs(touch.pageY - start.y);
-          if (dx > 28 && dy < 100) {
-            if (showAllReadyProfiles) {
-              setShowAllReadyProfiles(false);
-              return;
-            }
-            if (readyPeopleTotal > 4) {
-              setShowAllReadyProfiles(true);
-              return;
-            }
-          }
-        }}
+        {...readyMeetSwipeResponder.panHandlers}
         style={{ flex: 1, minHeight: screenHeight, paddingHorizontal: 18, paddingTop: insets.top + 34, paddingBottom: insets.bottom + 18, gap: 13, backgroundColor: "#070A18" }}
       >
         <View style={{ minHeight: 54, flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -12997,6 +13094,9 @@ function ReadyToMeetFeature({
           <Text selectable style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>
             Wallet balance: {formatMoney(walletBalance)}
           </Text>
+          <Text selectable style={{ color: "#59359C", fontSize: 12, lineHeight: 17, fontWeight: "900" }}>
+            Wallet Ready to Meet pass: {formatMoney(9.99)} for 7 days.
+          </Text>
           <Button
             compact
             label={walletBalance >= 9.99 ? (unlockingChat ? "Unlocking chat…" : `Use Wallet · ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
@@ -13606,9 +13706,20 @@ function profileDetailEmoji(label: string) {
   if (normalized.includes("star")) return "\u{1F382}";
   if (normalized.includes("politics")) return "\u{1F5F3}\u{FE0F}";
   if (normalized.includes("religion")) return "\u{1F54A}\u{FE0F}";
-  if (normalized.includes("language")) return "\u{1F5E3}\u{FE0F}";
+  if (normalized.includes("language")) return "\u{1F3F3}\u{FE0F}";
   if (normalized.includes("occupation") || normalized.includes("work")) return "\u{1F4BC}";
   return "\u{2728}";
+}
+
+function goalEmoji(item: string) {
+  const normalized = item.toLowerCase();
+  if (normalized.includes("marriage")) return "\u{1F48D}";
+  if (normalized.includes("life partner")) return "\u{1F491}";
+  if (normalized.includes("long-term") || normalized.includes("serious")) return "\u{1F496}";
+  if (normalized.includes("casual")) return "\u{1F31F}";
+  if (normalized.includes("ethical") || normalized.includes("monogamy")) return "\u{1F91D}";
+  if (normalized.includes("open")) return "\u{1F9ED}";
+  return "\u{1F49E}";
 }
 
 function interestEmoji(item: string) {
@@ -13626,6 +13737,22 @@ function interestEmoji(item: string) {
   if (normalized.includes("photo")) return "\u{1F4F7}";
   if (normalized.includes("read")) return "\u{1F4DA}";
   return "\u{2728}";
+}
+
+function languageFlagEmoji(language: string) {
+  const normalized = language.trim().toLowerCase();
+  if (normalized.includes("english")) return "\u{1F1EC}\u{1F1E7}";
+  if (normalized.includes("german")) return "\u{1F1E9}\u{1F1EA}";
+  if (normalized.includes("french")) return "\u{1F1EB}\u{1F1F7}";
+  if (normalized.includes("zulu")) return "\u{1F1FF}\u{1F1E6}";
+  if (normalized.includes("shona")) return "\u{1F1FF}\u{1F1FC}";
+  if (normalized.includes("spanish")) return "\u{1F1EA}\u{1F1F8}";
+  if (normalized.includes("japanese")) return "\u{1F1EF}\u{1F1F5}";
+  if (normalized.includes("mandarin") || normalized.includes("chinese")) return "\u{1F1E8}\u{1F1F3}";
+  if (normalized.includes("korean")) return "\u{1F1F0}\u{1F1F7}";
+  if (normalized.includes("thai")) return "\u{1F1F9}\u{1F1ED}";
+  if (normalized.includes("arabic")) return "\u{1F310}";
+  return "\u{1F3F3}\u{FE0F}";
 }
 
 function profilePhotoUris(profile: Profile) {
@@ -14507,7 +14634,7 @@ function ConnectExperienceDeck({
                       fontWeight: "900",
                     }}
                   >
-                    {item}
+                    {goalEmoji(item)} {item}
                   </Text>
                 </View>
               ))}
@@ -16328,7 +16455,20 @@ function SignedInHome({
   }, []);
   const refreshIncomingLikes = useCallback(async () => {
     const result = await getIncomingLikes();
-    setIncomingLikes(result.likes);
+    setIncomingLikes((current) => {
+      const next = new Map<string, IncomingLike>();
+      current.forEach((like) => {
+        if (revealedIncomingLikeIds.includes(like.id)) return;
+        if (like.chatStarted) return;
+        next.set(like.id, like);
+      });
+      result.likes.forEach((like) => next.set(like.id, like));
+      return Array.from(next.values()).sort((a, b) => {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        return bTime - aTime;
+      });
+    });
     setMatchedProfileIds((current) => {
       const next = new Set(current);
       result.likes.forEach((like) => {
@@ -16339,7 +16479,7 @@ function SignedInHome({
       return Array.from(next);
     });
     return result.likes;
-  }, [likedProfiles]);
+  }, [likedProfiles, revealedIncomingLikeIds]);
   const refreshChatConversations = useCallback(async (markIncomingUnread = false) => {
     const result = await getChatConversations();
     const profiles: Profile[] = result.conversations
@@ -16681,7 +16821,7 @@ function SignedInHome({
     if (!privateSpaceLoaded) return;
     refreshDiscoveryPeople().catch(() => setRealDiscoveryPeople([]));
     refreshReadyToMeetPeople().catch(() => undefined);
-    refreshIncomingLikes().catch(() => setIncomingLikes([]));
+    refreshIncomingLikes().catch(() => undefined);
     refreshChatConversations().catch(() => undefined);
   }, [privateSpaceLoaded, refreshChatConversations, refreshDiscoveryPeople, refreshIncomingLikes, refreshReadyToMeetPeople]);
   useEffect(() => {
@@ -17017,6 +17157,7 @@ function SignedInHome({
     realMember: true,
     idVerified: identityVerificationStatus === "verified" && identityVerificationMethod !== "video_selfie",
     selfieVerified: identityVerificationStatus === "verified" && identityVerificationMethod === "video_selfie",
+    meetupVerified: privateProfile.meetupVerified === true || privateSettings.meetupVerified === true,
   };
   const selectedProfileIsConnected = selectedMemberProfile
     ? profileIsMatched(selectedMemberProfile) ||
@@ -17166,6 +17307,13 @@ function SignedInHome({
       verificationMethod={identityVerificationMethod}
       onVerificationStatusChange={setIdentityVerificationStatus}
       onVerificationMethodChange={setIdentityVerificationMethod}
+      onCurrentUserMeetupVerified={() => {
+        setPrivateProfile((current) => ({ ...current, meetupVerified: true }));
+        privateProfileRef.current = { ...privateProfileRef.current, meetupVerified: true };
+        persistProfileData({ meetupVerified: true });
+        setPrivateSettings((current) => ({ ...current, meetupVerified: true }));
+        persistSettingsData({ meetupVerified: true });
+      }}
       onMemberMessageSent={(profile, message) => {
         const sentProfile = message
           ? {
@@ -17239,8 +17387,7 @@ function SignedInHome({
     { key: "chats" as const, icon: "", label: "Chats" },
   ];
   const likedActivityCount = filteredIncomingLikes.filter((like) =>
-    !incomingLikeMatchIsActive(like) &&
-    !like.visible &&
+    !like.chatStarted &&
     !revealedIncomingLikeIds.includes(like.id)
   ).length;
   const showConnectHeader = tab === "connect" && (!showRecommendation || profileStrength >= 100);
@@ -17326,6 +17473,7 @@ function SignedInHome({
           >
             <ProfileHubScreen
               balance={walletBalance}
+              profile={currentReadyMeetProfile}
               displayName={memberUsername}
               profilePhotoUri={profilePhotoUri}
               profileStrength={profileStrength}

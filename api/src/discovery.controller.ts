@@ -417,29 +417,10 @@ function publicMeetupVerifiedSql(userExpression: string) {
 }
 
 function publicStripeVerifiedSql(userExpression: string) {
-  return `EXISTS (
-    SELECT 1 FROM identity_verification_sessions iv
-     WHERE iv.user_id = ${userExpression}
-       AND (iv.status = 'verified' OR iv.verified_at IS NOT NULL)
-       AND (
-         iv.provider = 'stripe'
-         OR iv.provider_session_id LIKE 'vs_%'
-         OR iv.verification_type = 'document_and_selfie'
-       )
-  )`;
+  return `public_identity_verified(${userExpression})`;
 }
 
 function publicSelfieVerifiedSql(userExpression: string) {
-  return `(EXISTS (
-    SELECT 1 FROM identity_verification_sessions iv
-     WHERE iv.user_id = ${userExpression}
-       AND (iv.status = 'verified' OR iv.verified_at IS NOT NULL)
-       AND iv.provider = 'kindredcube'
-       AND iv.verification_type = 'video_selfie'
-  ) OR EXISTS (
-    SELECT 1 FROM video_selfie_verifications vsv
-     WHERE vsv.user_id = ${userExpression}
-       AND vsv.status = 'verified'
-  ))`;
+  return `public_selfie_verified(${userExpression})`;
 }
 
