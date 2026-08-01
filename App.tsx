@@ -1934,7 +1934,7 @@ function Portrait({
         }}
       >
         <Image
-          blurRadius={blurred ? 48 : 0}
+          blurRadius={blurred ? 64 : 0}
           source={require("./assets/kindredcube-profile-grid.png")}
           resizeMode="stretch"
           style={{
@@ -1960,7 +1960,7 @@ function Portrait({
       }}
     >
       <Image
-        blurRadius={blurred ? 48 : 0}
+        blurRadius={blurred ? 64 : 0}
         source={require("./assets/kindredcube-profile-grid-v2.png")}
         resizeMode="stretch"
         style={{
@@ -1990,7 +1990,7 @@ function ProfileImage({
       <Image
         source={{ uri: photos[0] }}
         resizeMode="cover"
-        blurRadius={blurred ? 48 : 0}
+        blurRadius={blurred ? 64 : 0}
         style={{ width: size, height: size, backgroundColor: C.line }}
       />
     );
@@ -12170,6 +12170,18 @@ function ReadyToMeetFeature({
   ];
   const readyPeopleTotal = readyPeople.length;
   const visibleReadyPeople = showAllReadyProfiles ? readyPeople : readyPeople.slice(0, 4);
+  const canViewReadyMeetProfiles = canUseReadyMeetChat || paidChatIds.length > 0;
+  const requestReadyMeetAccess = (profile: Profile) => {
+    setSelected(profile);
+    setPaywall(true);
+  };
+  const openReadyMeetProfile = (profile: Profile) => {
+    if (canViewReadyMeetProfiles || paidChatIds.includes(profile.id || profile.name)) {
+      setSelected(profile);
+      return;
+    }
+    requestReadyMeetAccess(profile);
+  };
   const closeReadyToMeet = () => {
     setExpanded(false);
     setShowAllReadyProfiles(false);
@@ -12209,15 +12221,14 @@ function ReadyToMeetFeature({
     [-0.034, 0.023],
   ];
   const distances = [2, 3, 5, 6, 8, 9];
-  if (selected)
+  if (selected && !paywall)
     return (
       <View style={{ flex: 1 }}>
         <ProfileDetail
           profile={selected}
           onBack={() => setSelected(null)}
           onConnect={() => {
-            if (canUseReadyMeetChat || paidChatIds.includes(selected.id || selected.name)) onOpenChat(selected);
-            else setPaywall(true);
+            onOpenChat(selected);
           }}
           readyMeetMode
           onSwipeLeft={() => setSelected(null)}
@@ -12499,7 +12510,7 @@ function ReadyToMeetFeature({
                     accessibilityRole="button"
                     accessibilityLabel={isCurrentUserReadyCard ? "Your Ready to Meet profile is available" : `View ${profile.name}, ready to meet`}
                     onPress={() => {
-                      if (!isCurrentUserReadyCard) setSelected(profile);
+                      if (!isCurrentUserReadyCard) openReadyMeetProfile(profile);
                     }}
                     style={{ width: cardWidth, borderRadius: 16, overflow: "visible", backgroundColor: "transparent" }}
                   >
@@ -12517,12 +12528,11 @@ function ReadyToMeetFeature({
                         onPress={(event) => {
                           event.stopPropagation();
                           if (isCurrentUserReadyCard) return;
-                          if (canUseReadyMeetChat || paidChatIds.includes(profile.id || profile.name)) {
+                          if (canViewReadyMeetProfiles || paidChatIds.includes(profile.id || profile.name)) {
                             onOpenChat(profile);
                             return;
                           }
-                          setSelected(profile);
-                          setPaywall(true);
+                          requestReadyMeetAccess(profile);
                         }}
                         style={{ position: "absolute", right: 8, top: 8, width: 31, height: 31, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.28)", alignItems: "center", justifyContent: "center" }}
                       >
@@ -12867,7 +12877,7 @@ function ReadyToMeetFeature({
                       }}
                       title={`${profile.name}, ${profile.age}`}
                       description={`About ${distances[index]} miles away · area only`}
-                      onPress={() => setSelected(profile)}
+                      onPress={() => openReadyMeetProfile(profile)}
                     >
                       <View style={{ width: 54, height: 54 }}>
                         <View
@@ -13040,7 +13050,7 @@ function ReadyToMeetFeature({
               <Pressable
                 accessibilityRole="button"
                 onPress={() =>
-                  canUseReadyMeetChat || paidChatIds.includes(selectedProfileRef.current!.id || selectedProfileRef.current!.name) ? onOpenChat(selectedProfileRef.current!) : setPaywall(true)
+                  onOpenChat(selectedProfileRef.current!)
                 }
                 style={{
                   borderRadius: 18,
@@ -13407,7 +13417,7 @@ function LikedYouExperience({
                         bottom: 0,
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: "rgba(34,31,27,0.44)",
+                        backgroundColor: "rgba(34,31,27,0.18)",
                       }}
                     >
                       <View
@@ -13417,18 +13427,7 @@ function LikedYouExperience({
                           right: 0,
                           top: 0,
                           bottom: 0,
-                          backgroundColor: "rgba(255,253,249,0.12)",
-                          opacity: 1,
-                        }}
-                      />
-                      <View
-                        style={{
-                          position: "absolute",
-                          left: 0,
-                          right: 0,
-                          top: 0,
-                          bottom: 0,
-                          backgroundColor: "rgba(34,31,27,0.16)",
+                          backgroundColor: "rgba(255,253,249,0.08)",
                         }}
                       />
                       <View
@@ -16407,6 +16406,7 @@ function SignedInHome({
   const [hasNewMessage, setHasNewMessage] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [unreadChatIds, setUnreadChatIds] = useState<string[]>([]);
+  const seenChatMessageTimesRef = useRef<Record<string, string>>({});
   const [assistantAvailable, setAssistantAvailable] = useState(false);
   const [assistantUnread, setAssistantUnread] = useState(false);
   const [memberChat, setMemberChat] = useState<Profile | null>(null);
@@ -16500,10 +16500,16 @@ function SignedInHome({
         profiles.forEach((profile) => {
           const key = likeProfileKey(profile);
           if (!profile.chatLastMessageAt || profile.chatLastMessageSenderId === initialUser?.id || activeKey === key) return;
-          const previous = memberChats.find((item) => likeProfileKey(item) === key);
-          if (!previous || previous.chatLastMessageAt !== profile.chatLastMessageAt) next.add(key);
+          const previouslySeenAt = seenChatMessageTimesRef.current[key];
+          if (previouslySeenAt && previouslySeenAt !== profile.chatLastMessageAt) next.add(key);
+          seenChatMessageTimesRef.current[key] = profile.chatLastMessageAt;
         });
         return Array.from(next);
+      });
+    } else {
+      profiles.forEach((profile) => {
+        const key = likeProfileKey(profile);
+        if (profile.chatLastMessageAt) seenChatMessageTimesRef.current[key] = profile.chatLastMessageAt;
       });
     }
     let mergedProfiles = profiles;
@@ -16552,6 +16558,17 @@ function SignedInHome({
   const profileIsMatched = useCallback(
     (profile: Profile) => matchedProfileIds.includes(likeProfileKey(profile)),
     [matchedProfileIds],
+  );
+  const profileIsInChats = useCallback(
+    (profile: Profile) => {
+      const key = likeProfileKey(profile);
+      return (
+        Boolean(memberChat && likeProfileKey(memberChat) === key) ||
+        Boolean(activeMemberChat && likeProfileKey(activeMemberChat) === key) ||
+        memberChats.some((chatProfile) => likeProfileKey(chatProfile) === key)
+      );
+    },
+    [activeMemberChat, memberChat, memberChats],
   );
   const saveSettingsPatch = useCallback((settings: Record<string, unknown>) => {
     const merged = { ...privateSettingsRef.current, ...settings };
@@ -17161,7 +17178,7 @@ function SignedInHome({
   };
   const selectedProfileIsConnected = selectedMemberProfile
     ? profileIsMatched(selectedMemberProfile) ||
-      Boolean(memberChat && likeProfileKey(memberChat) === likeProfileKey(selectedMemberProfile))
+      profileIsInChats(selectedMemberProfile)
     : false;
   const content = selectedMemberProfile ? (
     <ProfileDetail

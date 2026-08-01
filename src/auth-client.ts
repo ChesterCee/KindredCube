@@ -163,12 +163,18 @@ export function registerAccount(input: RegistrationInput) {
 }
 
 export async function loginAccount(email: string, password: string) {
-  const pair = await request<TokenPair>("/v1/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ email, password, deviceName: "KindredCube mobile" }),
-  });
-  await saveTokens(pair);
-  return getCurrentUser();
+  await clearTokens();
+  try {
+    const pair = await request<TokenPair>("/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password, deviceName: "KindredCube mobile" }),
+    });
+    await saveTokens(pair);
+    return await getCurrentUser();
+  } catch (error) {
+    await clearTokens();
+    throw error;
+  }
 }
 
 export async function completeEmailLogin(ticket: string) {
