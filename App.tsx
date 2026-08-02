@@ -12191,15 +12191,14 @@ function ReadyToMeetFeature({
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gesture) =>
-        gesture.dx > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 0.9,
-      onMoveShouldSetPanResponderCapture: (_, gesture) =>
-        gesture.dx > 10 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 0.85,
-      onPanResponderTerminationRequest: () => false,
+        gesture.dx > 18 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderTerminationRequest: () => true,
       onPanResponderRelease: (_, gesture) => {
-        if (gesture.dx > 24 && Math.abs(gesture.dy) < 180) closeReadyToMeet();
+        if (gesture.dx > 36 && Math.abs(gesture.dy) < 160) closeReadyToMeet();
       },
       onPanResponderTerminate: (_, gesture) => {
-        if (gesture.dx > 24 && Math.abs(gesture.dy) < 180) closeReadyToMeet();
+        if (gesture.dx > 36 && Math.abs(gesture.dy) < 160) closeReadyToMeet();
       },
     }),
   ).current;
@@ -12223,7 +12222,8 @@ function ReadyToMeetFeature({
   const distances = [2, 3, 5, 6, 8, 9];
   if (selected && !paywall)
     return (
-      <View style={{ flex: 1 }}>
+      <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setSelected(null)}>
+      <View style={{ flex: 1, backgroundColor: C.cream }}>
         <ProfileDetail
           profile={selected}
           onBack={() => setSelected(null)}
@@ -12246,6 +12246,7 @@ function ReadyToMeetFeature({
           onReport={onReport}
         />
       </View>
+      </Modal>
     );
   if (expanded)
     return (
@@ -13072,18 +13073,38 @@ function ReadyToMeetFeature({
       {paywall && selectedProfileRef.current ? (
         <View
           style={{
-            borderRadius: 23,
-            backgroundColor: "#F3EDF9",
-            borderWidth: 1,
-            borderColor: "#C6B3E7",
-            padding: 17,
-            gap: 11,
+            position: "absolute",
+            zIndex: 50,
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0,
+            backgroundColor: "rgba(7,10,24,0.72)",
+            paddingHorizontal: 20,
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 390,
+              borderRadius: 26,
+              backgroundColor: "#F3EDF9",
+              borderWidth: 1,
+              borderColor: "#C6B3E7",
+              padding: 18,
+              gap: 11,
+              boxShadow: "0 22px 48px rgba(0,0,0,0.38)",
+            }}
+          >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close Premium message"
-            onPress={() => setPaywall(false)}
+            onPress={() => {
+              setPaywall(false);
+              setSelected(null);
+            }}
             style={{ alignSelf: "flex-end" }}
           >
             <X width={21} height={21} color={C.ink} />
@@ -13093,13 +13114,13 @@ function ReadyToMeetFeature({
             selectable
             style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}
           >
-            Ready to Meet chat
+            Ready to Meet access
           </Text>
           <Text
             selectable
             style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}
           >
-            Ready to Meet access is {formatMoney(9.99)} for 7 days. Use it to start Ready-to-Meet chats during that window. Premium and KindredPass include Ready-to-Meet chat access.
+            Ready to Meet access is {formatMoney(9.99)} for 7 days. Use it to view Ready-to-Meet profiles and start chats during that window. Premium and KindredPass include Ready-to-Meet access.
           </Text>
           <Text selectable style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>
             Wallet balance: {formatMoney(walletBalance)}
@@ -13114,6 +13135,8 @@ function ReadyToMeetFeature({
             onPress={async () => {
               if (!selectedProfileRef.current) return;
               if (walletBalance < 9.99) {
+                setPaywall(false);
+                setSelected(null);
                 onOpenWallet();
                 return;
               }
@@ -13122,13 +13145,14 @@ function ReadyToMeetFeature({
               setUnlockingChat(false);
               if (unlocked) {
                 setPaywall(false);
-                onOpenChat(selectedProfileRef.current);
+                setSelected(selectedProfileRef.current);
               }
             }}
           />
           <Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 15 }}>
             This Wallet deduction unlocks Ready to Meet chat access for 7 days. Wallet top-ups are non-refundable except where required by law.
           </Text>
+          </View>
         </View>
       ) : null}
     </View>
