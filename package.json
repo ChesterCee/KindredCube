@@ -7,6 +7,7 @@
     "@react-native-community/slider": "5.0.1",
     "expo": "~54.0.36",
     "expo-audio": "~1.1.1",
+    "expo-build-properties": "~1.0.10",
     "expo-camera": "~17.0.10",
     "expo-file-system": "~19.0.23",
     "expo-image-picker": "~17.0.11",
@@ -32,9 +33,10 @@
     "typescript": "~5.9.2"
   },
   "scripts": {
-    "start": "set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --lan",
-    "start:phone": "set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --lan --clear",
-    "start:api": "cd api && npm.cmd run build && node dist/src/main.js",
+    "local:env": "node script/sync-local-network-env.js",
+    "start": "npm run local:env && set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --lan",
+    "start:phone": "npm run local:env && set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --lan --clear",
+    "start:api": "npm run local:env && cd api && npm.cmd run build && node dist/src/main.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --web --port 3000"

@@ -153,6 +153,16 @@ export class MemberLikesController {
             )
             AND l.chat_started_at IS NULL
             AND NOT EXISTS (
+              SELECT 1 FROM member_likes m
+               WHERE m.liker_id = $1
+                 AND m.liked_user_id = l.liker_id
+                 AND (
+                   m.chat_started_at IS NOT NULL
+                   OR l.chat_started_at IS NOT NULL
+                   OR COALESCE(m.match_expires_at, l.match_expires_at, now() + interval '30 days') > now()
+                 )
+            )
+            AND NOT EXISTS (
               SELECT 1 FROM chat_messages cm
                WHERE (cm.sender_id = $1 AND cm.recipient_id = l.liker_id)
                   OR (cm.sender_id = l.liker_id AND cm.recipient_id = $1)

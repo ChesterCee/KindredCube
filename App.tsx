@@ -1,4 +1,4 @@
-import DateTimePicker from "@react-native-community/datetimepicker";
+﻿import DateTimePicker from "@react-native-community/datetimepicker";
 import { StatusBar } from "expo-status-bar";
 import {
   RecordingPresets,
@@ -12,6 +12,7 @@ import {
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import { Directory, File, Paths } from "expo-file-system";
+import * as LegacyFileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as WebBrowser from "expo-web-browser";
@@ -74,6 +75,7 @@ import {
   getDiscoveryCandidates,
   getReadyToMeetCandidates,
   getIncomingLikes,
+  getCurrentUser,
   getPaymentSummary,
   likeMemberProfile,
   loginAccount,
@@ -87,6 +89,7 @@ import {
   saveModerationAction,
   startIdentityVerification,
   submitVideoSelfieVerification,
+  checkSelfiePose,
   requestPasswordReset,
   requestSignedInPasswordReset,
   resetPassword,
@@ -147,6 +150,19 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+
+const BRAND_FONT = Platform.select({ ios: "AvenirNext-DemiBold", android: "sans-serif-medium", default: "sans-serif" });
+const APP_FONT = Platform.select({ ios: "Avenir Next", android: "sans-serif", default: "sans-serif" });
+
+WebBrowser.maybeCompleteAuthSession();
+
+async function openKindredInAppSession(url: string, returnUrl = "kindredcube://browser-complete") {
+  try {
+    return await WebBrowser.openAuthSessionAsync(url, returnUrl);
+  } catch {
+    return WebBrowser.openBrowserAsync(url);
+  }
+}
 
 const C = {
   ink: "#221F1B",
@@ -312,26 +328,259 @@ const personalityTypes = [
 ];
 const personalityTestQuestions = [
   {
-    prompt: "After a busy week, you recharge best…",
+    prompt: "After a busy week, you recharge best...",
     left: ["With people", "E"],
     right: ["With quiet time", "I"],
   },
   {
-    prompt: "You trust information that is…",
+    prompt: "You trust information that is...",
     left: ["Concrete and practical", "S"],
     right: ["Pattern-based and imaginative", "N"],
   },
   {
-    prompt: "When deciding, you lead with…",
+    prompt: "When deciding, you lead with...",
     left: ["Logic and consistency", "T"],
     right: ["People and values", "F"],
   },
   {
-    prompt: "Your preferred lifestyle is…",
+    prompt: "Your preferred lifestyle is...",
     left: ["Planned and structured", "J"],
     right: ["Flexible and spontaneous", "P"],
   },
 ];
+const kindredTypeQuestions = [
+  {
+    key: "coreValues_integritySuccess",
+    category: "coreValues",
+    title: "Core values",
+    weight: "20%",
+    statement: "Integrity is more important than success.",
+  },
+  {
+    key: "coreValues_principlesCost",
+    category: "coreValues",
+    title: "Core values",
+    weight: "20%",
+    statement: "People should stand by their principles even when it comes at a personal cost.",
+  },
+  {
+    key: "coreValues_personalGrowth",
+    category: "coreValues",
+    title: "Core values",
+    weight: "20%",
+    statement: "Personal growth should be a lifelong priority.",
+  },
+  {
+    key: "coreValues_meaningfulLife",
+    category: "coreValues",
+    title: "Core values",
+    weight: "20%",
+    statement: "A meaningful life is more important than a comfortable life.",
+  },
+  {
+    key: "faithSpirituality_godReligion",
+    category: "faithSpirituality",
+    title: "Faith & spirituality",
+    weight: "20%",
+    statement: "God is more important than religion.",
+  },
+  {
+    key: "faithSpirituality_majorDecisions",
+    category: "faithSpirituality",
+    title: "Faith & spirituality",
+    weight: "20%",
+    statement: "Faith should influence major life decisions.",
+  },
+  {
+    key: "faithSpirituality_dailyReflection",
+    category: "faithSpirituality",
+    title: "Faith & spirituality",
+    weight: "20%",
+    statement: "Prayer or spiritual reflection should be part of daily life.",
+  },
+  {
+    key: "faithSpirituality_differentBeliefs",
+    category: "faithSpirituality",
+    title: "Faith & spirituality",
+    weight: "20%",
+    statement: "I can build a successful long-term relationship with someone who has different religious or spiritual beliefs.",
+  },
+  {
+    key: "relationships_lifelongMarriage",
+    category: "relationships",
+    title: "Relationships",
+    weight: "20%",
+    statement: "Marriage is a lifelong commitment.",
+  },
+  {
+    key: "relationships_sharedFinances",
+    category: "relationships",
+    title: "Relationships",
+    weight: "20%",
+    statement: "Finances should be shared after marriage.",
+  },
+  {
+    key: "relationships_decisionsTogether",
+    category: "relationships",
+    title: "Relationships",
+    weight: "20%",
+    statement: "Important life decisions should be made together.",
+  },
+  {
+    key: "relationships_trustRomance",
+    category: "relationships",
+    title: "Relationships",
+    weight: "20%",
+    statement: "Trust is more important than romance.",
+  },
+  {
+    key: "ethics_honestyFeelings",
+    category: "ethics",
+    title: "Ethics",
+    weight: "15%",
+    statement: "Honesty should come before protecting someone's feelings.",
+  },
+  {
+    key: "ethics_endsMeans",
+    category: "ethics",
+    title: "Ethics",
+    weight: "15%",
+    statement: "The ends do not justify the means.",
+  },
+  {
+    key: "ethics_loyaltyIntegrity",
+    category: "ethics",
+    title: "Ethics",
+    weight: "15%",
+    statement: "Loyalty should never require compromising personal integrity.",
+  },
+  {
+    key: "ethics_responsibility",
+    category: "ethics",
+    title: "Ethics",
+    weight: "15%",
+    statement: "People should take responsibility for their own actions.",
+  },
+  {
+    key: "conflictPersonality_discussProblems",
+    category: "conflictPersonality",
+    title: "Conflict & personality",
+    weight: "10%",
+    statement: "Problems should be discussed rather than avoided.",
+  },
+  {
+    key: "conflictPersonality_forgiveness",
+    category: "conflictPersonality",
+    title: "Conflict & personality",
+    weight: "10%",
+    statement: "Forgiveness is essential for a healthy relationship.",
+  },
+  {
+    key: "conflictPersonality_resolveSoon",
+    category: "conflictPersonality",
+    title: "Conflict & personality",
+    weight: "10%",
+    statement: "I prefer resolving disagreements as soon as possible.",
+  },
+  {
+    key: "conflictPersonality_perspective",
+    category: "conflictPersonality",
+    title: "Conflict & personality",
+    weight: "10%",
+    statement: "Understanding another person's perspective is as important as being understood.",
+  },
+  {
+    key: "lifestyle_physicalHealth",
+    category: "lifestyle",
+    title: "Lifestyle",
+    weight: "7%",
+    statement: "Maintaining good physical health is a personal responsibility.",
+  },
+  {
+    key: "lifestyle_experiences",
+    category: "lifestyle",
+    title: "Lifestyle",
+    weight: "7%",
+    statement: "Experiences are more valuable than material possessions.",
+  },
+  {
+    key: "lifestyle_financialDiscipline",
+    category: "lifestyle",
+    title: "Lifestyle",
+    weight: "7%",
+    statement: "Financial discipline is essential for long-term stability.",
+  },
+  {
+    key: "lifestyle_familyTime",
+    category: "lifestyle",
+    title: "Lifestyle",
+    weight: "7%",
+    statement: "Family time should take priority over social status.",
+  },
+  {
+    key: "ambition_purposeIncome",
+    category: "ambition",
+    title: "Ambition",
+    weight: "5%",
+    statement: "Purpose is more important than income.",
+  },
+  {
+    key: "ambition_sacrificesGoals",
+    category: "ambition",
+    title: "Ambition",
+    weight: "5%",
+    statement: "I am willing to make significant sacrifices to achieve my goals.",
+  },
+  {
+    key: "ambition_positiveImpact",
+    category: "ambition",
+    title: "Ambition",
+    weight: "5%",
+    statement: "Success should be measured by the positive impact we have on others.",
+  },
+  {
+    key: "ambition_calculatedRisks",
+    category: "ambition",
+    title: "Ambition",
+    weight: "5%",
+    statement: "I am comfortable taking calculated risks to pursue opportunities.",
+  },
+  {
+    key: "politicsSociety_freeSpeech",
+    category: "politicsSociety",
+    title: "Politics & society",
+    weight: "3%",
+    statement: "Freedom of speech should be protected even when opinions are unpopular.",
+  },
+  {
+    key: "politicsSociety_communityHelp",
+    category: "politicsSociety",
+    title: "Politics & society",
+    weight: "3%",
+    statement: "Communities are stronger when people help one another.",
+  },
+  {
+    key: "politicsSociety_individualResponsibility",
+    category: "politicsSociety",
+    title: "Politics & society",
+    weight: "3%",
+    statement: "Individual responsibility is more important than government support.",
+  },
+  {
+    key: "politicsSociety_equalLaw",
+    category: "politicsSociety",
+    title: "Politics & society",
+    weight: "3%",
+    statement: "Laws should apply equally to everyone regardless of status.",
+  },
+] as const;
+const kindredTypeAnswerOptions = [
+  { value: 1, label: "Agree" },
+  { value: 2, label: "Somewhat agree" },
+  { value: 3, label: "Not sure" },
+  { value: 4, label: "Somewhat disagree" },
+  { value: 5, label: "Disagree" },
+] as const;
 const interestOptions = [
   "Museums & galleries",
   "Gardening",
@@ -402,54 +651,54 @@ const valueOptions = [
 ];
 const profilePrompts: Record<string, string[]> = {
   "Dating me": [
-    "Dating me is like…",
-    "I’m a real nerd about…",
-    "My most chaotic trait is…",
-    "The quickest way to my heart is…",
-    "Together, we could…",
-    "My simple pleasure is…",
-    "I’ll fall for you if…",
-    "A green flag I look for is…",
+    "Dating me is like...",
+    "I'm a real nerd about...",
+    "My most chaotic trait is...",
+    "The quickest way to my heart is...",
+    "Together, we could...",
+    "My simple pleasure is...",
+    "I'll fall for you if...",
+    "A green flag I look for is...",
   ],
   Realness: [
-    "I’m ready for someone who…",
-    "I’m working towards…",
-    "I’m competitive about…",
-    "A warning about me…",
-    "I’m still learning how to…",
-    "Something I’m proud of…",
-    "My friends know me for…",
-    "The truth is…",
+    "I'm ready for someone who...",
+    "I'm working towards...",
+    "I'm competitive about...",
+    "A warning about me...",
+    "I'm still learning how to...",
+    "Something I'm proud of...",
+    "My friends know me for...",
+    "The truth is...",
   ],
   "Date night": [
-    "Our ideal first date…",
-    "Let’s skip dinner and…",
-    "The perfect Sunday together…",
-    "A spontaneous date I’d love…",
-    "My favorite low-key date…",
-    "Book us tickets to…",
-    "A city date should include…",
-    "At home, let’s…",
+    "Our ideal first date...",
+    "Let's skip dinner and...",
+    "The perfect Sunday together...",
+    "A spontaneous date I'd love...",
+    "My favorite low-key date...",
+    "Book us tickets to...",
+    "A city date should include...",
+    "At home, let's...",
   ],
   "About me": [
-    "I’m happiest when…",
-    "Most people don’t know I…",
-    "After work you can find me…",
-    "I’m known for…",
-    "My hidden talent is…",
-    "I can talk for hours about…",
-    "My perfect weekend…",
-    "Something on my bucket list…",
+    "I'm happiest when...",
+    "Most people don't know I...",
+    "After work you can find me...",
+    "I'm known for...",
+    "My hidden talent is...",
+    "I can talk for hours about...",
+    "My perfect weekend...",
+    "Something on my bucket list...",
   ],
   "Self-care": [
-    "I recharge by…",
-    "My mental health ritual…",
-    "When life gets busy, I…",
-    "My favorite way to slow down…",
-    "A boundary I’m proud of…",
-    "Movement I actually enjoy…",
-    "My comfort routine…",
-    "I feel grounded when…",
+    "I recharge by...",
+    "My mental health ritual...",
+    "When life gets busy, I...",
+    "My favorite way to slow down...",
+    "A boundary I'm proud of...",
+    "Movement I actually enjoy...",
+    "My comfort routine...",
+    "I feel grounded when...",
   ],
 };
 const detailOptions: Record<string, string[]> = {
@@ -473,11 +722,11 @@ const detailOptions: Record<string, string[]> = {
     "Prefer not to say",
   ],
   Height: [
-    "Under 5′2″",
-    "5′2″–5′5″",
-    "5′6″–5′9″",
-    "5′10″–6′1″",
-    "Over 6′1″",
+    "Under 5'2\"",
+    "5'2\"–5'5\"",
+    "5'6\"–5'9\"",
+    "5'10\"–6'1\"",
+    "Over 6'1\"",
     "Skip",
   ],
   Exercise: ["Active", "Sometimes", "Almost never", "Skip"],
@@ -485,7 +734,7 @@ const detailOptions: Record<string, string[]> = {
   Smoke: ["Never", "Socially", "Sometimes", "Regularly", "Skip"],
   Drink: ["Never", "Socially", "Sometimes", "Regularly", "Skip"],
   "Have kids?": ["Yes", "No", "Skip"],
-  "Want kids?": ["Yes", "No", "Open to kids", "Don’t want kids"],
+  "Want kids": ["Yes", "No", "Open to kids", "Don't want kids"],
   "How many kids?": ["1", "2", "3", "4", "5", "6+"],
   "Kids live with you?": ["Yes", "No", "Some of the time"],
   "Star sign": [],
@@ -602,11 +851,33 @@ type Profile = {
   chatPreviewFromMe?: boolean;
   chatLastMessageAt?: string;
   chatLastMessageSenderId?: string;
+  promptAnswers?: Record<string, { prompt: string; answer: string }>;
 };
 
+function safeProfilePromptAnswers(value: unknown): Profile["promptAnswers"] {
+  if (!value) return {};
+  if (typeof value === "string") {
+    try {
+      return safeProfilePromptAnswers(JSON.parse(value));
+    } catch {
+      return {};
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const output: Record<string, { prompt: string; answer: string }> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([key, entry]) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
+    const record = entry as Record<string, unknown>;
+    const prompt = typeof record.prompt === "string" ? record.prompt.trim() : "";
+    const answer = typeof record.answer === "string" ? record.answer.trim() : "";
+    if (prompt && answer) output[key] = { prompt, answer };
+  });
+  return output;
+}
+
 function stringArray(value: unknown) {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+  return Array.isArray(value) ?
+    value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
 }
 
@@ -637,11 +908,12 @@ function normalizeProfileMediaUris(profile: Record<string, unknown>) {
 }
 
 function discoveryCandidateToProfile(candidate: DiscoveryCandidate): Profile {
-  const matchingPhotos = Array.isArray(candidate.matching?.photos)
-    ? candidate.matching.photos
+  const matching = candidate.matching && typeof candidate.matching === "object" ? candidate.matching : {};
+  const matchingPhotos = Array.isArray(matching.photos)
+    ? matching.photos
         .map((photo) =>
-          photo && typeof photo === "object" && "uri" in photo
-            ? (photo as { uri?: unknown }).uri
+          photo && typeof photo === "object" && "uri" in photo ?
+            (photo as { uri?: unknown }).uri
             : undefined,
         )
         .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
@@ -651,13 +923,13 @@ function discoveryCandidateToProfile(candidate: DiscoveryCandidate): Profile {
       [
         ...(candidate.photoUris || []),
         candidate.photoUri,
-        typeof candidate.matching?.bestPhotoUri === "string" ? candidate.matching.bestPhotoUri : undefined,
+        typeof matching.bestPhotoUri === "string" ? matching.bestPhotoUri : undefined,
         ...matchingPhotos,
       ].map(cleanMediaUri).filter((uri): uri is string => uri.length > 0),
     ),
   ];
-  const role = typeof candidate.matching?.occupation === "string" && candidate.matching.occupation.trim()
-    ? candidate.matching.occupation.trim()
+  const role = typeof matching.occupation === "string" && matching.occupation.trim()
+    ? matching.occupation.trim()
     : candidate.role;
   const idVerified = candidate.idVerified === true;
   const selfieVerified = !idVerified && candidate.selfieVerified === true;
@@ -676,6 +948,7 @@ function discoveryCandidateToProfile(candidate: DiscoveryCandidate): Profile {
     selfieVerified,
     meetupVerified: candidate.meetupVerified,
     discovery: { ...candidate, idVerified, selfieVerified },
+    promptAnswers: safeProfilePromptAnswers((matching as Record<string, unknown>).promptAnswers),
   });
 }
 
@@ -814,6 +1087,136 @@ function Logo({
   );
 }
 
+function WelcomeLoadingScreen({
+  title = "Loading KindredCube",
+  message = "Preparing your experience...",
+  error = "",
+  onRetry,
+}: {
+  title?: string;
+  message?: string;
+  error?: string;
+  onRetry?: () => void;
+}) {
+  const { width, height } = useWindowDimensions();
+  const progress = useRef(new Animated.Value(0)).current;
+  const [showLoadingDetails, setShowLoadingDetails] = useState(false);
+  const gifDetailsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mediaWidth = Math.min(width * 0.92, 430);
+  const mediaHeight = Math.min(height * 0.68, mediaWidth * (1920 / 1080));
+
+  useEffect(() => {
+    return () => {
+      if (gifDetailsTimerRef.current) clearTimeout(gifDetailsTimerRef.current);
+    };
+  }, []);
+
+  const revealLoadingDetailsAfterGif = useCallback(() => {
+    if (gifDetailsTimerRef.current) return;
+    gifDetailsTimerRef.current = setTimeout(() => setShowLoadingDetails(true), 1200);
+  }, []);
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(progress, { toValue: 1, duration: 1200, useNativeDriver: true }),
+        Animated.timing(progress, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ]),
+    );
+    animation.start();
+    return () => {
+      animation.stop();
+    };
+  }, [progress]);
+
+  const translateX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-120, 240],
+  });
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: C.cream,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 24,
+        gap: 18,
+      }}
+    >
+      <StatusBar style="dark" translucent={false} backgroundColor={C.cream} />
+      <View
+        style={{
+          width: mediaWidth,
+          height: mediaHeight,
+          borderRadius: 15,
+          overflow: "hidden",
+          backgroundColor: C.cream,
+        }}
+      >
+        <Image
+          accessibilityLabel="KindredCube welcome animation"
+          source={require("./assets/kindredcube-welcome-loader.gif")}
+          resizeMode="cover"
+          onLoad={revealLoadingDetailsAfterGif}
+          onLoadEnd={revealLoadingDetailsAfterGif}
+          style={{ width: "100%", height: "100%" }}
+        />
+      </View>
+      {showLoadingDetails || error ? (
+        <>
+          <View
+            style={{
+              width: Math.min(width - 76, 280),
+              height: 7,
+              borderRadius: 999,
+              backgroundColor: "#E3D8C8",
+              overflow: "hidden",
+            }}
+          >
+            <Animated.View
+              style={{
+                width: 120,
+                height: "100%",
+                borderRadius: 999,
+                backgroundColor: KINDREDCUBE_ORANGE,
+                transform: [{ translateX }],
+              }}
+            />
+          </View>
+          <View style={{ minHeight: 76, alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <Text
+              selectable
+              style={{
+                color: error ? "#9C3225" : C.ink,
+                fontSize: 19,
+                fontWeight: "900",
+                textAlign: "center",
+              }}
+            >
+              {error ? "Your profile is still safe" : title}
+            </Text>
+            <Text
+              accessibilityRole={error ? "alert" : undefined}
+              selectable
+              style={{
+                color: error ? "#9C3225" : C.muted,
+                fontSize: 13,
+                lineHeight: 19,
+                textAlign: "center",
+              }}
+            >
+              {error || message}
+            </Text>
+            {error && onRetry ? <Button compact label="Try loading again" onPress={onRetry} /> : null}
+          </View>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 function PeopleIcon({ size = 52 }: { size?: number }) {
   const head = size * 0.29;
   const bodyWidth = size * 0.56;
@@ -871,19 +1274,19 @@ function PeopleIcon({ size = 52 }: { size?: number }) {
           backgroundColor: "#5A3AC7",
         }}
       />
-      <Text
+      <Heart
+        width={size * 0.19}
+        height={size * 0.19}
+        color={C.paper}
+        fill={C.paper}
+        strokeWidth={3}
         style={{
           position: "absolute",
-          left: size * 0.39,
-          top: size * 0.34,
-          color: C.paper,
-          fontSize: size * 0.23,
-          fontWeight: "900",
+          left: size * 0.405,
+          top: size * 0.36,
           zIndex: 2,
         }}
-      >
-        ♥
-      </Text>
+      />
     </View>
   );
 }
@@ -1367,7 +1770,7 @@ function GlobalCityHero() {
           Connections in {city.city}
         </Text>
         <Text selectable style={{ color: C.sage, fontSize: 10, fontWeight: "800" }}>
-          {city.country} · area-level locations only
+          {city.country} — area-level locations only
         </Text>
       </View>
     </Animated.View>
@@ -1422,7 +1825,7 @@ function Landing({ onStart }: { onStart: () => void }) {
             minimumFontScale={0.86}
             style={{
               color: C.ink,
-              fontFamily: "serif",
+              fontFamily: BRAND_FONT,
               fontSize: short ? 31 : 37,
               lineHeight: short ? 32 : 38,
               letterSpacing: -0.8,
@@ -1508,7 +1911,7 @@ function AccountChoice({
               selectable
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 33,
                 lineHeight: 37,
                 fontWeight: "900",
@@ -1520,7 +1923,7 @@ function AccountChoice({
               selectable
               style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}
             >
-              Tell us where you’d like to begin.
+              Tell us where you'd like to begin.
             </Text>
           </View>
           <Button label="New to KindredCube" onPress={onNew} />
@@ -1629,7 +2032,7 @@ function Login({
                 selectable
                 style={{
                   color: C.ink,
-                  fontFamily: "serif",
+                  fontFamily: BRAND_FONT,
                   fontSize: 34,
                   fontWeight: "900",
                 }}
@@ -1703,7 +2106,7 @@ function Login({
               style={{ alignItems: "center", padding: 6 }}
             >
               <Text style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>
-                Don’t have an account? Sign up
+                Don't have an account Sign up
               </Text>
             </Pressable>
           </View>
@@ -1756,11 +2159,11 @@ function ForgotPassword({
         <View style={{ flex: 1, justifyContent: "center" }}>
           <View style={{ borderRadius: 28, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 22, gap: 16 }}>
             <LockKeyhole width={42} height={42} color={C.clay} />
-            <Text selectable style={{ color: C.ink, fontFamily: "serif", fontSize: 32, fontWeight: "900" }}>
+            <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 32, fontWeight: "900" }}>
               Reset your password
             </Text>
             <Text selectable style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
-              Enter your registered email. We’ll send a private link that opens KindredCube so you can choose a new password.
+              Enter your registered email. We'll send a private link that opens KindredCube so you can choose a new password.
             </Text>
             {!message ? (
               <>
@@ -1847,7 +2250,7 @@ function ResetPassword({
         <View style={{ flex: 1, justifyContent: "center" }}>
           <View style={{ borderRadius: 28, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 22, gap: 14 }}>
             <ShieldCheck width={42} height={42} color={C.sage} />
-            <Text selectable style={{ color: C.ink, fontFamily: "serif", fontSize: 31, fontWeight: "900" }}>Choose a new password</Text>
+            <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 31, fontWeight: "900" }}>Choose a new password</Text>
             {success ? (
               <>
                 <Text selectable style={{ color: C.sage, fontSize: 16, lineHeight: 23, fontWeight: "800" }}>{success}</Text>
@@ -1856,8 +2259,8 @@ function ResetPassword({
             ) : (
               <>
                 <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>
-                  {requiresCurrentPassword
-                    ? "Because this reset was requested from Security and Privacy, enter your last password first. Then choose a new password with 10–128 characters, at least one capital letter, and at least two special characters."
+                  {requiresCurrentPassword ?
+                     "Because this reset was requested from Security and Privacy, enter your last password first. Then choose a new password with 10–128 characters, at least one capital letter, and at least two special characters."
                     : "Use 10–128 characters, at least one capital letter, and at least two special characters."}
                 </Text>
                 {requiresCurrentPassword ? (
@@ -1910,7 +2313,7 @@ function Portrait({
   blurred = false,
 }: {
   index: number;
-  size: number;
+  size?: number;
   blurred?: boolean;
 }) {
   if (index < 0) {
@@ -1981,7 +2384,7 @@ function ProfileImage({
   blurred = false,
 }: {
   profile: Profile;
-  size: number;
+  size?: number;
   blurred?: boolean;
 }) {
   const photos = profilePhotoUris(profile);
@@ -2085,6 +2488,14 @@ function profileMatchingSignals(profile: Profile): MatchingSignals {
       Exercise: details.Exercise || "",
       Cannabis: details.Cannabis || "",
     },
+    hasChildren: String(details["Have kids"] || "").trim().toLowerCase() === "yes",
+    wantsChildren: details["Want kids"] || "",
+    religion: details.Religion || "",
+    politics: details.Politics || "",
+    compatibilityResponses:
+      matching.compatibilityResponses && typeof matching.compatibilityResponses === "object" ?
+         matching.compatibilityResponses as MatchingSignals["compatibilityResponses"]
+        : undefined,
     distanceKm: candidate.distanceKm,
     openToRelocate: matching.openToRelocate === true,
     readyToMeet: profileReadyToMeetIsActive(profile),
@@ -2122,6 +2533,14 @@ function viewerMatchingSignals(
       Exercise: details.Exercise || "Sometimes",
       Cannabis: details.Cannabis || "Never",
     },
+    hasChildren: String(details["Have kids"] || "").trim().toLowerCase() === "yes",
+    wantsChildren: details["Want kids"] || "",
+    religion: details.Religion || "",
+    politics: details.Politics || "",
+    compatibilityResponses:
+      profile.compatibilityResponses && typeof profile.compatibilityResponses === "object" ?
+         profile.compatibilityResponses as MatchingSignals["compatibilityResponses"]
+        : undefined,
     minAge: typeof profile.minAge === "number" ? profile.minAge : 18,
     maxAge: typeof profile.maxAge === "number" ? profile.maxAge : 80,
     maximumDistanceKm: typeof profile.maximumDistanceKm === "number" ? profile.maximumDistanceKm : 80,
@@ -2146,7 +2565,7 @@ function moreAboutForProfile(profile: Profile) {
     {
       Education: "Graduate degree",
       Gender: "Woman",
-      Height: "5′6″–5′9″",
+      Height: "5'6\"–5'9\"",
       Exercise: "Active",
       Cannabis: "Never",
       "Have kids": "Don't have kids",
@@ -2158,7 +2577,7 @@ function moreAboutForProfile(profile: Profile) {
     {
       Education: "Undergraduate degree",
       Gender: "Woman",
-      Height: "5′2″–5′5″",
+      Height: "5'2\"–5'5\"",
       Exercise: "Sometimes",
       Cannabis: "Never",
       "Have kids": "Have kids",
@@ -2170,7 +2589,7 @@ function moreAboutForProfile(profile: Profile) {
     {
       Education: "Graduate degree",
       Gender: "Woman",
-      Height: "5′6″–5′9″",
+      Height: "5'6\"–5'9\"",
       Exercise: "Active",
       Cannabis: "Socially",
       "Have kids": "Don't have kids",
@@ -2190,9 +2609,9 @@ const PROFILE_VIEW_MORE_ABOUT_LABELS = new Set([
   "drink",
   "smoke",
   "cannabis",
-  "have kids",
   "have kids?",
-  "want kids",
+  "have kids?",
+  "want kids?",
   "want kids?",
   "religion",
 ]);
@@ -2217,8 +2636,8 @@ function profileDetailDisplayValue(label: string, value: string) {
 
 function profileLanguagesForCard(profile: Profile) {
   const signals = profileMatchingSignals(profile);
-  const realLanguages = Array.isArray(signals.languages)
-    ? signals.languages.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+  const realLanguages = Array.isArray(signals.languages) ?
+    signals.languages.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
   if (realLanguages.length) return realLanguages.slice(0, 6);
   const languageEntry = moreAboutForProfile(profile).find(([label]) => label.trim().toLowerCase().includes("language"));
@@ -2368,13 +2787,13 @@ function profileVerificationSummaryText(profile: Profile) {
 function profileVerificationBadges(profile: Profile, variant: "icon" | "full" = "icon") {
   const identityKind = profileIdentityVerificationKind(profile);
   const badges = [
-    identityKind === "stripe"
-      ? { label: "Verified securely by Stripe", shortLabel: "Stripe", icon: BadgeCheck, color: "#1685E5", background: "#E8F3FD" }
-      : identityKind === "selfie"
-        ? { label: "Selfie verified", shortLabel: "Selfie", icon: BadgeCheck, color: KINDREDCUBE_ORANGE, background: "#FFF1E4" }
+    identityKind === "stripe" ?
+      { label: "Verified securely by Stripe", shortLabel: "Stripe", icon: BadgeCheck, color: "#1685E5", background: "#E8F3FD" }
+      : identityKind === "selfie" ?
+        { label: "Selfie verified", shortLabel: "Selfie", icon: BadgeCheck, color: KINDREDCUBE_ORANGE, background: "#FFF1E4" }
         : null,
-    profileMeetupVerified(profile)
-      ? { label: "Meetup verified", shortLabel: "Meetup", icon: ShieldCheck, color: "#2DA85E", background: "#E7F7EA" }
+    profileMeetupVerified(profile) ?
+      { label: "Meetup verified", shortLabel: "Meetup", icon: ShieldCheck, color: "#2DA85E", background: "#E7F7EA" }
       : null,
   ].filter((badge): badge is { label: string; shortLabel: string; icon: typeof BadgeCheck; color: string; background: string } => Boolean(badge));
   return variant === "full" ? badges : badges.map((badge) => ({ ...badge, label: badge.shortLabel }));
@@ -2679,6 +3098,17 @@ function profilesForSeeking<T extends readonly Profile[] | Profile[]>(
   return mixed.length ? mixed : [...people];
 }
 
+function profilesForRegistrationPreview(
+  people: readonly Profile[],
+  interests: string[],
+  seeking: string,
+) {
+  const seekingPool = profilesForSeeking(people, seeking);
+  const cultureMatches = profilesForSelectedDiscovery(seekingPool, interests);
+  if (cultureMatches.length) return cultureMatches;
+  return seekingPool;
+}
+
 function Results({
   answers,
   onBack,
@@ -2686,9 +3116,25 @@ function Results({
 }: {
   answers: Answers;
   onBack: () => void;
-  onProfilePress: (profile: Profile) => void;
+  onProfilePress?: (profile: Profile) => void;
 }) {
   const { height } = useWindowDimensions();
+  const backRef = useRef(onBack);
+  backRef.current = onBack;
+  const swipeBack = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        gesture.dx > 12 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.05,
+      onMoveShouldSetPanResponderCapture: (_, gesture) =>
+        gesture.dx > 18 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
+      onPanResponderTerminationRequest: () => true,
+      onShouldBlockNativeResponder: () => false,
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx > 42 && Math.abs(gesture.dy) < 160) backRef.current();
+      },
+    }),
+  ).current;
   const [visiblePreviewCount, setVisiblePreviewCount] = useState(1);
   const [status, setStatus] = useState<"locating" | "ready" | "denied">(
     "locating",
@@ -2740,8 +3186,9 @@ function Results({
     return () => clearInterval(timer);
   }, [answers.seeking, answers.interests.join("|")]);
   const areas = nearbyAreas(city);
-  const previewShown = profilesForSeeking(
-    profilesForSelectedDiscovery(previewProfiles, answers.interests),
+  const previewShown = profilesForRegistrationPreview(
+    previewProfiles,
+    answers.interests,
     answers.seeking,
   );
   const shown = previewShown.slice(0, visiblePreviewCount);
@@ -2749,6 +3196,7 @@ function Results({
   const mapHeight = Math.max(250, Math.min(480, height - 375));
   return (
     <ScrollView
+      {...swipeBack.panHandlers}
       scrollEnabled={false}
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={{
@@ -2759,26 +3207,32 @@ function Results({
       }}
     >
       <Logo size="compact" align="left" />
-      <Pressable accessibilityRole="button" onPress={onBack}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Back to edit interests"
+        onPress={onBack}
+        style={{ minHeight: 36, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6 }}
+      >
+        <ChevronLeft width={22} height={22} color={C.ink} />
         <Text style={{ color: C.ink, fontWeight: "800" }}>
-          {"? Edit interests"}
+          Edit interests
         </Text>
       </Pressable>
       <View style={{ gap: 6 }}>
         <Text
           style={{
             color: C.ink,
-            fontFamily: "serif",
+            fontFamily: BRAND_FONT,
             fontSize: 32,
             lineHeight: 36,
             fontWeight: "700",
           }}
         >
-          {status === "locating" ? "Finding people near you…" : "Connects nearby"}
+          {status === "locating" ? "Finding people near you..." : "Connects nearby"}
         </Text>
         <Text style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}>
-          {status === "denied"
-            ? "Location access is off. Enable it to see your real city map."
+          {status === "denied" ?
+            "Location access is off. Enable it to see your real city map."
             : `Around ${areas.slice(0, 3).join(", ")}, and nearby.`}
         </Text>
       </View>
@@ -2922,25 +3376,31 @@ function Registration({
               overflow: "hidden",
             }}
           >
-            <ProfileImage profile={profile} size={compact ? 44 : 50} />
+            <Image
+              accessibilityLabel="Amara, KindredCube Assistant"
+              source={require("./assets/amara-kindredcube-assistant.png")}
+              resizeMode="cover"
+              style={{ width: compact ? 44 : 50, height: compact ? 44 : 50 }}
+            />
           </View>
-          <View style={{ flex: 1 }}>
-            <Text
-              selectable
-              style={{ color: C.ink, fontSize: 14, fontWeight: "800" }}
-            >
-              Join KindredCube to connect with
-            </Text>
+          <View style={{ flex: 1, gap: 2 }}>
             <Text
               selectable
               style={{
                 color: C.clay,
-                fontSize: compact ? 18 : 20,
-                fontFamily: "serif",
-                fontWeight: "800",
+                fontSize: 12,
+                fontWeight: "900",
+                letterSpacing: 0.2,
+                textTransform: "uppercase",
               }}
             >
-              {profile.name}
+              Amara
+            </Text>
+            <Text
+              selectable
+              style={{ color: C.ink, fontSize: compact ? 14 : 15, fontWeight: "900", lineHeight: compact ? 18 : 20 }}
+            >
+              Join KindredCube to connect with your kindred.
             </Text>
           </View>
         </View>
@@ -2949,7 +3409,7 @@ function Registration({
             selectable
             style={{
               color: C.ink,
-              fontFamily: "serif",
+              fontFamily: BRAND_FONT,
               fontSize: compact ? 25 : 28,
               lineHeight: compact ? 28 : 31,
               fontWeight: "800",
@@ -3014,7 +3474,7 @@ function Registration({
           />
           {[
             {
-              label: "Password — at least 10 characters",
+                label: "Password — at least 10 characters",
               value: password,
               onChangeText: setPassword,
             },
@@ -3099,8 +3559,8 @@ function Registration({
                 style={{
                   width:
                     label ===
-                    "Does not contain your username, email name, or KindredCube"
-                      ? "100%"
+                    "Does not contain your username, email name, or KindredCube" ?
+                      "100%"
                       : "50%",
                   flexDirection: "row",
                   alignItems: "center",
@@ -3200,8 +3660,8 @@ function EmailVerification({
       setVerificationUrl(result.developmentVerificationUrl || "");
     } catch (caught) {
       setResendError(
-        caught instanceof Error
-          ? caught.message
+        caught instanceof Error ?
+          caught.message
           : "A new confirmation email could not be sent.",
       );
     } finally {
@@ -3261,7 +3721,7 @@ function EmailVerification({
           selectable
           style={{
             color: C.ink,
-            fontFamily: "serif",
+            fontFamily: BRAND_FONT,
             fontSize: 31,
             fontWeight: "800",
             textAlign: "center",
@@ -3367,13 +3827,24 @@ function memberSafetyReasonCode(reason?: MemberReportReason) {
   return reason?.toLowerCase().replaceAll(" ", "_").replaceAll("or", "or");
 }
 
+function selfieVerificationNotice(status: IdentityVerificationStatus, reasonCode: string) {
+  if (status === "verified") return "Thank you for verifying. You are now Selfie Verified.";
+  if (reasonCode === "possible_duplicate_account") {
+    return "This face appears linked to another KindredCube account. Please log into that account instead.";
+  }
+  if (reasonCode === "face_frame_required" || reasonCode === "no_indexable_face_detected") {
+    return "We could not capture a clear face. Please keep your face inside the oval and try again.";
+  }
+  return "Verification has not met the requirement. Please redo your video selfie.";
+}
+
 function MemberSafetyMenu({
   profile,
   onBlock,
   onReport,
 }: {
   profile: Profile;
-  onBlock?: (profile: Profile, reason?: MemberReportReason, details?: string) => void;
+  onBlock: (profile: Profile, reason: MemberReportReason, details: string) => void;
   onReport?: (profile: Profile, reason: MemberReportReason, details: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -3397,7 +3868,7 @@ function MemberSafetyMenu({
               {onBlock ? <Pressable onPress={() => setMode("block")} style={{ minHeight: 43, borderRadius: 14, backgroundColor: "#F3EFE8", paddingHorizontal: 12, justifyContent: "center" }}><Text style={{ color: C.ink, fontWeight: "900" }}>Block {profile.name}</Text></Pressable> : null}
             </> : mode === "block" ? <>
               <Text selectable style={{ color: C.ink, fontSize: 17, fontWeight: "900" }}>Block {profile.name}?</Text>
-              <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>You will be removed from each other’s discovery, likes, matches and chats immediately. They will not be notified.</Text>
+              <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>You will be removed from each other's discovery, likes, matches and chats immediately. They will not be notified.</Text>
               <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>Optional reason</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>{reasons.map((item) => <Pressable key={item} onPress={() => setReason(item)} style={{ borderRadius: 15, borderWidth: 1, borderColor: reason === item ? C.ink : C.line, backgroundColor: reason === item ? "#F3EFE8" : C.paper, paddingHorizontal: 9, paddingVertical: 7 }}><Text style={{ color: C.ink, fontSize: 10, fontWeight: "900" }}>{item}</Text></Pressable>)}</View>
               <TextInput multiline value={details} onChangeText={setDetails} placeholder="Optional details for moderators" placeholderTextColor="#948A7F" style={{ minHeight: 64, borderRadius: 14, borderWidth: 1, borderColor: C.line, padding: 10, color: C.ink, textAlignVertical: "top" }} />
@@ -3443,7 +3914,7 @@ function ProfileDetail({
   readyMeetMode?: boolean;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
-  onBlock?: (profile: Profile, reason?: MemberReportReason, details?: string) => void;
+  onBlock: (profile: Profile, reason: MemberReportReason, details: string) => void;
   onReport?: (profile: Profile, reason: MemberReportReason, details: string) => void;
   walletBalance?: number;
   hasCommentPlan?: boolean;
@@ -3457,6 +3928,7 @@ function ProfileDetail({
   const profileTouchStart = useRef<{ x: number; y: number } | null>(null);
   const profileSwipeX = useRef(new Animated.Value(0)).current;
   const [profileSwipeDelta, setProfileSwipeDelta] = useState(0);
+  const photoPrompts = profilePromptsForGallery(profile);
   swipeLeftRef.current = onSwipeLeft;
   swipeRightRef.current = onSwipeRight;
   const finishProfileSwipe = useCallback(
@@ -3571,7 +4043,7 @@ function ProfileDetail({
               boxShadow: "0 5px 14px rgba(34,31,27,0.22)",
             }}
           >
-            <Text style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>↗</Text>
+            <Text style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>?</Text>
           </Pressable>
           {readyMeetMode && onConnect ? (
             <Pressable
@@ -3625,7 +4097,7 @@ function ProfileDetail({
             style={{ backgroundColor: readyMeetMode ? "#173F31" : "#F7F3ED", paddingHorizontal: 14, paddingVertical: 10 }}
           >
             <Text style={{ color: readyMeetMode ? C.paper : C.ink, fontSize: 11, fontWeight: "900", textAlign: "center" }}>
-              Swipe right to like · swipe left to pass
+              Swipe right to like ? swipe left to pass
             </Text>
           </View>
         ) : null}
@@ -3635,7 +4107,7 @@ function ProfileDetail({
               selectable
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 28,
                 fontWeight: "800",
               }}
@@ -3744,21 +4216,51 @@ function ProfileDetail({
           More photos of {profile.name}
         </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-          {profileGalleryItems(profile).slice(1).map((item, photoIndex) => (
-            <Pressable
-              key={`${item.kind}-${item.value}-${photoIndex}`}
-              accessibilityRole="button"
-              accessibilityLabel={`Enlarge ${profile.name}'s photo ${photoIndex + 2}`}
-              onPress={() => setGalleryIndex(photoIndex + 1)}
-              style={{ width: 116, height: 136, borderRadius: 18, overflow: "hidden", borderWidth: 1, borderColor: C.line, backgroundColor: C.cream }}
-            >
-              {item.kind === "uri" ? (
-                <Image source={{ uri: String(item.value) }} resizeMode="cover" style={{ width: 116, height: 136 }} />
-              ) : (
-                <Portrait index={Number(item.value)} size={136} />
-              )}
-            </Pressable>
-          ))}
+          {profileGalleryItems(profile).slice(1).map((item, photoIndex) => {
+            const galleryIndexForPhoto = photoIndex + 1;
+            const savedPrompt = photoPrompts.length ?
+               photoPrompts[photoIndex % photoPrompts.length]
+              : null;
+            return (
+              <Pressable
+                key={`${item.kind}-${item.value}-${photoIndex}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Enlarge ${profile.name}'s photo ${galleryIndexForPhoto + 1}`}
+                onPress={() => setGalleryIndex(galleryIndexForPhoto)}
+                style={{ width: 116, height: 136, borderRadius: 18, overflow: "hidden", borderWidth: 1, borderColor: C.line, backgroundColor: C.cream, position: "relative" }}
+              >
+                {item.kind === "uri" ? (
+                  <Image source={{ uri: String(item.value) }} resizeMode="cover" style={{ width: 116, height: 136 }} />
+                ) : (
+                  <Portrait index={Number(item.value)} size={136} />
+                )}
+                {savedPrompt ? (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      left: 6,
+                      right: 6,
+                      bottom: 6,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.55)",
+                      backgroundColor: "rgba(255,253,249,0.42)",
+                      paddingHorizontal: 7,
+                      paddingVertical: 5,
+                    }}
+                  >
+                    <Text numberOfLines={1} style={{ color: C.paper, fontSize: 8, fontWeight: "900", textShadowColor: "rgba(0,0,0,0.55)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>
+                      {savedPrompt?.prompt || ""}
+                    </Text>
+                    <Text numberOfLines={2} style={{ color: C.paper, fontSize: 9, lineHeight: 11, fontWeight: "900", textShadowColor: "rgba(0,0,0,0.55)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>
+                      {savedPrompt?.answer || ""}
+                    </Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
         </ScrollView>
       </View>
       {profileLanguagesForCard(profile).length ? (
@@ -3911,7 +4413,7 @@ function SuperSwipeStore({ onBack }: { onBack: () => void }) {
       return;
     }
     setError("");
-    await Linking.openURL(pack.checkoutUrl);
+    await openKindredInAppSession(pack.checkoutUrl, "kindredcube://payment-complete");
   };
   return (
     <ScrollView
@@ -3929,15 +4431,15 @@ function SuperSwipeStore({ onBack }: { onBack: () => void }) {
         onPress={onBack}
         style={{ alignSelf: "flex-start", padding: 6 }}
       >
-        <Text style={{ color: C.ink, fontWeight: "900" }}>{"? Connect"}</Text>
+        <Text style={{ color: C.ink, fontWeight: "900" }}>{"♥ Connect"}</Text>
       </Pressable>
       <View style={{ alignItems: "center", gap: 7 }}>
-        <Text style={{ color: "#E2A415", fontSize: 45 }}>★</Text>
+        <Text style={{ color: "#E2A415", fontSize: 45 }}>?</Text>
         <Text
           selectable
           style={{
             color: C.ink,
-            fontFamily: "serif",
+            fontFamily: BRAND_FONT,
             fontSize: 32,
             fontWeight: "900",
           }}
@@ -3953,7 +4455,7 @@ function SuperSwipeStore({ onBack }: { onBack: () => void }) {
             lineHeight: 20,
           }}
         >
-          Stand out and show someone you’re especially interested.
+          Stand out and show someone you're especially interested.
         </Text>
       </View>
       <View style={{ gap: 9 }}>
@@ -4017,7 +4519,7 @@ function SuperSwipeStore({ onBack }: { onBack: () => void }) {
         </Text>
       ) : null}
       <Button
-        label={`Continue to Stripe · $${pack.total.toFixed(2)}`}
+        label={`Continue to Stripe ? $${pack.total.toFixed(2)}`}
         onPress={checkout}
       />
       <Text
@@ -4042,7 +4544,7 @@ function Connect({
   onFilter,
 }: {
   people: Profile[];
-  onProfilePress: (profile: Profile) => void;
+  onProfilePress?: (profile: Profile) => void;
   onFilter: () => void;
 }) {
   const { width, height } = useWindowDimensions();
@@ -4107,13 +4609,13 @@ function Connect({
             selectable
             style={{
               color: C.ink,
-              fontFamily: "serif",
+              fontFamily: BRAND_FONT,
               fontSize: 31,
               textAlign: "center",
               fontWeight: "800",
             }}
           >
-            You’ve seen everyone for now.
+            You've seen everyone for now.
           </Text>
           <Text selectable style={{ color: C.muted, textAlign: "center" }}>
             Come back later for new connections.
@@ -4201,7 +4703,7 @@ function Connect({
               selectable
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 26,
                 fontWeight: "900",
               }}
@@ -4228,7 +4730,7 @@ function Connect({
           <TextInput
             value={comment}
             onChangeText={setComment}
-            placeholder="Comment on this photo…"
+            placeholder="Comment on this photo..."
             placeholderTextColor="#948A7F"
             style={{
               flex: 1,
@@ -4287,7 +4789,7 @@ function Connect({
           }}
         >
           <Text style={{ color: C.muted, fontSize: 28, fontWeight: "700" }}>
-            ×
+            ?
           </Text>
         </Pressable>
         <Pressable
@@ -4305,7 +4807,7 @@ function Connect({
             justifyContent: "center",
           }}
         >
-          <Text style={{ color: "#D39B00", fontSize: 29 }}>★</Text>
+          <Text style={{ color: "#D39B00", fontSize: 29 }}>?</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -4322,11 +4824,11 @@ function Connect({
             justifyContent: "center",
           }}
         >
-          <Text style={{ color: C.pink, fontSize: 29 }}>♥</Text>
+          <Text style={{ color: C.pink, fontSize: 29 }}>?</Text>
         </Pressable>
       </View>
       <Text selectable style={{ color: C.muted, fontSize: 10 }}>
-          Swipe right to like · Swipe left to pass · Photo comments use Premium or Wallet
+          Swipe right to like ? Swipe left to pass ? Photo comments use Premium or Wallet
       </Text>
     </ScrollView>
   );
@@ -4378,14 +4880,14 @@ function CompleteProfileRecommendation({
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: C.pink, fontSize: 28 }}>♥</Text>
+            <Text style={{ color: C.pink, fontSize: 28 }}>?</Text>
           </View>
           <View style={{ gap: 5 }}>
             <Text
               selectable
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 31,
                 lineHeight: 34,
                 fontWeight: "900",
@@ -4470,7 +4972,7 @@ function MessagesScreen({
   currentUserId?: string;
   activeMemberChat: Profile | null;
   onOpenMemberChat: (profile: Profile) => void;
-  onProfilePress: (profile: Profile) => void;
+  onProfilePress?: (profile: Profile) => void;
   onCloseMemberChat: () => void;
   onBlockMember: (profile: Profile, reason?: MemberReportReason, details?: string) => void;
   onReportMember: (profile: Profile, reason: MemberReportReason, details: string) => void;
@@ -4478,18 +4980,25 @@ function MessagesScreen({
   onMessageRead: () => void;
   onMemberMessageSent: (profile: Profile, message?: ChatMessage) => void;
   memberReadyNearby: boolean;
-  verificationStatus: IdentityVerificationStatus;
-  verificationMethod: IdentityVerificationMethod;
-  onVerificationStatusChange: (status: IdentityVerificationStatus) => void;
-  onVerificationMethodChange: (method: IdentityVerificationMethod) => void;
-  onCurrentUserMeetupVerified: () => void;
+  verificationStatus?: IdentityVerificationStatus;
+  verificationMethod?: IdentityVerificationMethod;
+  onVerificationStatusChange?: (status: IdentityVerificationStatus) => void;
+  onVerificationMethodChange?: (method: IdentityVerificationMethod) => void;
+  onCurrentUserMeetupVerified?: () => void;
 }) {
   const [conversationOpen, setConversationOpen] = useState(false);
-  const chatProfiles = memberChats && memberChats.length > 0
-    ? memberChats
-    : memberChat
-      ? [memberChat]
+  const [chatListFilter, setChatListFilter] = useState<"all" | "unread">("all");
+  const chatProfiles = memberChats && memberChats.length > 0 ?
+    memberChats
+    : memberChat ?
+      [memberChat]
       : [];
+  const visibleChatProfiles =
+    chatListFilter === "unread" ?
+       chatProfiles.filter((chatProfile) =>
+          Boolean(unreadChatIds.includes(chatProfile.id || chatProfile.name)),
+        )
+      : chatProfiles;
   if (activeMemberChat) {
     return (
       <KeyboardAvoidingView
@@ -4523,27 +5032,69 @@ function MessagesScreen({
             onPress={() => setConversationOpen(false)}
             style={{ paddingVertical: 8, paddingRight: 4 }}
           >
-            <Text style={{ color: C.pink, fontSize: 25, fontWeight: "900" }}>‹</Text>
+            <Text style={{ color: C.pink, fontSize: 25, fontWeight: "900" }}>?</Text>
           </Pressable>
         ) : null}
-        <Text
-          selectable
-          style={{
-            color: C.ink,
-            fontFamily: "serif",
-            fontSize: 34,
-            fontWeight: "900",
-          }}
-        >
-          {conversationOpen ? "Amara" : "Chats"}
-        </Text>
+        {conversationOpen ? (
+          <Text
+            selectable
+            style={{
+              color: C.ink,
+              fontFamily: BRAND_FONT,
+              fontSize: 28,
+              fontWeight: "900",
+            }}
+          >
+            Amara
+          </Text>
+        ) : (
+          <View
+            accessibilityRole="tablist"
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              backgroundColor: "#F3EEE5",
+              borderRadius: 999,
+              padding: 4,
+            }}
+          >
+            {(["all", "unread"] as const).map((filter) => {
+              const selected = chatListFilter === filter;
+              return (
+                <Pressable
+                  key={filter}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected }}
+                  onPress={() => setChatListFilter(filter)}
+                  style={{
+                    borderRadius: 999,
+                    backgroundColor: selected ? C.ink : "transparent",
+                    paddingHorizontal: 18,
+                    paddingVertical: 9,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: selected ? C.paper : C.muted,
+                      fontSize: 14,
+                      fontWeight: "900",
+                    }}
+                  >
+                    {filter === "all" ? "All" : "Unread"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
       </View>
-      {chatProfiles.length > 0 && !conversationOpen ? (
+      {visibleChatProfiles.length > 0 && !conversationOpen ? (
         <View style={{ gap: 10 }}>
-        {chatProfiles.map((chatProfile) => {
+        {visibleChatProfiles.map((chatProfile) => {
           const unread = Boolean(unreadChatIds?.includes(chatProfile.id || chatProfile.name));
-          const previewPrefix = chatProfile.chatPreview
-            ? `${chatProfile.chatPreviewFromMe ? "You" : chatProfile.name}: `
+          const previewPrefix = chatProfile.chatPreview ?
+            `${chatProfile.chatPreviewFromMe ? "You" : chatProfile.name}: `
             : "";
           const previewText = chatProfile.chatPreview || "You matched. Start the conversation.";
           return (
@@ -4576,7 +5127,8 @@ function MessagesScreen({
         })}
         </View>
       ) : null}
-      {!assistantAvailable && chatProfiles.length === 0 ? (
+      {visibleChatProfiles.length === 0 &&
+      (!assistantAvailable || chatListFilter === "unread") ? (
         <View
           style={{
             flex: 1,
@@ -4587,16 +5139,18 @@ function MessagesScreen({
         >
           <MessageCircle width={48} height={48} color={C.muted} />
           <Text selectable style={{ color: C.ink, fontSize: 19, fontWeight: "900" }}>
-            No messages yet
+            {chatListFilter === "unread" ? "No unread messages" : "No messages yet"}
           </Text>
           <Text
             selectable
             style={{ color: C.muted, fontSize: 13, lineHeight: 19, textAlign: "center" }}
           >
-            New conversations and helpful KindredCube updates will appear here.
+            {chatListFilter === "unread" ?
+               "Unread conversations will appear here as soon as new messages arrive."
+              : "New conversations and helpful KindredCube updates will appear here."}
           </Text>
         </View>
-      ) : assistantAvailable && !conversationOpen ? (
+      ) : assistantAvailable && chatListFilter === "all" && !conversationOpen ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Open chat with Amara"
@@ -4643,7 +5197,7 @@ function MessagesScreen({
               </Text>
             </View>
             <Text numberOfLines={2} style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>
-              Welcome to KindredCube! I’m here to help you build an authentic profile.
+              Welcome to KindredCube! I'm here to help you build an authentic profile.
             </Text>
           </View>
           <ChevronRight width={20} height={20} color={C.muted} />
@@ -4691,8 +5245,8 @@ function MessagesScreen({
         }}
       >
         <Text selectable style={{ color: C.ink, fontSize: 15, lineHeight: 22 }}>
-          Hi {username} — welcome to KindredCube! I’m Amara, your KindredCube
-          Assistant. I’m here to help you create a profile that feels authentic
+          Hi {username} — welcome to KindredCube! I'm Amara, your KindredCube
+          Assistant. I'm here to help you create a profile that feels authentic
           and attracts meaningful connections.
         </Text>
         <Text selectable style={{ color: C.ink, fontSize: 15, lineHeight: 22 }}>
@@ -4731,7 +5285,7 @@ function ProfileCompletionScreen({ onConnect }: { onConnect: () => void }) {
           selectable
           style={{
             color: C.ink,
-            fontFamily: "serif",
+            fontFamily: BRAND_FONT,
             fontSize: 34,
             fontWeight: "900",
           }}
@@ -4792,7 +5346,7 @@ function ProfileCompletionScreen({ onConnect }: { onConnect: () => void }) {
             >
               {section}
             </Text>
-            <Text style={{ color: C.muted }}>›</Text>
+            <Text style={{ color: C.muted }}>?</Text>
           </View>
         ))}
       </View>
@@ -4825,7 +5379,7 @@ function MemberPhotoView({
   size,
 }: {
   photo: MemberPhoto;
-  size: number;
+  size?: number;
 }) {
   return photo.uri ? (
     <Image
@@ -4944,7 +5498,7 @@ function WalletScreen({
           onPress={onBack}
           style={{ paddingVertical: 8 }}
         >
-          <Text style={{ color: C.ink, fontWeight: "900" }}>‹ Settings</Text>
+          <Text style={{ color: C.ink, fontWeight: "900" }}>? Settings</Text>
         </Pressable>
         <Text
           selectable
@@ -5089,15 +5643,15 @@ function WalletScreen({
           ))}
         </View>
         <Button
-          label={checkoutBusy ? "Opening secure checkout…" : `Add ${valid ? `$${numericAmount.toFixed(2)}` : "funds"}`}
+          label={checkoutBusy ? "Opening secure checkout..." : `Add ${valid ? `$${numericAmount.toFixed(2)}` : "funds"}`}
           disabled={!valid || checkoutBusy}
           onPress={async () => {
             setCheckoutBusy(true);
             setNotice("");
             try {
               const confirmed = await onAddFunds(numericAmount);
-              setNotice(confirmed
-                ? "Payment confirmed. Your Wallet balance is updated."
+              setNotice(confirmed ?
+                "Payment confirmed. Your Wallet balance is updated."
                 : "Checkout was not completed or Stripe has not confirmed it yet. Your balance has not been changed.");
             } catch (caught) {
               setNotice(caught instanceof Error ? caught.message : "Checkout could not be opened.");
@@ -5144,7 +5698,7 @@ function WalletScreen({
         }}
       >
         <Text selectable style={{ color: C.ink, fontWeight: "900" }}>
-          Super Like · {formatMoney(-2.5, { signed: true })}
+          Super Like ? {formatMoney(-2.5, { signed: true })}
         </Text>
         <Text
           selectable
@@ -5420,7 +5974,7 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
               {purchases.slice(0, 80).map((purchase) => (
                 <View key={purchase.id} style={{ borderRadius: 18, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 13, gap: 4 }}>
                   <Text selectable style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>{purchase.username} · {purchase.purchase_type === "kindred_pass" ? "KindredPass" : purchase.purchase_type === "premium" ? "Premium" : "Wallet"}</Text>
-                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>{purchase.status} · ${(purchase.amount_cents / 100).toFixed(2)} {purchase.currency.toUpperCase()} · {new Date(purchase.created_at).toLocaleString()}</Text>
+                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>{purchase.status} ? ${(purchase.amount_cents / 100).toFixed(2)} {purchase.currency.toUpperCase()} ? {new Date(purchase.created_at).toLocaleString()}</Text>
                 </View>
               ))}
             </View>
@@ -5518,7 +6072,7 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
       {purchases.slice(0, 12).map((purchase) => (
         <View key={purchase.id} style={{ borderRadius: 16, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 11, gap: 3 }}>
           <Text selectable style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>{purchase.username} · {purchase.purchase_type === "kindred_pass" ? "KindredPass" : purchase.purchase_type === "premium" ? "Premium" : "Wallet"}</Text>
-          <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "800" }}>{purchase.status} · ${(purchase.amount_cents / 100).toFixed(2)} {purchase.currency.toUpperCase()}</Text>
+          <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "800" }}>{purchase.status} ? ${(purchase.amount_cents / 100).toFixed(2)} {purchase.currency.toUpperCase()}</Text>
         </View>
       ))}
       {loading ? <Text selectable style={{ color: C.muted, fontWeight: "800" }}>Loading moderation queue...</Text> : null}
@@ -5527,7 +6081,7 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
       {queue.map((item) => (
         <View key={item.profile_id} style={{ borderRadius: 20, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 14, gap: 8 }}>
           <Text selectable style={{ color: C.ink, fontSize: 17, fontWeight: "900" }}>{item.username || item.profile_id}</Text>
-          <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>Status: {item.account_status || "unknown"} · Reports: {item.report_count} · Blocks: {item.block_count}</Text>
+          <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>Status: {item.account_status || "unknown"} ? Reports: {item.report_count} ? Blocks: {item.block_count}</Text>
           <Text selectable style={{ color: "#9C3225", fontSize: 12, fontWeight: "900" }}>Latest report: {item.latest_report_reason || "None"}</Text>
           {item.latest_report_details ? <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>{item.latest_report_details}</Text> : null}
           <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>Latest block: {item.latest_block_reason || "None"}</Text>
@@ -5722,10 +6276,10 @@ function TectavisAdminPortal() {
           style={({ pressed }) => ({
             minHeight: 54,
             borderRadius: 28,
-            backgroundColor: busy || locked || !email.trim() || !password
-              ? "#8D9AA3"
-              : pressed
-                ? "#003452"
+            backgroundColor: busy || locked || !email.trim() || !password ?
+              "#8D9AA3"
+              : pressed ?
+                "#003452"
                 : adminNavy,
             alignItems: "center",
             justifyContent: "center",
@@ -5916,7 +6470,7 @@ function SettingsScreen({
   onCancel: () => void;
   onDone: () => void;
   onLogout: () => void;
-  onDeleteAccount: (reasons: string[], details: string) => Promise<void>;
+  onDeleteAccount?: (reasons: string[], details: string) => Promise<void>;
   startInWallet?: boolean;
 }) {
   const [walletOpen, setWalletOpen] = useState(startInWallet);
@@ -5931,12 +6485,12 @@ function SettingsScreen({
   const [connectionExpanded, setConnectionExpanded] = useState(false);
   const [openSection, setOpenSection] = useState("");
   const settingsBackAction = useRef<() => void>(() => {});
-  settingsBackAction.current = walletOpen
-    ? () => setWalletOpen(false)
-    : deleteOpen
-      ? () => setDeleteOpen(false)
-      : securityOpen
-        ? () => setSecurityOpen(false)
+  settingsBackAction.current = walletOpen ?
+    () => setWalletOpen(false)
+    : deleteOpen ?
+      () => setDeleteOpen(false)
+      : securityOpen ?
+        () => setSecurityOpen(false)
         : onCancel;
   const settingsSwipeBack = useRef(
     PanResponder.create({
@@ -5981,8 +6535,8 @@ function SettingsScreen({
             setSecurityNotice(result.message);
           } catch (caught) {
             setSecurityNotice(
-              caught instanceof Error
-                ? caught.message
+              caught instanceof Error ?
+                caught.message
                 : "The password reset link could not be sent.",
             );
           } finally {
@@ -6085,7 +6639,7 @@ function SettingsScreen({
             Wallet
           </Text>
           <Text selectable style={{ color: "#CEC8BE", fontSize: 11 }}>
-            Add funds · $10 minimum
+            Add funds ? $10 minimum
           </Text>
         </View>
         <Text
@@ -6097,7 +6651,7 @@ function SettingsScreen({
             fontVariant: ["tabular-nums"],
           }}
         >
-          {formatMoney(balance)} ›
+          {formatMoney(balance)} ?
         </Text>
       </Pressable>
       <View
@@ -6128,8 +6682,8 @@ function SettingsScreen({
               style={{ color: C.clay, fontSize: 11, fontWeight: "900" }}
             >
               Selected:{" "}
-              {connectionType === "dating"
-                ? "Dating"
+              {connectionType === "dating" ?
+                "Dating"
                 : "Friendship & community"}
             </Text>
           </View>
@@ -6328,8 +6882,8 @@ function SettingsScreen({
                             setSecurityNotice(result.message);
                           } catch (caught) {
                             setSecurityNotice(
-                              caught instanceof Error
-                                ? caught.message
+                              caught instanceof Error ?
+                                caught.message
                                 : "The password reset link could not be sent.",
                             );
                           } finally {
@@ -6450,7 +7004,7 @@ function DeleteAccountScreen({
   onDeleteAccount,
 }: {
   onBack: () => void;
-  onDeleteAccount: (reasons: string[], details: string) => Promise<void>;
+  onDeleteAccount?: (reasons: string[], details: string) => Promise<void>;
 }) {
   const [reasons, setReasons] = useState<string[]>([]);
   const [details, setDetails] = useState("");
@@ -6459,7 +7013,7 @@ function DeleteAccountScreen({
   const [notice, setNotice] = useState("");
   const reasonOptions = [
     "I met someone",
-    "I’m taking a break",
+    "I'm taking a break",
     "Privacy concern",
     "Safety concern",
     "Too expensive",
@@ -6469,8 +7023,8 @@ function DeleteAccountScreen({
   ];
   const toggleReason = (reason: string) =>
     setReasons((current) =>
-      current.includes(reason)
-        ? current.filter((item) => item !== reason)
+      current.includes(reason) ?
+        current.filter((item) => item !== reason)
         : [...current, reason],
     );
   const canDelete = reasons.length > 0 && confirmText.trim().toUpperCase() === "DELETE";
@@ -6493,7 +7047,7 @@ function DeleteAccountScreen({
           Before you go
         </Text>
         <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>
-          Tell us why you’re deleting. Your visible profile, private profile data, discovery listing, password, and sessions will be removed from active use. Minimal anonymized audit records may be retained for safety and legal reasons.
+          Tell us why you're deleting. Your visible profile, private profile data, discovery listing, password, and sessions will be removed from active use. Minimal anonymized audit records may be retained for safety and legal reasons.
         </Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           {reasonOptions.map((reason) => {
@@ -6541,7 +7095,7 @@ function DeleteAccountScreen({
         />
         {notice ? <Text selectable accessibilityRole="alert" style={{ color: "#9C3225", fontSize: 12, fontWeight: "900" }}>{notice}</Text> : null}
         <Button
-          label={busy ? "Deleting…" : "Delete my account permanently"}
+          label={busy ? "Deleting..." : "Delete my account permanently"}
           disabled={!canDelete || busy}
           onPress={async () => {
             setBusy(true);
@@ -6673,7 +7227,7 @@ function HelpHubPage({
             {selectedPage ? `Back to ${helpCategoryLabels[selectedPage.category].title}` : selectedCategory ? "Back to Help Hub" : "Back to Profile"}
           </Text>
         </Pressable>
-        <Text selectable style={{ color: C.ink, fontFamily: "serif", fontSize: 34, fontWeight: "900" }}>
+        <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 34, fontWeight: "900" }}>
           {selectedPage?.title || (selectedCategory ? helpCategoryLabels[selectedCategory].title : "Help Hub")}
         </Text>
         {selectedPage ? (
@@ -6776,13 +7330,13 @@ function ProfileHubScreen({
   displayName: string;
   profilePhotoUri: string;
   profileStrength: number;
-  verificationStatus: IdentityVerificationStatus;
-  verificationMethod: IdentityVerificationMethod;
+  verificationStatus?: IdentityVerificationStatus;
+  verificationMethod?: IdentityVerificationMethod;
   onEditProfile: () => void;
   onSettings: () => void;
-  onOpenWallet: () => void;
+  onOpenWallet?: () => void;
   onPurchasePlan: (plan: "premium" | "kindred_pass") => Promise<boolean>;
-  onDeleteAccount: (reasons: string[], details: string) => Promise<void>;
+  onDeleteAccount?: (reasons: string[], details: string) => Promise<void>;
   premiumActive: boolean;
   kindredPassActive: boolean;
 }) {
@@ -6837,20 +7391,11 @@ function ProfileHubScreen({
         style={{
           flexDirection: "row",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-end",
+          zIndex: 2,
+          marginBottom: -34,
         }}
       >
-        <Text
-          selectable
-          style={{
-            color: C.ink,
-            fontFamily: "serif",
-            fontSize: 34,
-            fontWeight: "900",
-          }}
-        >
-          Profile
-        </Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 9 }}>
           <Pressable
             accessibilityRole="button"
@@ -6888,7 +7433,7 @@ function ProfileHubScreen({
           </Pressable>
         </View>
       </View>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 14, paddingRight: 98 }}>
         <View style={{ width: 82, height: 82 }}>
           <View
             style={{
@@ -6950,10 +7495,10 @@ function ProfileHubScreen({
             {hubVerificationSummary ||
               (verificationStatus === "verified"
                 ? verificationMethod === "video_selfie"
-                  ? "Selfie Verified"
+                  ? "Selfie Verified — ID verification still available"
                   : "Verified securely by Stripe"
-              : verificationStatus === "processing"
-                ? "Verification is processing"
+              : verificationStatus === "processing" ?
+                "Verification is processing"
                 : "Verification not completed")}
           </Text>
           <Pressable
@@ -7051,7 +7596,7 @@ function ProfileHubScreen({
               Wallet
             </Text>
           <Text selectable style={{ color: "#CEC8BE", fontSize: 11 }}>
-            Balance <Text style={{ color: balance > 0 ? TECTAVIS_GREEN : "#CEC8BE" }}>{formatMoney(balance)}</Text> · top up from $10
+            Balance <Text style={{ color: balance > 0 ? TECTAVIS_GREEN : "#CEC8BE" }}>{formatMoney(balance)}</Text> ? top up from $10
           </Text>
           </View>
           <Pressable
@@ -7078,7 +7623,7 @@ function ProfileHubScreen({
             fontWeight: "800",
           }}
         >
-          You’re in control. Pay as you go and choose exactly which extras matter
+          You're in control. Pay as you go and choose exactly which extras matter
           to you.
         </Text>
         <Text
@@ -7124,7 +7669,7 @@ function ProfileHubScreen({
               Premium
             </Text>
             <Text selectable style={{ color: C.muted, fontSize: 11 }}>
-              $49.99 · the complete KindredCube experience
+              $49.99 ? the complete KindredCube experience
             </Text>
           </View>
           <Star width={30} height={30} color="#B78100" fill="#E7B51E" />
@@ -7134,7 +7679,7 @@ function ProfileHubScreen({
         <Benefit label="See everyone who liked you" />
         <Benefit label="Send photo comments without individual charges" />
         <Benefit label="More discovery communities and connection tools" />
-        <Button compact disabled={premiumActive || Boolean(planBusy)} label={premiumActive ? "Premium active" : planBusy === "premium" ? "Opening secure checkout…" : "Get Premium"} onPress={async () => {
+        <Button compact disabled={premiumActive || Boolean(planBusy)} label={premiumActive ? "Premium active" : planBusy === "premium" ? "Opening secure checkout..." : "Get Premium"} onPress={async () => {
           setPlanBusy("premium");
           setPlanNotices((current) => ({ ...current, premium: "" }));
           try {
@@ -7173,7 +7718,7 @@ function ProfileHubScreen({
               KindredPass
             </Text>
             <Text selectable style={{ color: C.muted, fontSize: 11 }}>
-              $19.99 · Premium access for one day
+              $19.99 ? Premium access for one day
             </Text>
           </View>
           <View
@@ -7192,7 +7737,7 @@ function ProfileHubScreen({
         <Benefit label="All Premium features for 24 hours" />
         <Benefit label="Ideal for travel, events, and trying Premium" />
         <Benefit label="Expires automatically with no ongoing subscription" />
-        <Button compact disabled={kindredPassActive || Boolean(planBusy)} label={kindredPassActive ? "KindredPass active" : planBusy === "kindred_pass" ? "Opening secure checkout…" : "Get KindredPass"} onPress={async () => {
+        <Button compact disabled={kindredPassActive || Boolean(planBusy)} label={kindredPassActive ? "KindredPass active" : planBusy === "kindred_pass" ? "Opening secure checkout..." : "Get KindredPass"} onPress={async () => {
           setPlanBusy("kindred_pass");
           setPlanNotices((current) => ({ ...current, kindred_pass: "" }));
           try {
@@ -7230,7 +7775,7 @@ function EditableProfileScreen({
   displayName: string;
   initialProfile: Record<string, unknown>;
   onUsernameChange: (username: string) => Promise<void>;
-  onConnect: () => void;
+  onConnect?: () => void;
   onSettings: () => void;
   onProfilePhotoChange: (uri?: string) => void;
   onProfileStrengthChange: (strength: number) => void;
@@ -7238,26 +7783,26 @@ function EditableProfileScreen({
   onBioChange: (bio: string) => void;
   onSearchingForChange: (goals: string[]) => void;
   onProfileDataChange: (profile: Record<string, unknown>) => void;
-  onSaveProfile: () => Promise<void>;
-  verificationStatus: IdentityVerificationStatus;
-  verificationMethod: IdentityVerificationMethod;
-  onVerificationStatusChange: (status: IdentityVerificationStatus) => void;
-  onVerificationMethodChange: (method: IdentityVerificationMethod) => void;
+  onSaveProfile: (patch: Record<string, unknown>) => Promise<void>;
+  verificationStatus?: IdentityVerificationStatus;
+  verificationMethod?: IdentityVerificationMethod;
+  onVerificationStatusChange?: (status: IdentityVerificationStatus) => void;
+  onVerificationMethodChange?: (method: IdentityVerificationMethod) => void;
 }) {
   const initialArray = (key: string) =>
     Array.isArray(initialProfile[key]) ? (initialProfile[key] as string[]) : [];
   const initialObject = <T extends Record<string, unknown>>(key: string) =>
-    initialProfile[key] && typeof initialProfile[key] === "object"
-      ? (initialProfile[key] as T)
+    initialProfile[key] && typeof initialProfile[key] === "object" ?
+      (initialProfile[key] as T)
       : ({} as T);
   const [photos, setPhotos] = useState<MemberPhoto[]>(
-    Array.isArray(initialProfile.photos)
-      ? (initialProfile.photos as MemberPhoto[])
+    Array.isArray(initialProfile.photos) ?
+      (initialProfile.photos as MemberPhoto[])
       : [],
   );
   const [bestPhotoId, setBestPhotoId] = useState(
-    typeof initialProfile.bestPhotoId === "string"
-      ? initialProfile.bestPhotoId
+    typeof initialProfile.bestPhotoId === "string" ?
+      initialProfile.bestPhotoId
       : "",
   );
   const [editingUsername, setEditingUsername] = useState(false);
@@ -7267,9 +7812,12 @@ function EditableProfileScreen({
   const [verificationOptionsOpen, setVerificationOptionsOpen] = useState(false);
   const [verificationNotice, setVerificationNotice] = useState("");
   const [verificationBusy, setVerificationBusy] = useState(false);
+  const [selfieVerificationOpen, setSelfieVerificationOpen] = useState(false);
+  const stripeIdentityVerified = verificationStatus === "verified" && verificationMethod !== "video_selfie";
+  const selfieOnlyVerified = verificationStatus === "verified" && verificationMethod === "video_selfie";
   const [personality, setPersonality] = useState(
-    typeof initialProfile.personality === "string"
-      ? initialProfile.personality
+    typeof initialProfile.personality === "string" ?
+      initialProfile.personality
       : "",
   );
   const [personalityTestOpen, setPersonalityTestOpen] = useState(false);
@@ -7311,8 +7859,8 @@ function EditableProfileScreen({
     const saved = initialProfile.matchingLocation;
     if (!saved || typeof saved !== "object") return null;
     const value = saved as Record<string, unknown>;
-    return typeof value.latitude === "number" && typeof value.longitude === "number"
-      ? { latitude: value.latitude, longitude: value.longitude }
+    return typeof value.latitude === "number" && typeof value.longitude === "number" ?
+      { latitude: value.latitude, longitude: value.longitude }
       : null;
   });
   const [currentLocationStatus, setCurrentLocationStatus] = useState<
@@ -7335,16 +7883,27 @@ function EditableProfileScreen({
       "promptAnswers",
     ),
   );
+  const [kindredTypeOpen, setKindredTypeOpen] = useState(false);
+  const [kindredTypeStep, setKindredTypeStep] = useState(0);
+  const [compatibilityResponses, setCompatibilityResponses] = useState<
+    NonNullable<MatchingSignals["compatibilityResponses"]>
+  >(
+    initialObject<NonNullable<MatchingSignals["compatibilityResponses"]>>(
+      "compatibilityResponses",
+    ),
+  );
   const profileEditorBackAction = useRef<() => void>(() => {});
-  profileEditorBackAction.current = selectionEditor
-    ? () => setSelectionEditor(null)
+  profileEditorBackAction.current = selectionEditor ?
+    () => setSelectionEditor(null)
     : promptEditor
       ? () => {
           setSelectedPrompt("");
           setPromptAnswer("");
           setPromptEditor("");
         }
-      : onConnect;
+      : kindredTypeOpen ?
+         () => setKindredTypeOpen(false)
+        : onConnect;
   const profileEditorSwipeBack = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gesture) => gesture.dx > 24 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.4,
@@ -7404,10 +7963,10 @@ function EditableProfileScreen({
     if (!selectionEditor) return;
     if (selectionEditor.max === 1) return setDraftSelections([item]);
     setDraftSelections((current) =>
-      current.includes(item)
-        ? current.filter((value) => value !== item)
-        : current.length < selectionEditor.max
-          ? [...current, item]
+      current.includes(item) ?
+        current.filter((value) => value !== item)
+        : current.length < selectionEditor.max ?
+          [...current, item]
           : current,
     );
   };
@@ -7441,8 +8000,8 @@ function EditableProfileScreen({
         continue;
       }
       const mimeType =
-        asset.mimeType === "image/png" || asset.mimeType === "image/webp" || asset.mimeType === "image/jpeg"
-          ? asset.mimeType
+        asset.mimeType === "image/png" || asset.mimeType === "image/webp" || asset.mimeType === "image/jpeg" ?
+          asset.mimeType
           : "image/jpeg";
       try {
         const uploaded = await uploadProfilePhoto({
@@ -7499,63 +8058,34 @@ function EditableProfileScreen({
     const first = photos[0];
     if (!first || bestPhotoId === first.id) return;
     setBestPhotoId(first.id);
-    onProfilePhotoChange(first.uri);
+    onProfilePhotoChange(first?.uri);
   }, [photos, bestPhotoId, onProfilePhotoChange]);
-  const startVideoSelfieVerificationFromProfile = async () => {
+  const startVideoSelfieVerificationFromProfile = () => {
+    setVerificationNotice("");
+    setSelfieVerificationOpen(true);
+  };
+  const submitProfileVideoSelfieVerification = async (input: {
+    videoBase64: string;
+    mimeType: "video/mp4" | "video/quicktime" | "video/mov";
+    sizeBytes: number;
+    faceImageBase64: string;
+    faceImageMimeType: "image/jpeg";
+  }) => {
     setVerificationBusy(true);
     setVerificationNotice("");
     try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        setVerificationNotice("Camera permission is required for video selfie verification.");
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: "videos",
-        videoMaxDuration: 12,
-        quality: 0.7,
-      });
-      if (result.canceled || !result.assets[0]) return;
-      const asset = result.assets[0];
-      const sizeBytes = getPickerAssetSize(asset) || 0;
-      if (sizeBytes <= 0 || sizeBytes > 15 * 1024 * 1024) {
-        setVerificationNotice("Video selfie must be 15 MB or less.");
-        return;
-      }
-      const mimeType = asset.mimeType === "video/quicktime" || asset.mimeType === "video/mov" ? asset.mimeType : "video/mp4";
-      const videoBase64 = await new File(asset.uri).base64();
-      setVerificationNotice("Now capture one clear face frame for secure verification.");
-      const faceResult = await ImagePicker.launchCameraAsync({
-        mediaTypes: "images",
-        allowsEditing: false,
-        base64: true,
-        quality: 0.85,
-      });
-      if (faceResult.canceled || !faceResult.assets[0]) {
-        setVerificationNotice("A clear face frame is required to complete Selfie verification.");
-        return;
-      }
-      const faceAsset = faceResult.assets[0];
-      const faceImageBase64 = faceAsset.base64 || await new File(faceAsset.uri).base64();
-      if (!faceImageBase64) {
-        setVerificationNotice("A clear face frame is required to complete Selfie verification.");
-        return;
-      }
       const saved = await submitVideoSelfieVerification({
-        videoBase64,
-        mimeType,
-        sizeBytes,
+        videoBase64: input.videoBase64,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
         consentAccepted: true,
-        faceImageBase64,
-        faceImageMimeType: faceAsset.mimeType === "image/png" || faceAsset.mimeType === "image/webp" ? faceAsset.mimeType : "image/jpeg",
+        faceImageBase64: input.faceImageBase64,
+        faceImageMimeType: input.faceImageMimeType,
       });
       onVerificationStatusChange(saved.status);
       onVerificationMethodChange(saved.verificationMethod);
-      setVerificationNotice(
-        saved.status === "verified"
-          ? "Thank you for verifying. You are now Selfie Verified."
-          : "Verification has not met the requirement. Please redo your video selfie.",
-      );
+      setVerificationNotice(selfieVerificationNotice(saved.status, saved.reasonCode));
+      if (saved.status === "verified") setSelfieVerificationOpen(false);
     } catch (caught) {
       setVerificationNotice(caught instanceof Error ? caught.message : "Video selfie verification could not be completed.");
     } finally {
@@ -7569,8 +8099,24 @@ function EditableProfileScreen({
     typeof entry.answer === "string" &&
     entry.answer.trim().length >= 3,
   ).length;
+  const savedPhotoPrompts = Object.values(promptAnswers)
+    .filter((entry) =>
+      entry &&
+      typeof entry.prompt === "string" &&
+      entry.prompt.trim().length > 0 &&
+      typeof entry.answer === "string" &&
+      entry.answer.trim().length >= 3,
+    )
+    .map((entry) => ({
+      prompt: entry.prompt.trim() || "",
+      answer: entry.answer.trim() || "",
+    }));
+  const kindredTypeAnswerCount = kindredTypeQuestions.filter((question) =>
+    typeof compatibilityResponses[question.key].value === "number",
+  ).length;
   const completionItems = [
     Boolean(personality),
+    kindredTypeAnswerCount === kindredTypeQuestions.length,
     relationshipGoals.length > 0,
     interests.length > 0,
     causes.length > 0,
@@ -7617,6 +8163,7 @@ function EditableProfileScreen({
       details,
       languages,
       promptAnswers,
+      compatibilityResponses,
       profileStrength,
     });
   }, [
@@ -7636,6 +8183,7 @@ function EditableProfileScreen({
     details,
     languages,
     promptAnswers,
+    compatibilityResponses,
     profileStrength,
     onProfileDataChange,
   ]);
@@ -7707,7 +8255,7 @@ function EditableProfileScreen({
             selectable
             style={{
               color: C.ink,
-              fontFamily: "serif",
+              fontFamily: BRAND_FONT,
               fontSize: 29,
               fontWeight: "900",
             }}
@@ -7765,16 +8313,17 @@ function EditableProfileScreen({
         <Pressable
           accessibilityRole="button"
           onPress={() => setPersonalityTestOpen(false)}
-          style={{ alignSelf: "flex-start", paddingVertical: 5 }}
+          style={{ alignSelf: "flex-start", paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}
         >
-          <Text style={{ color: C.ink, fontWeight: "900" }}>{"? Profile"}</Text>
+          <ChevronLeft width={18} height={18} color={C.ink} strokeWidth={3} />
+          <Text style={{ color: C.ink, fontWeight: "900" }}>Profile</Text>
         </Pressable>
         <View style={{ gap: 5 }}>
           <Text
             selectable
             style={{
               color: C.ink,
-              fontFamily: "serif",
+              fontFamily: BRAND_FONT,
               fontSize: 31,
               fontWeight: "900",
             }}
@@ -7785,7 +8334,7 @@ function EditableProfileScreen({
             selectable
             style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}
           >
-            A short Myers–Briggs-style guide. Personality type contributes to
+            A short Myers-Briggs-style guide. Personality type contributes to
             more effective matching and connection.
           </Text>
         </View>
@@ -7864,6 +8413,138 @@ function EditableProfileScreen({
       </ScrollView>
     );
 
+  if (kindredTypeOpen) {
+    const currentQuestion = kindredTypeQuestions[Math.min(kindredTypeStep, kindredTypeQuestions.length - 1)]!;
+    const selectedValue = compatibilityResponses[currentQuestion.key].value;
+    const isLastKindredTypeStep = kindredTypeStep >= kindredTypeQuestions.length - 1;
+    const goBackKindredStep = () => {
+      if (kindredTypeStep > 0) setKindredTypeStep((step) => Math.max(0, step - 1));
+      else setKindredTypeOpen(false);
+    };
+    return (
+      <ScrollView
+        {...profileEditorSwipeBack.panHandlers}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingHorizontal: 20,
+          paddingBottom: 30,
+          gap: 16,
+          justifyContent: "center",
+        }}
+      >
+        <Logo size="compact" />
+        <Pressable
+          accessibilityRole="button"
+          onPress={goBackKindredStep}
+          style={{ alignSelf: "flex-start", paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}
+        >
+          <ChevronLeft width={18} height={18} color={C.ink} strokeWidth={3} />
+          <Text style={{ color: C.ink, fontWeight: "900" }}>
+            {kindredTypeStep > 0 ? "Previous" : "Profile"}
+          </Text>
+        </Pressable>
+        <View style={{ gap: 5 }}>
+          <Text
+            selectable
+            style={{
+              color: C.ink,
+              fontFamily: BRAND_FONT,
+              fontSize: 32,
+              fontWeight: "900",
+            }}
+          >
+            Kindred Type
+          </Text>
+          <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>
+            Choose what feels most true to you.
+          </Text>
+        </View>
+        <View
+          style={{
+            borderRadius: 24,
+            backgroundColor: C.paper,
+            borderWidth: 1,
+            borderColor: C.line,
+            padding: 18,
+            gap: 13,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 26, fontWeight: "900", flex: 1 }}>
+              {currentQuestion.title}
+            </Text>
+            <View style={{ borderRadius: 999, backgroundColor: "#FCE5EE", paddingHorizontal: 10, paddingVertical: 6 }}>
+              <Text selectable style={{ color: "#A5164D", fontSize: 11, fontWeight: "900" }}>
+                {currentQuestion.weight}
+              </Text>
+            </View>
+          </View>
+          <Text selectable style={{ color: C.ink, fontSize: 20, lineHeight: 29, fontWeight: "900" }}>
+            {currentQuestion.statement}
+          </Text>
+          <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+            Pick the answer that feels most true to you. Your individual response stays private.
+          </Text>
+          <View style={{ gap: 8 }}>
+            {kindredTypeAnswerOptions.map((option) => {
+              const selected = selectedValue === option.value;
+              return (
+                <Pressable
+                  key={`${currentQuestion.key}-${option.value}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected }}
+                  onPress={() =>
+                    setCompatibilityResponses((current) => ({
+                      ...current,
+                      [currentQuestion.key]: {
+                        category: currentQuestion.category,
+                        value: option.value,
+                      },
+                    }))
+                  }
+                  style={{
+                    minHeight: 48,
+                    borderRadius: 17,
+                    borderWidth: 1.5,
+                    borderColor: selected ? C.pink : C.line,
+                    backgroundColor: selected ? "#FCE5EE" : C.paper,
+                    paddingHorizontal: 13,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: selected ? "#A5164D" : C.ink,
+                      fontSize: 14,
+                      fontWeight: selected ? "900" : "700",
+                    }}
+                  >
+                    {option.label}
+                  </Text>
+                  {selected ? <Check width={17} height={17} color={C.pink} strokeWidth={3} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+        <Button
+          label={isLastKindredTypeStep ? "Save Kindred Type" : "Next"}
+          disabled={!selectedValue}
+          onPress={() => {
+            if (isLastKindredTypeStep) setKindredTypeOpen(false);
+            else setKindredTypeStep((step) => Math.min(kindredTypeQuestions.length - 1, step + 1));
+          }}
+        />
+        <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16, textAlign: "center" }}>
+          Your answers stay private. You can edit them anytime.
+        </Text>
+      </ScrollView>
+    );
+  }
+
   if (selectionEditor)
     return (
       <ScrollView
@@ -7879,16 +8560,17 @@ function EditableProfileScreen({
         <Pressable
           accessibilityRole="button"
           onPress={() => setSelectionEditor(null)}
-          style={{ alignSelf: "flex-start", paddingVertical: 5 }}
+          style={{ alignSelf: "flex-start", paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}
         >
-          <Text style={{ color: C.ink, fontWeight: "900" }}>{"? Profile"}</Text>
+          <ChevronLeft width={18} height={18} color={C.ink} strokeWidth={3} />
+          <Text style={{ color: C.ink, fontWeight: "900" }}>Profile</Text>
         </Pressable>
         <View style={{ gap: 5 }}>
           <Text
             selectable
             style={{
               color: C.ink,
-              fontFamily: "serif",
+              fontFamily: BRAND_FONT,
               fontSize: 32,
               fontWeight: "900",
             }}
@@ -7896,12 +8578,12 @@ function EditableProfileScreen({
             {selectionEditor.title}
           </Text>
           <Text selectable style={{ color: C.muted, fontSize: 13 }}>
-            {selectionEditor.max === 1
-              ? "Choose one option."
+            {selectionEditor.max === 1 ?
+              "Choose one option."
               : `Choose up to ${selectionEditor.max}. ${draftSelections.length} selected.`}
           </Text>
         </View>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 9 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 9, rowGap: 16, paddingBottom: 10 }}>
           {selectionEditor.options.map((item) => {
             const selected = draftSelections.includes(item);
             return (
@@ -7976,15 +8658,16 @@ function EditableProfileScreen({
           <Pressable
             accessibilityRole="button"
             onPress={() => setPromptEditor("")}
-            style={{ alignSelf: "flex-start", paddingVertical: 5 }}
+            style={{ alignSelf: "flex-start", paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}
           >
-            <Text style={{ color: C.ink, fontWeight: "900" }}>{"? Profile"}</Text>
+            <ChevronLeft width={18} height={18} color={C.ink} strokeWidth={3} />
+            <Text style={{ color: C.ink, fontWeight: "900" }}>Profile</Text>
           </Pressable>
           <Text
             selectable
             style={{
               color: C.ink,
-              fontFamily: "serif",
+              fontFamily: BRAND_FONT,
               fontSize: 32,
               fontWeight: "900",
             }}
@@ -8057,13 +8740,18 @@ function EditableProfileScreen({
                 label="Save answer"
                 disabled={promptAnswer.trim().length < 3}
                 onPress={() => {
-                  setPromptAnswers((current) => ({
-                    ...current,
+                  const nextPromptAnswers = {
+                    ...promptAnswers,
                     [promptEditor]: {
                       prompt: selectedPrompt,
                       answer: promptAnswer.trim(),
                     },
-                  }));
+                  };
+                  setPromptAnswers(nextPromptAnswers);
+                  onProfileDataChange({
+                    promptAnswers: nextPromptAnswers,
+                  });
+                  onSaveProfile({ promptAnswers: nextPromptAnswers }).catch(() => undefined);
                   setPromptEditor("");
                   setSelectedPrompt("");
                   setPromptAnswer("");
@@ -8089,7 +8777,25 @@ function EditableProfileScreen({
   }
 
   return (
-    <ScrollView
+    <>
+      <Modal
+        visible={selfieVerificationOpen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setSelfieVerificationOpen(false)}
+      >
+        {selfieVerificationOpen ? (
+          <ReadyMeetVerificationScreen
+            mode="profile"
+            busy={verificationBusy ? "selfie" : ""}
+            notice={verificationNotice}
+            onClose={() => setSelfieVerificationOpen(false)}
+            onSubmitSelfie={submitProfileVideoSelfieVerification}
+            showStripe={false}
+          />
+        ) : null}
+      </Modal>
+      <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"
       contentOffset={{ x: 0, y: profileScrollOffset }}
@@ -8147,7 +8853,7 @@ function EditableProfileScreen({
               adjustsFontSizeToFit
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 29,
                 fontWeight: "900",
                 flexShrink: 1,
@@ -8193,13 +8899,13 @@ function EditableProfileScreen({
           >
             Complete profile
           </Text>
-          <Text selectable style={{ color: verificationStatus === "verified" ? C.sage : C.muted, fontSize: 11, fontWeight: verificationStatus === "verified" ? "900" : "400" }}>
-            {verificationStatus === "verified"
-              ? verificationMethod === "video_selfie"
-                ? "Selfie Verified"
-                : "Verified securely by Stripe"
-              : verificationStatus === "processing"
-                ? "Verification is processing"
+          <Text selectable style={{ color: stripeIdentityVerified || selfieOnlyVerified ? C.sage : C.muted, fontSize: 11, fontWeight: stripeIdentityVerified || selfieOnlyVerified ? "900" : "400" }}>
+            {stripeIdentityVerified
+              ? "Verified securely by Stripe"
+              : selfieOnlyVerified
+                ? "Selfie Verified — ID verification still available"
+              : verificationStatus === "processing" ?
+                "Verification is processing"
                 : "Verification not completed"}
           </Text>
         </View>
@@ -8271,8 +8977,8 @@ function EditableProfileScreen({
                   setEditingUsername(false);
                 } catch (caught) {
                   setUsernameError(
-                    caught instanceof Error
-                      ? caught.message
+                    caught instanceof Error ?
+                      caught.message
                       : "The username could not be updated.",
                   );
                 } finally {
@@ -8340,13 +9046,13 @@ function EditableProfileScreen({
       </View>
       <ProfileSection
         title="Verification"
-        subtitle="Build trust with one secure identity check. Verification is optional."
+        subtitle="Selfie verification adds trust. Stripe ID verification completes profile verification."
       >
         <View style={{ gap: 9 }}>
           <Button
             compact
-            label={verificationStatus === "verified" ? "Verification complete" : verificationOptionsOpen ? "Hide verification details" : "Get Verified"}
-            disabled={verificationStatus === "verified"}
+            label={stripeIdentityVerified ? "Verification complete" : verificationOptionsOpen ? "Hide verification details" : selfieOnlyVerified ? "Complete ID verification" : "Get Verified"}
+            disabled={stripeIdentityVerified}
             onPress={() => {
               setVerificationOptionsOpen((value) => !value);
               setVerificationNotice("");
@@ -8363,13 +9069,13 @@ function EditableProfileScreen({
                   Stripe securely checks a government-issued ID and matching live selfie. KindredCube never receives or stores the ID, selfie, document number, or extracted identification details.
                 </Text>
                 <Text selectable style={{ color: C.sage, fontSize: 10, lineHeight: 15, fontWeight: "800" }}>
-                  KindredCube stores only Stripe’s verification reference, status, and completion time.
+                  KindredCube stores only Stripe's verification reference, status, and completion time.
                 </Text>
               </View>
             </View>
             <Button
               compact
-              label={verificationBusy ? "Opening Stripe…" : verificationStatus === "requires_input" ? "Continue verification" : verificationStatus === "processing" ? "Check verification status" : "Start verification"}
+              label={verificationBusy ? "Opening Stripe..." : verificationStatus === "requires_input" ? "Continue ID verification" : verificationStatus === "processing" ? "Check ID verification status" : selfieOnlyVerified ? "Verify ID with Stripe" : "Start ID verification"}
               disabled={verificationBusy}
               onPress={async () => {
                 setVerificationBusy(true);
@@ -8379,16 +9085,16 @@ function EditableProfileScreen({
                     const session = await startIdentityVerification();
                     onVerificationStatusChange(session.status);
                     onVerificationMethodChange(session.verificationMethod || "stripe_identity");
-                    if (session.url) await WebBrowser.openBrowserAsync(session.url);
+                    if (session.url) await openKindredInAppSession(session.url, "kindredcube://verification-complete");
                   }
                   const result = await getIdentityVerificationStatus();
                   onVerificationStatusChange(result.status);
                   onVerificationMethodChange(result.verificationMethod || "stripe_identity");
                   setVerificationNotice(
-                    result.status === "verified"
-                      ? "Verification complete. Your verified badge is now active."
-                      : result.status === "processing"
-                        ? "Verification pending. Stripe is processing your verification. Check again shortly."
+                    result.status === "verified" ?
+                      "Verification complete. Your verified badge is now active."
+                      : result.status === "processing" ?
+                        "Verification pending. Stripe is processing your verification. Check again shortly."
                         : "Verification pending. Stripe has received your verification steps. Check again shortly.",
                   );
                 } catch (caught) {
@@ -8405,11 +9111,11 @@ function EditableProfileScreen({
               style={{ minHeight: 44, borderRadius: 22, borderWidth: 1, borderColor: C.line, backgroundColor: C.paper, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 }}
             >
               <Text style={{ color: C.ink, fontSize: 11, fontWeight: "900", textAlign: "center" }}>
-                Verify with Video Selfie (Don't have my ID right now)
+                Selfie Verification
               </Text>
             </Pressable>
             <Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 15 }}>
-              Video selfie verification is a great start. For full trust, we recommend Stripe ID verification. By submitting, you consent to secure encrypted storage for fraud prevention, accountability, and Trust & Safety review.
+              Selfie verification uses the in-app camera and Amazon Rekognition safety checks. By submitting, you consent to secure encrypted storage for fraud prevention, accountability, and Trust & Safety review.
             </Text>
           {verificationNotice ? (
             <View
@@ -8427,7 +9133,7 @@ function EditableProfileScreen({
                 {verificationNotice}
               </Text>
               <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>
-                Identification is handled and retained by Stripe according to Stripe’s Identity terms and your configured retention settings.
+                Identification is handled and retained by Stripe according to Stripe's Identity terms and your configured retention settings.
               </Text>
             </View>
           ) : null}
@@ -8444,12 +9150,16 @@ function EditableProfileScreen({
           {photos.map((photo, photoIndex) => {
             const best = photo.id === bestPhotoId;
             const canDelete = true;
+            const savedPrompt = !best && savedPhotoPrompts.length ?
+               savedPhotoPrompts[photoIndex % savedPhotoPrompts.length]
+              : null;
             return (
               <View
                 key={photo.id}
                 style={{
                   width: "31%",
                   aspectRatio: 0.82,
+                  marginBottom: 8,
                   borderRadius: 15,
                   overflow: "hidden",
                   borderWidth: best ? 3 : 1,
@@ -8494,8 +9204,8 @@ function EditableProfileScreen({
                     width: 28,
                     height: 28,
                     borderRadius: 14,
-                    backgroundColor: canDelete
-                      ? "rgba(34,31,27,0.72)"
+                    backgroundColor: canDelete ?
+                      "rgba(34,31,27,0.72)"
                       : "rgba(34,31,27,0.28)",
                     alignItems: "center",
                     justifyContent: "center",
@@ -8503,6 +9213,52 @@ function EditableProfileScreen({
                 >
                   <X width={15} height={15} color={C.paper} strokeWidth={3} />
                 </Pressable>
+                {savedPrompt ? (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      left: 6,
+                      right: 6,
+                      bottom: 38,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.55)",
+                      backgroundColor: "rgba(255,255,255,0.42)",
+                      paddingHorizontal: 7,
+                      paddingVertical: 5,
+                    }}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        color: "#FFFFFF",
+                        fontSize: 7.5,
+                        lineHeight: 10,
+                        fontWeight: "900",
+                        textShadowColor: "rgba(0,0,0,0.55)",
+                        textShadowOffset: { width: 0, height: 1 },
+                        textShadowRadius: 2,
+                      }}
+                    >
+                      {savedPrompt?.prompt || ""}
+                    </Text>
+                    <Text
+                      numberOfLines={2}
+                      style={{
+                        color: "#FFFFFF",
+                        fontSize: 8.5,
+                        lineHeight: 11,
+                        fontWeight: "800",
+                        textShadowColor: "rgba(0,0,0,0.65)",
+                        textShadowOffset: { width: 0, height: 1 },
+                        textShadowRadius: 2,
+                      }}
+                    >
+                      {savedPrompt?.answer || ""}
+                    </Text>
+                  </View>
+                ) : null}
                 {best ? (
                   <Text
                     style={{
@@ -8538,6 +9294,7 @@ function EditableProfileScreen({
             style={{
               width: "31%",
               aspectRatio: 0.82,
+              marginBottom: 8,
               borderRadius: 15,
               borderWidth: 1.5,
               borderStyle: "dashed",
@@ -8556,13 +9313,13 @@ function EditableProfileScreen({
         </View>
         <Text
           selectable
-          style={{ color: photos.length <= 3 ? C.muted : C.sage, fontSize: 11 }}
+          style={{ color: photos.length <= 3 ? C.muted : C.sage, fontSize: 11, lineHeight: 16, paddingTop: 4 }}
         >
-          {photos.length === 3
-            ? "Add another photo before deleting—three are required."
-            : photos.length < 3
-              ? `${photos.length} of 3 required photos added.`
-              : `${photos.length} photos · tap × to remove or ★ to choose your best.`}
+          {photos.length === 3 ?
+             "Add another photo before deleting—three are required."
+            : photos.length < 3 ?
+              `${photos.length} of 3 required photos added.`
+              : `${photos.length} photos · tap X to remove or ★ to choose your best.`}
         </Text>
       </ProfileSection>
       <ProfileSection
@@ -8573,7 +9330,7 @@ function EditableProfileScreen({
           multiline
           value={bioDraft}
           onChangeText={setBioDraft}
-          placeholder="Tell people about yourself…"
+          placeholder="Tell people about yourself..."
           placeholderTextColor="#948A7F"
           style={{
             minHeight: 110,
@@ -8627,6 +9384,43 @@ function EditableProfileScreen({
       </ProfileSection>
 
       <ProfileSection
+        title="Kindred Type"
+        subtitle="Respond to private values statements that help KindredCube find deeper compatibility."
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17, flex: 1 }}>
+            {kindredTypeAnswerCount === kindredTypeQuestions.length ?
+               `${kindredTypeAnswerCount} of ${kindredTypeQuestions.length} answered`
+              : kindredTypeAnswerCount ?
+                 "In progress"
+                : "Not started"}
+          </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                const firstUnanswered = kindredTypeQuestions.findIndex(
+                  (question) => typeof compatibilityResponses[question.key].value !== "number",
+                );
+                setKindredTypeStep(firstUnanswered >= 0 ? firstUnanswered : 0);
+                setKindredTypeOpen(true);
+              }}
+              style={{
+                minHeight: 42,
+                borderRadius: 21,
+                backgroundColor: C.ink,
+                alignItems: "center",
+                justifyContent: "center",
+                paddingHorizontal: 14,
+              }}
+            >
+              <Text style={{ color: C.paper, fontSize: 12, fontWeight: "900" }}>
+                {kindredTypeAnswerCount ? "Edit" : "Start"}
+              </Text>
+            </Pressable>
+        </View>
+      </ProfileSection>
+
+      <ProfileSection
         title="Personality type"
         subtitle="Personality type contributes to more effective matching and connection."
         onAdd={() =>
@@ -8641,11 +9435,7 @@ function EditableProfileScreen({
       >
         {personality ? (
           tagList([personality], "")
-        ) : (
-          <Text selectable style={{ color: C.muted, fontSize: 13 }}>
-            Add your Myers–Briggs personality type.
-          </Text>
-        )}
+        ) : null}
         <Pressable
           accessibilityRole="button"
           onPress={async () => {
@@ -8670,7 +9460,7 @@ function EditableProfileScreen({
           }}
         >
           <Text style={{ color: "#59359C", fontSize: 12, fontWeight: "900" }}>
-            I don’t know · Take the personality test
+            I don't know ? Take the personality test
           </Text>
         </Pressable>
       </ProfileSection>
@@ -8878,7 +9668,7 @@ function EditableProfileScreen({
               selectable
               style={{ color: C.muted, fontSize: 11, fontWeight: "800" }}
             >
-              LOCATION · AUTOMATIC
+              LOCATION ? AUTOMATIC
             </Text>
             <Text
               selectable
@@ -8889,8 +9679,8 @@ function EditableProfileScreen({
                 paddingTop: 3,
               }}
             >
-              {currentLocationStatus === "loading"
-                ? "Detecting your current city…"
+              {currentLocationStatus === "loading" ?
+                 "Detecting your current city..."
                 : currentLocation || "Enable location access to detect your city"}
             </Text>
           </View>
@@ -8922,8 +9712,8 @@ function EditableProfileScreen({
                       isLanguages ? languages : value ? [value] : [],
                       isLanguages ? 5 : 1,
                       (items) =>
-                        isLanguages
-                          ? setLanguages(items)
+                        isLanguages ?
+                          setLanguages(items)
                           : setDetails((current) => {
                               const next = {
                                 ...current,
@@ -9004,7 +9794,7 @@ function EditableProfileScreen({
         </Text>
       ) : null}
       <Button
-        label={profileSaving ? "Saving profile…" : "Save Profile"}
+        label={profileSaving ? "Saving profile..." : "Save Profile"}
         disabled={profileSaving}
         onPress={async () => {
           setProfileSaving(true);
@@ -9040,7 +9830,8 @@ function EditableProfileScreen({
           }
         }}
       />
-    </ScrollView>
+      </ScrollView>
+    </>
   );
 }
 
@@ -9062,7 +9853,7 @@ function RecommendationCard({
   scrollX: Animated.Value;
   tag: string;
   onOpen: () => void;
-  onLike: () => void;
+  onLike?: () => void;
   liked?: boolean;
 }) {
   const inputRange = [(index - 1) * step, index * step, (index + 1) * step];
@@ -9131,10 +9922,10 @@ function RecommendationCard({
               width: 46,
               height: 46,
               borderRadius: 23,
-              backgroundColor: pressed
-                ? "rgba(249,200,218,0.96)"
-                : liked
-                  ? "rgba(252,229,238,0.98)"
+              backgroundColor: pressed ?
+                "rgba(249,200,218,0.96)"
+                : liked ?
+                  "rgba(252,229,238,0.98)"
                   : "rgba(255,253,249,0.94)",
               alignItems: "center",
               justifyContent: "center",
@@ -9211,7 +10002,7 @@ function RecommendationCarousel({
   description: string;
   recommendations: readonly TaggedRecommendation[];
   likedProfileKeys?: readonly string[];
-  onProfilePress: (profile: Profile) => void;
+  onProfilePress?: (profile: Profile) => void;
   onLike: (profile: Profile) => void;
 }) {
   const { width } = useWindowDimensions();
@@ -9229,7 +10020,7 @@ function RecommendationCarousel({
           selectable
           style={{
             color: C.ink,
-            fontFamily: "serif",
+            fontFamily: BRAND_FONT,
             fontSize: 25,
             fontWeight: "900",
           }}
@@ -9331,41 +10122,15 @@ function proposalMapLink(proposal: MeetProposal) {
 
 function proposalDirectionsLink(proposal: MeetProposal) {
   const destination = `${proposal.latitude},${proposal.longitude}`;
-  return process.env.EXPO_OS === "ios"
-    ? `http://maps.apple.com/?daddr=${destination}`
+  return process.env.EXPO_OS === "ios" ?
+    `http://maps.apple.com/?daddr=${destination}`
     : `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
-}
-
-function proposalUberLink(proposal: MeetProposal) {
-  const nickname = encodeURIComponent(proposal.venue);
-  return `uber://?action=setPickup&dropoff[latitude]=${proposal.latitude}&dropoff[longitude]=${proposal.longitude}&dropoff[nickname]=${nickname}`;
-}
-
-function proposalLyftLink(proposal: MeetProposal) {
-  return `lyft://ridetype?id=lyft&partner=kindredcube&destination[latitude]=${proposal.latitude}&destination[longitude]=${proposal.longitude}`;
-}
-
-function proposalUberFallbackLink(proposal: MeetProposal) {
-  const nickname = encodeURIComponent(proposal.venue);
-  return `https://m.uber.com/ul/?action=setPickup&dropoff[latitude]=${proposal.latitude}&dropoff[longitude]=${proposal.longitude}&dropoff[nickname]=${nickname}`;
-}
-
-function proposalLyftFallbackLink(proposal: MeetProposal) {
-  return `https://lyft.com/ride?id=lyft&destination[latitude]=${proposal.latitude}&destination[longitude]=${proposal.longitude}`;
 }
 
 function openProposalLink(url: string, fallbackUrl?: string) {
   Linking.openURL(url).catch(() => {
     if (fallbackUrl) Linking.openURL(fallbackUrl).catch(() => undefined);
   });
-}
-
-async function openAppLink(appUrl: string, fallbackUrl: string) {
-  try {
-    await Linking.openURL(appUrl);
-  } catch {
-    Linking.openURL(fallbackUrl).catch(() => undefined);
-  }
 }
 
 function meetingDistanceMeters(
@@ -9475,7 +10240,7 @@ function MeetingSafetyShare({
       <View style={{ borderRadius: 16, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 12, gap: 4 }}>
         <Text selectable style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>{proposal.venue}</Text>
         <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>
-          {scheduled.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at {scheduled.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · about {proposal.durationMinutes} minutes
+          {scheduled.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at {scheduled.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} ? about {proposal.durationMinutes} minutes
         </Text>
         <Text selectable style={{ color: C.sage, fontSize: 10, fontWeight: "900" }}>Copied from the accepted proposal</Text>
         <Text selectable style={{ color: C.clay, fontSize: 10, lineHeight: 15, fontWeight: "800" }}>
@@ -9739,7 +10504,7 @@ function PostMeetCheckModal({
                   {proposal.venue}
                 </Text>
                 <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>
-                  {meetingStartedAt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at {meetingStartedAt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · about {proposal.durationMinutes} minutes
+                  {meetingStartedAt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at {meetingStartedAt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} ? about {proposal.durationMinutes} minutes
                 </Text>
               </View>
             </View>
@@ -9876,7 +10641,7 @@ function LegacyReadyMeetChat({
           onPress={onBack}
         >
           <Text style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>
-            ‹
+            ?
           </Text>
         </Pressable>
         <View
@@ -9900,7 +10665,7 @@ function LegacyReadyMeetChat({
             selectable
             style={{ color: C.sage, fontSize: 11, fontWeight: "800" }}
           >
-            Ready nearby · online
+            Ready nearby ? online
           </Text>
         </View>
         <Pressable
@@ -9928,7 +10693,7 @@ function LegacyReadyMeetChat({
               fontWeight: "900",
             }}
           >
-            ✚
+            ?
           </Text>
           <Text style={{ color: "#1F7A3B", fontSize: 9, lineHeight: 10, fontWeight: "900" }}>Safety</Text>
         </Pressable>
@@ -10043,7 +10808,7 @@ function LegacyReadyMeetChat({
         <TextInput
           value={message}
           onChangeText={setMessage}
-          placeholder={`Message ${profile.name}…`}
+          placeholder={`Message ${profile.name}...`}
           placeholderTextColor="#948A7F"
           style={{
             flex: 1,
@@ -10104,8 +10869,9 @@ function ReadyMeetVerificationScreen({
   onClose,
   onStripe,
   onSubmitSelfie,
+  showStripe = true,
 }: {
-  mode: "send" | "accept";
+  mode: "send" | "accept" | "profile";
   busy: "" | "stripe" | "selfie";
   notice: string;
   onClose: () => void;
@@ -10117,23 +10883,27 @@ function ReadyMeetVerificationScreen({
     faceImageBase64: string;
     faceImageMimeType: "image/jpeg";
   }) => Promise<void>;
+  showStripe: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView | null>(null);
+  const autoCaptureStarted = useRef(false);
+  const autoSubmitStarted = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [poseChecking, setPoseChecking] = useState(false);
+  const [posePaused, setPosePaused] = useState(false);
   const [recordedUri, setRecordedUri] = useState("");
   const [recordedFaceImageBase64, setRecordedFaceImageBase64] = useState("");
   const [selfieNotice, setSelfieNotice] = useState("");
   const [instructionIndex, setInstructionIndex] = useState(0);
-  const instructions = [
-    "Place your face inside the oval.",
-    "Look straight into the camera.",
-    "Turn your head slowly to the left.",
-    "Turn your head slowly to the right.",
-    "Look straight again and hold still.",
+  const instructions: Array<{ pose: "straight" | "left" | "right"; text: string }> = [
+    { pose: "straight", text: "Place your face inside the oval and look straight." },
+    { pose: "left", text: "Turn your head slowly to your left." },
+    { pose: "right", text: "Turn your head slowly to your right." },
+    { pose: "straight", text: "Look straight again and hold still." },
   ];
 
   useEffect(() => {
@@ -10156,7 +10926,23 @@ function ReadyMeetVerificationScreen({
     }
     setRecordedUri("");
     setRecordedFaceImageBase64("");
+    autoCaptureStarted.current = false;
+    autoSubmitStarted.current = false;
+    setPosePaused(false);
+    setInstructionIndex(0);
+    setCameraReady(false);
     setCameraOpen(true);
+  };
+
+  const friendlySelfieError = (caught: unknown) => {
+    const message = caught instanceof Error ? caught.message : "";
+    if (/cannot\s+post|\/v1\/|verification\/selfie|not found|404/i.test(message)) {
+      return "Selfie verification is not available right now. Please try again after the app is updated.";
+    }
+    if (/network|failed to fetch|connection|timeout/i.test(message)) {
+      return "Selfie verification could not connect. Check your connection and try again.";
+    }
+    return "Selfie verification could not check your movement. Please try again.";
   };
 
   const captureFaceFrame = async () => {
@@ -10172,14 +10958,21 @@ function ReadyMeetVerificationScreen({
     }
   };
 
-  const recordSelfie = async () => {
+  const recordSelfie = async (faceFrame: string) => {
     if (!cameraRef.current || !cameraReady || recording) return;
     setSelfieNotice("");
     setRecording(true);
     try {
-      const faceFrame = await captureFaceFrame();
       if (faceFrame) setRecordedFaceImageBase64(faceFrame);
-      const result = await cameraRef.current.recordAsync({ maxDuration: 12 });
+      const recordingPromise = cameraRef.current.recordAsync({ maxDuration: 4 });
+      setTimeout(() => {
+        try {
+          cameraRef.current.stopRecording();
+        } catch {
+          // recordAsync may already have stopped at maxDuration.
+        }
+      }, 4200);
+      const result = await recordingPromise;
       if (result?.uri) setRecordedUri(result.uri);
     } catch {
       setSelfieNotice("The video selfie could not be recorded. Please try again.");
@@ -10196,32 +10989,114 @@ function ReadyMeetVerificationScreen({
     }
   };
 
+  const resetAutoSelfie = (message = "Place your face inside the oval and hold still. KindredCube will capture automatically.") => {
+    if (recording) stopSelfie();
+    setRecordedUri("");
+    setRecordedFaceImageBase64("");
+    setInstructionIndex(0);
+    setPoseChecking(false);
+    setPosePaused(false);
+    autoCaptureStarted.current = false;
+    autoSubmitStarted.current = false;
+    setSelfieNotice(message);
+  };
+
+  const checkCurrentPose = async () => {
+    if (!cameraRef.current || !cameraReady || recording || poseChecking || posePaused || recordedUri) return;
+    const step = instructions[instructionIndex] || instructions[0]!;
+    setPoseChecking(true);
+    setSelfieNotice("");
+    try {
+      const faceFrame = await captureFaceFrame();
+      if (!faceFrame) {
+        setSelfieNotice("I cannot see your face clearly. Place your face inside the oval.");
+        return;
+      }
+      const result = await checkSelfiePose({
+        faceImageBase64: faceFrame,
+        faceImageMimeType: "image/jpeg",
+        expectedPose: step.pose,
+      });
+      if (!result.ok) {
+        setSelfieNotice(result.message);
+        return;
+      }
+      setSelfieNotice("");
+      if (instructionIndex >= instructions.length - 1) {
+        await recordSelfie(faceFrame);
+        return;
+      }
+      setInstructionIndex((current) => Math.min(instructions.length - 1, current + 1));
+    } catch (caught) {
+      setPosePaused(true);
+      setSelfieNotice(friendlySelfieError(caught));
+    } finally {
+      setPoseChecking(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!cameraOpen || !cameraReady || recording || recordedUri || poseChecking || posePaused) return;
+    const timer = setTimeout(() => {
+      void checkCurrentPose();
+    }, autoCaptureStarted.current ? 2400 : 2600);
+    autoCaptureStarted.current = true;
+    return () => clearTimeout(timer);
+  }, [cameraOpen, cameraReady, instructionIndex, poseChecking, posePaused, recordedUri, recording]);
+
   const submitSelfie = async () => {
     if (!recordedUri) return;
     setSelfieNotice("");
-    const videoFile = new File(recordedUri);
-    const sizeBytes = videoFile.size || 0;
-    if (sizeBytes <= 0 || sizeBytes > 15 * 1024 * 1024) {
-      setSelfieNotice("Video selfie must be 15 MB or less.");
-      return;
+    try {
+      const videoFile = new File(recordedUri);
+      const sizeBytes = videoFile.size || 0;
+      if (sizeBytes <= 0 || sizeBytes > 15 * 1024 * 1024) {
+        setSelfieNotice("Video selfie must be 15 MB or less. Please retake it.");
+        setPosePaused(true);
+        autoSubmitStarted.current = false;
+        return;
+      }
+      const faceImageBase64 = recordedFaceImageBase64 || await captureFaceFrame();
+      if (!faceImageBase64) {
+        setSelfieNotice("Please keep your face clearly in the oval so KindredCube can create your secure face record.");
+        setPosePaused(true);
+        autoSubmitStarted.current = false;
+        return;
+      }
+      const videoBase64 = await videoFile.base64();
+      await onSubmitSelfie({ videoBase64, mimeType: "video/mp4", sizeBytes, faceImageBase64, faceImageMimeType: "image/jpeg" });
+    } catch {
+      setSelfieNotice("Selfie verification could not be submitted. Please try again.");
+      setPosePaused(true);
+      autoSubmitStarted.current = false;
     }
-    const faceImageBase64 = recordedFaceImageBase64 || await captureFaceFrame();
-    if (!faceImageBase64) {
-      setSelfieNotice("Please keep your face clearly in the oval so KindredCube can create your secure face record.");
-      return;
-    }
-    const videoBase64 = await videoFile.base64();
-    await onSubmitSelfie({ videoBase64, mimeType: "video/mp4", sizeBytes, faceImageBase64, faceImageMimeType: "image/jpeg" });
   };
 
+  useEffect(() => {
+    if (!recordedUri || !cameraOpen || recording || busy === "selfie" || autoSubmitStarted.current) return;
+    autoSubmitStarted.current = true;
+    setSelfieNotice("Selfie captured. Submitting securely to Amazon Rekognition...");
+    const timer = setTimeout(() => {
+      void submitSelfie();
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [busy, cameraOpen, recordedUri, recording]);
+
   if (cameraOpen) {
+    const cameraInstructionText = recording ?
+       "Final capture in progress. Hold still."
+      : recordedUri ?
+         notice || selfieNotice || (busy === "selfie" ? "Selfie captured. Submitting securely..." : "Selfie captured. Waiting for confirmation...")
+        : poseChecking ?
+           "Hold still..."
+          : selfieNotice || instructions[instructionIndex].text || "Place your face inside the oval.";
     return (
       <View style={{ flex: 1, backgroundColor: "#060606", paddingTop: insets.top + 10, paddingBottom: insets.bottom + 16 }}>
         <View style={{ paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <Pressable accessibilityRole="button" onPress={() => { if (recording) stopSelfie(); setCameraOpen(false); }} style={{ minHeight: 42, justifyContent: "center" }}>
             <Text style={{ color: C.paper, fontSize: 14, fontWeight: "900" }}>Close</Text>
           </Pressable>
-          <Text selectable style={{ color: C.paper, fontSize: 16, fontWeight: "900" }}>Video Selfie</Text>
+          <Text selectable style={{ color: C.paper, fontSize: 16, fontWeight: "900" }}>Selfie Verification</Text>
           <View style={{ width: 54 }} />
         </View>
         <View style={{ flex: 1, margin: 18, borderRadius: 28, overflow: "hidden", backgroundColor: "#111" }}>
@@ -10233,26 +11108,28 @@ function ReadyMeetVerificationScreen({
             style={{ flex: 1 }}
           />
           <View pointerEvents="none" style={{ position: "absolute", top: "16%", alignSelf: "center", width: 210, height: 285, borderRadius: 110, borderWidth: 4, borderColor: "rgba(255,255,255,0.92)", backgroundColor: "transparent" }} />
-          <View style={{ position: "absolute", left: 14, right: 14, bottom: 14, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.58)", padding: 14, gap: 8 }}>
-            <Text selectable style={{ color: C.paper, fontSize: 17, lineHeight: 22, fontWeight: "900", textAlign: "center" }}>
-              {recording ? instructions[instructionIndex] : recordedUri ? "Review complete. Submit your video selfie." : "When ready, tap Record and follow the directions."}
-            </Text>
-            {selfieNotice ? <Text accessibilityRole="alert" selectable style={{ color: "#FFD3D3", fontSize: 12, fontWeight: "900", textAlign: "center" }}>{selfieNotice}</Text> : null}
+          <View pointerEvents="none" style={{ position: "absolute", top: "7%", left: 22, right: 22, alignItems: "center" }}>
+            <View style={{ borderRadius: 22, backgroundColor: "rgba(0,0,0,0.62)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", paddingHorizontal: 16, paddingVertical: 12 }}>
+              <Text accessibilityRole={selfieNotice ? "alert" : undefined} selectable style={{ color: C.paper, fontSize: 17, lineHeight: 22, fontWeight: "900", textAlign: "center" }}>
+                {cameraInstructionText}
+              </Text>
+            </View>
+          </View>
+          <View style={{ position: "absolute", left: 14, right: 14, bottom: 14, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.48)", padding: 14, gap: 8 }}>
             <View style={{ flexDirection: "row", gap: 10 }}>
-              {!recordedUri ? (
-                <Pressable accessibilityRole="button" disabled={!cameraReady} onPress={recording ? stopSelfie : recordSelfie} style={{ flex: 1, minHeight: 48, borderRadius: 24, backgroundColor: recording ? "#D73333" : C.paper, alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ color: recording ? C.paper : C.ink, fontSize: 14, fontWeight: "900" }}>{recording ? "Stop" : "Record"}</Text>
-                </Pressable>
-              ) : (
-                <>
-                  <Pressable accessibilityRole="button" onPress={() => setRecordedUri("")} style={{ flex: 1, minHeight: 48, borderRadius: 24, borderWidth: 1, borderColor: "rgba(255,255,255,0.65)", alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ color: C.paper, fontSize: 14, fontWeight: "900" }}>Retake</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" disabled={busy === "selfie"} onPress={submitSelfie} style={{ flex: 1, minHeight: 48, borderRadius: 24, backgroundColor: C.paper, alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>{busy === "selfie" ? "Submitting..." : "Submit"}</Text>
-                  </Pressable>
-                </>
-              )}
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy === "selfie"}
+                onPress={() => resetAutoSelfie()}
+                style={{ flex: 1, minHeight: 48, borderRadius: 24, borderWidth: 1, borderColor: "rgba(255,255,255,0.65)", alignItems: "center", justifyContent: "center" }}
+              >
+                <Text style={{ color: C.paper, fontSize: 14, fontWeight: "900" }}>{posePaused ? "Try again" : "Retake"}</Text>
+              </Pressable>
+              <View style={{ flex: 1, minHeight: 48, borderRadius: 24, backgroundColor: recording ? "#D73333" : recordedUri ? C.sage : "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ color: C.paper, fontSize: 14, fontWeight: "900" }}>
+                  {busy === "selfie" ? "Submitting..." : recording ? "Capturing..." : recordedUri ? "Captured" : posePaused ? "Paused" : cameraReady ? "Auto capture" : "Preparing..."}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
@@ -10270,7 +11147,9 @@ function ReadyMeetVerificationScreen({
         <Pressable accessibilityRole="button" onPress={onClose} style={{ minHeight: 42, justifyContent: "center" }}>
           <Text style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>Close</Text>
         </Pressable>
-        <Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>Ready to Meet Safety</Text>
+        <Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>
+          {mode === "profile" ? "Selfie Verification" : "Ready to Meet Safety"}
+        </Text>
         <View style={{ width: 54 }} />
       </View>
       <View style={{ borderRadius: 30, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 20, gap: 15, boxShadow: "0 18px 42px rgba(0,29,48,0.18)" }}>
@@ -10278,35 +11157,43 @@ function ReadyMeetVerificationScreen({
           <ShieldCheck width={30} height={30} color="#1685E5" />
         </View>
         <Text selectable style={{ color: C.ink, fontSize: 27, lineHeight: 31, fontWeight: "900" }}>
-          Verification required to {mode === "send" ? "send a meetup proposal" : "accept this meetup"}
+          {mode === "profile" ?
+             "Verify with a guided selfie"
+            : `Verification required to ${mode === "send" ? "send a meetup proposal" : "accept this meetup"}`}
         </Text>
         <Text selectable style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
-          Both people must be verified before a Ready to Meet proposal can be sent or accepted. This protects everyone and keeps meetup details safer.
+          {mode === "profile" ?
+             "KindredCube will guide you through a short in-app selfie recording, capture a clear face frame, and send it securely to Amazon Rekognition for duplicate-account and safety checks."
+            : "Both people must be verified before a Ready to Meet proposal can be sent or accepted. This protects everyone and keeps meetup details safer."}
         </Text>
-        <Pressable
-          accessibilityRole="button"
-          disabled={Boolean(busy)}
-          onPress={onStripe}
-          style={{ minHeight: 56, borderRadius: 28, backgroundColor: "#1685E5", alignItems: "center", justifyContent: "center", paddingHorizontal: 16 }}
-        >
-          <Text style={{ color: C.paper, fontSize: 15, fontWeight: "900" }}>{busy === "stripe" ? "Opening Stripe..." : "Verify with Stripe (Recommended)"}</Text>
-        </Pressable>
-        <Text selectable style={{ color: C.sage, fontSize: 12, lineHeight: 18, fontWeight: "800" }}>
-          Stripe is the most secure option. KindredCube stores only the Stripe verification reference and status — not your ID document.
-        </Text>
+        {showStripe && onStripe ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              disabled={Boolean(busy)}
+              onPress={onStripe}
+              style={{ minHeight: 56, borderRadius: 28, backgroundColor: "#1685E5", alignItems: "center", justifyContent: "center", paddingHorizontal: 16 }}
+            >
+              <Text style={{ color: C.paper, fontSize: 15, fontWeight: "900" }}>{busy === "stripe" ? "Opening Stripe..." : "Verify with Stripe (Recommended)"}</Text>
+            </Pressable>
+            <Text selectable style={{ color: C.sage, fontSize: 12, lineHeight: 18, fontWeight: "800" }}>
+              Stripe is the most secure option. KindredCube stores only the Stripe verification reference and status ? not your ID document.
+            </Text>
+          </>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           disabled={Boolean(busy)}
           onPress={openCamera}
           style={{ minHeight: 52, borderRadius: 26, borderWidth: 1, borderColor: C.line, backgroundColor: "#FFF9F1", alignItems: "center", justifyContent: "center", paddingHorizontal: 14 }}
         >
-          <Text style={{ color: C.ink, fontSize: 13, fontWeight: "900", textAlign: "center" }}>Verify with Video Selfie</Text>
+          <Text style={{ color: C.ink, fontSize: 13, fontWeight: "900", textAlign: "center" }}>Selfie Verification</Text>
         </Pressable>
         <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 17 }}>
-          Video selfie verification is a quick liveness check if you do not have your ID right now. You will be asked for camera permission first, then record inside KindredCube.
+          You will be asked for camera permission first. The camera opens inside KindredCube with an oval face guide and turn-left / turn-right prompts.
         </Text>
         <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 17 }}>
-          By submitting a video selfie, you consent to secure encrypted storage for fraud prevention, accountability, and Trust & Safety review under KindredCube’s retention policy.
+          By submitting a video selfie, you consent to secure encrypted storage for fraud prevention, accountability, and Trust & Safety review under KindredCube's retention policy.
         </Text>
         {selfieNotice || notice ? (
           <Text accessibilityRole="alert" selectable style={{ color: (selfieNotice || notice).includes("Verified") ? C.sage : "#9C3225", fontSize: 12, lineHeight: 18, fontWeight: "900" }}>
@@ -10338,7 +11225,7 @@ function ReadyMeetChat({
   profile: Profile;
   onBack: () => void;
   onProfilePress?: (profile: Profile) => void;
-  onBlock?: (profile: Profile, reason?: MemberReportReason, details?: string) => void;
+  onBlock: (profile: Profile, reason: MemberReportReason, details: string) => void;
   onReport?: (profile: Profile, reason: MemberReportReason, details: string) => void;
   onMessageSent?: (profile: Profile, message?: ChatMessage) => void;
   readyNearby?: boolean;
@@ -10441,8 +11328,8 @@ function ReadyMeetChat({
   }, [profile.id]);
   const accepted = proposal?.status === "accepted";
   const currentPostMeetKey = postMeetCheckKey(proposal);
-  const meetingEnd = accepted
-    ? proposal.scheduledAt + proposal.durationMinutes * 60_000
+  const meetingEnd = accepted ?
+    proposal.scheduledAt + proposal.durationMinutes * 60_000
     : Number.POSITIVE_INFINITY;
   const meetingEnded = accepted && now >= meetingEnd;
   const meetingIsStale = accepted && meetingEnd < now - 7 * 24 * 60 * 60 * 1000;
@@ -10462,10 +11349,10 @@ function ReadyMeetChat({
     item.kind === "meeting_response" &&
     item.meetingResponse?.status === "accepted",
   );
-  const topMeetingActionLabel = postMeetDue
-    ? "Complete Post-Meet Up"
-    : activeAccepted
-      ? "Safety"
+  const topMeetingActionLabel = postMeetDue ?
+    "Complete Post-Meet Up"
+    : activeAccepted ?
+      "Safety"
       : "Propose Meeting";
   const openTopMeetingAction = () => {
     Keyboard.dismiss();
@@ -10482,7 +11369,7 @@ function ReadyMeetChat({
       setMeetingPromptNotice("Chat first, then agree to meet.");
       return;
     }
-    setMeetingPromptNotice(hasAcceptedProposalHistory ? "We’re happy to see you continuing to meet!" : "");
+    setMeetingPromptNotice(hasAcceptedProposalHistory ? "We're happy to see you continuing to meet!" : "");
     setProposalOpen((value) => !value);
   };
 
@@ -10862,8 +11749,8 @@ function ReadyMeetChat({
       }
       return;
     }
-    const outgoingText = replyTarget
-      ? `Replying to ${replyTarget.sender === "me" ? "you" : profile.name}: "${chatMessagePreview(replyTarget as ChatMessage)}"\n${text}`
+    const outgoingText = replyTarget ?
+      `Replying to ${replyTarget.sender === "me" ? "you" : profile.name}: "${chatMessagePreview(replyTarget as ChatMessage)}"\n${text}`
       : text;
     const delivered = await sendRealtimeMessage("text", { text: outgoingText });
     if (delivered) {
@@ -10986,8 +11873,8 @@ function ReadyMeetChat({
     const reactorId = currentUserId || "me";
     setChatMessages((current) =>
       current.map((item) =>
-        item.id === target.id
-          ? { ...item, reactions: { ...(item.reactions || {}), [reactorId]: emoji } }
+        item.id === target.id ?
+          { ...item, reactions: { ...(item.reactions || {}), [reactorId]: emoji } }
           : item,
       ),
     );
@@ -11046,10 +11933,10 @@ function ReadyMeetChat({
   ) => {
     const fileBase64 = await new File(localUri).base64();
     const uploaded = await uploadChatMedia({ fileBase64, mimeType, sizeBytes: fileSizeBytes });
-    const payload = kind === "image"
-      ? { imageUri: uploaded.uri, fileSizeBytes: uploaded.sizeBytes }
-      : kind === "video"
-        ? { videoUri: uploaded.uri, fileSizeBytes: uploaded.sizeBytes, durationMillis }
+    const payload = kind === "image" ?
+      { imageUri: uploaded.uri, fileSizeBytes: uploaded.sizeBytes }
+      : kind === "video" ?
+        { videoUri: uploaded.uri, fileSizeBytes: uploaded.sizeBytes, durationMillis }
         : { audioUri: uploaded.uri, durationMillis };
     setPendingChatMedia({
       kind,
@@ -11185,13 +12072,13 @@ function ReadyMeetChat({
       const session = await startIdentityVerification();
       onVerificationStatusChange?.(session.status);
       onVerificationMethodChange?.(session.verificationMethod || "stripe_identity");
-      if (session.url) await WebBrowser.openBrowserAsync(session.url);
+      if (session.url) await openKindredInAppSession(session.url, "kindredcube://verification-complete");
       const result = await getIdentityVerificationStatus();
       onVerificationStatusChange?.(result.status);
       onVerificationMethodChange?.(result.verificationMethod || "stripe_identity");
       setMeetVerificationNotice(
-        result.status === "verified"
-          ? "Verified securely by Stripe. You can continue with this meetup."
+        result.status === "verified" ?
+          "Verified securely by Stripe. You can continue with this meetup."
           : "Stripe verification is pending. Check again shortly.",
       );
       if (result.status === "verified") setMeetVerificationGate("");
@@ -11222,11 +12109,7 @@ function ReadyMeetChat({
       });
       onVerificationStatusChange?.(saved.status);
       onVerificationMethodChange?.(saved.verificationMethod);
-      setMeetVerificationNotice(
-        saved.status === "verified"
-          ? "Thank you for verifying. You are now Selfie Verified."
-          : "Verification has not met the requirement. Please redo your video selfie.",
-      );
+      setMeetVerificationNotice(selfieVerificationNotice(saved.status, saved.reasonCode));
       if (saved.status === "verified") setMeetVerificationGate("");
     } catch (caught) {
       setMeetVerificationNotice(caught instanceof Error ? caught.message : "Video selfie verification could not be completed.");
@@ -11288,7 +12171,7 @@ function ReadyMeetChat({
           >
             <View style={{ width: 52, height: 52, borderRadius: 18, backgroundColor: postMeetDue ? "#1F7A3B" : activeAccepted ? "#E7F7EA" : "#1685E5", borderWidth: 1.5, borderColor: activeAccepted ? "#279447" : KINDREDCUBE_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden", boxShadow: activeAccepted ? "0 8px 18px rgba(39,148,71,0.22)" : "0 10px 22px rgba(245,130,32,0.46)" }}>
               {activeAccepted ? (
-                <Text style={{ color: "#1F7A3B", fontSize: 19, fontWeight: "900" }}>✚</Text>
+                <Text style={{ color: "#1F7A3B", fontSize: 19, fontWeight: "900" }}>+</Text>
               ) : postMeetDue ? (
                 <Check width={22} height={22} color={C.paper} />
               ) : (
@@ -11342,7 +12225,38 @@ function ReadyMeetChat({
         ) : null}
       </Modal>
 
-      {safetyOpen && proposal && !typingMode ? <MeetingSafetyShare profile={profile} proposal={proposal} onClose={() => setSafetyOpen(false)} /> : null}
+      <Modal
+        visible={Boolean(safetyOpen && proposal)}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setSafetyOpen(false)}
+      >
+        {proposal ? (
+          <KeyboardAvoidingView
+            behavior={process.env.EXPO_OS === "ios" ? "padding" : "height"}
+            style={{ flex: 1, backgroundColor: C.cream }}
+          >
+            <ScrollView
+              contentInsetAdjustmentBehavior="automatic"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{
+                flexGrow: 1,
+                justifyContent: "center",
+                paddingTop: insets.top + 24,
+                paddingHorizontal: 20,
+                paddingBottom: insets.bottom + 28,
+              }}
+            >
+              <MeetingSafetyShare
+                profile={profile}
+                proposal={proposal}
+                onClose={() => setSafetyOpen(false)}
+              />
+            </ScrollView>
+          </KeyboardAvoidingView>
+        ) : null}
+      </Modal>
 
       {meetingPromptNotice && !proposalOpen && !typingMode ? (
         <View style={{ borderRadius: 20, backgroundColor: "#F7F3ED", paddingHorizontal: 15, paddingVertical: 13, alignItems: "center", justifyContent: "center", boxShadow: "0 10px 24px rgba(0,29,48,0.10)" }}>
@@ -11388,7 +12302,7 @@ function ReadyMeetChat({
             </Text>
           ) : venueSearching ? (
             <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "800" }}>
-              Searching Maps for this place…
+              Searching Maps for this place...
             </Text>
           ) : null}
           {venueSuggestions.length ? (
@@ -11425,12 +12339,36 @@ function ReadyMeetChat({
             <Pressable onPress={() => { setDateOpen((v) => !v); setTimeOpen(false); }} style={{ flex: 1, minHeight: 46, borderRadius: 14, backgroundColor: C.paper, padding: 10 }}><Text style={{ color: C.muted, fontSize: 9, fontWeight: "900" }}>DATE</Text><Text style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>{scheduledAt.toLocaleDateString()}</Text></Pressable>
             <Pressable onPress={() => { setTimeOpen((v) => !v); setDateOpen(false); }} style={{ flex: 1, minHeight: 46, borderRadius: 14, backgroundColor: C.paper, padding: 10 }}><Text style={{ color: C.muted, fontSize: 9, fontWeight: "900" }}>TIME</Text><Text style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>{scheduledAt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</Text></Pressable>
           </View>
-          {dateOpen ? <DateTimePicker value={scheduledAt} mode="date" minimumDate={new Date()} onChange={(_, value) => { if (value) { const next = new Date(scheduledAt); next.setFullYear(value.getFullYear(), value.getMonth(), value.getDate()); setScheduledAt(next); } if (process.env.EXPO_OS !== "ios") setDateOpen(false); }} /> : null}
-          {timeOpen ? <DateTimePicker value={scheduledAt} mode="time" onChange={(_, value) => { if (value) { const next = new Date(scheduledAt); next.setHours(value.getHours(), value.getMinutes(), 0, 0); setScheduledAt(next); } if (process.env.EXPO_OS !== "ios") setTimeOpen(false); }} /> : null}
+          {dateOpen ? <DateTimePicker value={scheduledAt} mode="date" minimumDate={new Date()} onChange={(event, value) => {
+            if (event.type !== "dismissed" && value) {
+              setScheduledAt((current) => {
+                const next = new Date(current);
+                next.setFullYear(value.getFullYear(), value.getMonth(), value.getDate());
+                if (next.getTime() <= Date.now()) return new Date(Date.now() + 60 * 60 * 1000);
+                return next;
+              });
+            }
+            if (process.env.EXPO_OS !== "ios") setDateOpen(false);
+          }} /> : null}
+          {timeOpen ? <DateTimePicker value={scheduledAt} mode="time" onChange={(event, value) => {
+            if (event.type !== "dismissed" && value) {
+              setScheduledAt((current) => {
+                const next = new Date(current);
+                next.setHours(value.getHours(), value.getMinutes(), 0, 0);
+                if (next.getTime() <= Date.now()) {
+                  const tomorrow = new Date(next);
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  return tomorrow;
+                }
+                return next;
+              });
+            }
+            if (process.env.EXPO_OS !== "ios") setTimeOpen(false);
+          }} /> : null}
           <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>Roughly how long?</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>{[30, 45, 60, 90, 120].map((minutes) => <Pressable key={minutes} onPress={() => setDurationMinutes(minutes)} style={{ borderRadius: 18, borderWidth: 1, borderColor: durationMinutes === minutes ? C.sage : C.line, backgroundColor: durationMinutes === minutes ? "#E7F2EA" : C.paper, paddingHorizontal: 12, paddingVertical: 8 }}><Text style={{ color: durationMinutes === minutes ? C.sage : C.ink, fontSize: 11, fontWeight: "900" }}>{minutes < 60 ? `${minutes} min` : `${minutes / 60} hr`}</Text></Pressable>)}</View>
           {proposalError ? <Text accessibilityRole="alert" selectable style={{ color: "#9C3225", fontSize: 11, fontWeight: "800" }}>{proposalError}</Text> : null}
-          <Button compact label={proposalSaving ? "Finding meeting place…" : "Send proposal"} disabled={proposalSaving || !venue.trim() || scheduledAt.getTime() <= Date.now()} onPress={sendProposal} />
+          <Button compact label={proposalSaving ? "Finding meeting place..." : "Send proposal"} disabled={proposalSaving || !venue.trim() || scheduledAt.getTime() <= Date.now()} onPress={sendProposal} />
           <Pressable onPress={() => setProposalOpen(false)} style={{ minHeight: 38, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>Cancel</Text></Pressable>
             </ScrollView>
           </Pressable>
@@ -11486,27 +12424,6 @@ function ReadyMeetChat({
                     <Button compact label="Check in" onPress={() => { setCheckedIn(true); setCheckInMethod("manual"); }} />
                   </View>
                 )}
-              </View>
-              <View style={{ borderRadius: 14, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 8, gap: 5 }}>
-                <Text selectable style={{ color: C.ink, fontSize: 10, fontWeight: "900" }}>
-                  Need a ride?
-                </Text>
-                <View style={{ flexDirection: "row", gap: 7 }}>
-                  <Pressable
-                    accessibilityRole="link"
-                    onPress={() => openAppLink(proposalUberLink(proposal), proposalUberFallbackLink(proposal))}
-                    style={{ flex: 1, minHeight: 32, borderRadius: 16, backgroundColor: C.ink, alignItems: "center", justifyContent: "center" }}
-                  >
-                    <Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>Uber</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="link"
-                    onPress={() => openAppLink(proposalLyftLink(proposal), proposalLyftFallbackLink(proposal))}
-                    style={{ flex: 1, minHeight: 32, borderRadius: 16, backgroundColor: "#EA0B8C", alignItems: "center", justifyContent: "center" }}
-                  >
-                    <Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>Lyft</Text>
-                  </Pressable>
-                </View>
               </View>
               <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 8, lineHeight: 11, textAlign: "center" }}>
                 Manual check-in is always available at the agreed public place.
@@ -11642,7 +12559,7 @@ function ReadyMeetChat({
                       {item.meetingProposal.venue}
                     </Text>
                     <Text selectable style={{ color: softTextColor, fontSize: 10, lineHeight: 14 }}>
-                      {new Date(item.meetingProposal.scheduledAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at {new Date(item.meetingProposal.scheduledAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · about {item.meetingProposal.durationMinutes} minutes
+                      {new Date(item.meetingProposal.scheduledAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at {new Date(item.meetingProposal.scheduledAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} ? about {item.meetingProposal.durationMinutes} minutes
                     </Text>
                     {!sentByMe ? (
                       <Text selectable style={{ color: C.sage, fontSize: 10, lineHeight: 14, fontWeight: "900" }}>
@@ -11680,7 +12597,7 @@ function ReadyMeetChat({
       </ScrollView>
 
       {composerNotice ? <Text accessibilityRole="alert" selectable style={{ color: "#9C3225", fontSize: 10, fontWeight: "800", textAlign: "center" }}>{composerNotice}</Text> : null}
-      {recorderState.isRecording ? <Text accessibilityRole="alert" selectable style={{ color: "#B52E20", fontSize: 11, fontWeight: "900", textAlign: "center" }}>Recording voice note · {Math.max(1, Math.round(recorderState.durationMillis / 1000))}s — tap stop to send</Text> : null}
+      {recorderState.isRecording ? <Text accessibilityRole="alert" selectable style={{ color: "#B52E20", fontSize: 11, fontWeight: "900", textAlign: "center" }}>Recording voice note ? {Math.max(1, Math.round(recorderState.durationMillis / 1000))}s ? tap stop to send</Text> : null}
 
       {deleteMode ? (
         <View style={{ borderRadius: 18, backgroundColor: "#FFF4EF", borderWidth: 1, borderColor: "#E5B8AE", padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -11700,7 +12617,7 @@ function ReadyMeetChat({
         <View style={{ maxHeight: 205, borderRadius: 22, backgroundColor: "#F7F3ED", padding: 12, gap: 10, borderWidth: 1, borderColor: C.line, boxShadow: "0 10px 24px rgba(0,29,48,0.14)" }}>
           <View style={{ flexDirection: "row", gap: 7 }}>
             <TextInput autoFocus value={gifQuery} onChangeText={setGifQuery} onSubmitEditing={() => runGifSearch()} returnKeyType="search" placeholder="Search GIFs" placeholderTextColor="#948A7F" style={{ flex: 1, minHeight: 48, borderRadius: 15, borderWidth: 1, borderColor: C.line, backgroundColor: C.paper, color: C.ink, paddingHorizontal: 12, fontSize: 15 }} />
-            <Pressable accessibilityRole="button" disabled={gifBusy || !gifQuery.trim()} onPress={() => runGifSearch()} style={{ minWidth: 65, borderRadius: 15, backgroundColor: gifQuery.trim() ? C.ink : "#BDB5AA", alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>{gifBusy ? "…" : "Search"}</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={gifBusy || !gifQuery.trim()} onPress={() => runGifSearch()} style={{ minWidth: 65, borderRadius: 15, backgroundColor: gifQuery.trim() ? C.ink : "#BDB5AA", alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>{gifBusy ? "..." : "Search"}</Text></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="Cancel GIF search" onPress={closeGifPicker} style={{ minWidth: 54, borderRadius: 15, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Cancel</Text></Pressable>
           </View>
           {gifError ? <Text accessibilityRole="alert" selectable style={{ color: "#9C3225", fontSize: 11, fontWeight: "800" }}>{gifError}</Text> : null}
@@ -11760,7 +12677,7 @@ function ReadyMeetChat({
           </Pressable>
         </Animated.View>
         <View style={{ flex: 1, minHeight: 48, borderWidth: 1, borderColor: C.line, borderRadius: 24, backgroundColor: C.paper, justifyContent: "center", boxShadow: "0 8px 22px rgba(0,29,48,0.16)" }}>
-          <TextInput value={message} onChangeText={setMessage} onSubmitEditing={sendTextMessage} returnKeyType="send" placeholder={`Message ${profile.name}…`} placeholderTextColor="#948A7F" style={{ minHeight: 46, paddingLeft: 14, paddingRight: 48, color: C.ink }} />
+          <TextInput value={message} onChangeText={setMessage} onSubmitEditing={sendTextMessage} returnKeyType="send" placeholder={`Message ${profile.name}...`} placeholderTextColor="#948A7F" style={{ minHeight: 46, paddingLeft: 14, paddingRight: 48, color: C.ink }} />
           <Pressable accessibilityRole="button" accessibilityLabel="Choose GIF" onPress={() => setGifOpen((value) => !value)} style={{ position: "absolute", right: 4, width: 42, height: 40, borderRadius: 20, backgroundColor: gifOpen ? "#FCE5EE" : "transparent", alignItems: "center", justifyContent: "center" }}>
             <Image source={require("./assets/gif-icon.png")} resizeMode="contain" style={{ width: 28, height: 28 }} />
           </Pressable>
@@ -11938,6 +12855,14 @@ async function getPickerAssetBase64(asset: ImagePicker.ImagePickerAsset) {
   const fromPicker = typeof asset.base64 === "string" ? asset.base64.trim() : "";
   if (fromPicker) return fromPicker;
   try {
+    return await LegacyFileSystem.readAsStringAsync(asset.uri, {
+      encoding: LegacyFileSystem.EncodingType.Base64,
+    });
+  } catch {
+    // Fall through to the newer file API below. Some native gallery URIs only
+    // work with one reader depending on platform/build.
+  }
+  try {
     return await new File(asset.uri).base64();
   } catch {
     return "";
@@ -11983,6 +12908,47 @@ function privacySafeAreaCoordinate(latitude: number, longitude: number) {
   };
 }
 
+const readyMeetEmptyQuotes = [
+  { text: "With the right person, you will evolve rapidly.", author: "Beatrice Sparks" },
+  { text: "In love, the paradox occurs that two beings become one and yet remain two.", author: "Erich Fromm" },
+  { text: "The right person feels like peace, not pressure.", author: "KindredCube" },
+  { text: "Real connection begins where performance ends.", author: "KindredCube" },
+  { text: "A true kindred makes becoming yourself feel safe.", author: "KindredCube" },
+  { text: "The best meetings feel less like chance and more like recognition.", author: "KindredCube" },
+] as const;
+
+function ReadyMeetEmptyStory() {
+  const [quoteIndex, setQuoteIndex] = useState(0);
+  const fade = useRef(new Animated.Value(1)).current;
+  const quote = readyMeetEmptyQuotes[quoteIndex];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      Animated.timing(fade, { toValue: 0, duration: 450, useNativeDriver: true }).start(() => {
+        setQuoteIndex((current) => (current + 1) % readyMeetEmptyQuotes.length);
+        Animated.timing(fade, { toValue: 1, duration: 450, useNativeDriver: true }).start();
+      });
+    }, 7000);
+    return () => clearInterval(timer);
+  }, [fade]);
+
+  return (
+    <View style={{ flex: 1, minHeight: 460, justifyContent: "center", gap: 16, paddingBottom: 24 }}>
+      <View style={{ gap: 14 }}>
+        <View style={{ height: 318, borderRadius: 30, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
+          <Image source={require("./assets/ready-meet/ready-meet-empty-loop.gif")} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
+        </View>
+        <View style={{ borderRadius: 22, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingHorizontal: 16, paddingVertical: 13 }}>
+          <Animated.View style={{ opacity: fade }}>
+            <Text selectable style={{ color: C.paper, fontSize: 14, lineHeight: 20, fontWeight: "800", textAlign: "center" }}>“{quote.text}”</Text>
+            <Text selectable style={{ color: "#AAB2C8", fontSize: 11, fontWeight: "900", textAlign: "center", marginTop: 6 }}>— {quote.author}</Text>
+          </Animated.View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function ReadyToMeetFeature({
   people,
   currentProfile,
@@ -11995,6 +12961,7 @@ function ReadyToMeetFeature({
   paidChatIds,
   onUnlockReadyMeetChat,
   onOpenWallet,
+  canOpenProfileWithoutReadyMeetAccess,
   likedProfileKeys,
   onLike,
   onBlock,
@@ -12007,14 +12974,15 @@ function ReadyToMeetFeature({
   onAvailabilitySave?: (availability: { available: boolean; availableAt?: string; expiresAt?: string; latitude?: number; longitude?: number }) => void | Promise<void>;
   onOpenChat: (profile: Profile) => void;
   canUseReadyMeetChat: boolean;
-  walletBalance: number;
+  walletBalance?: number;
   paidChatIds: readonly string[];
   onUnlockReadyMeetChat: (profile: Profile) => Promise<boolean>;
-  onOpenWallet: () => void;
+  onOpenWallet?: () => void;
+  canOpenProfileWithoutReadyMeetAccess?: (profile: Profile) => boolean;
   likedProfileKeys?: readonly string[];
   onLike: (profile: Profile) => void;
-  onBlock: (profile: Profile, reason?: MemberReportReason, details?: string) => void;
-  onReport: (profile: Profile, reason: MemberReportReason, details: string) => void;
+  onBlock: (profile: Profile, reason: MemberReportReason, details: string) => void;
+  onReport?: (profile: Profile, reason: MemberReportReason, details: string) => void;
 }) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -12170,13 +13138,16 @@ function ReadyToMeetFeature({
   ];
   const readyPeopleTotal = readyPeople.length;
   const visibleReadyPeople = showAllReadyProfiles ? readyPeople : readyPeople.slice(0, 4);
-  const canViewReadyMeetProfiles = canUseReadyMeetChat || paidChatIds.length > 0;
+  const canViewReadyMeetProfile = (profile: Profile) =>
+    canUseReadyMeetChat ||
+    paidChatIds.includes(profile.id || profile.name) ||
+    canOpenProfileWithoutReadyMeetAccess?.(profile) === true;
   const requestReadyMeetAccess = (profile: Profile) => {
     setSelected(profile);
     setPaywall(true);
   };
   const openReadyMeetProfile = (profile: Profile) => {
-    if (canViewReadyMeetProfiles || paidChatIds.includes(profile.id || profile.name)) {
+    if (canViewReadyMeetProfile(profile)) {
       setSelected(profile);
       return;
     }
@@ -12190,15 +13161,18 @@ function ReadyToMeetFeature({
   const readyMeetSwipeResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponder: (_, gesture) =>
-        gesture.dx > 18 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
-      onMoveShouldSetPanResponderCapture: () => false,
+        gesture.dx > 10 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.05,
+      onMoveShouldSetPanResponderCapture: (_, gesture) =>
+        gesture.dx > 14 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.08,
       onPanResponderTerminationRequest: () => true,
+      onShouldBlockNativeResponder: () => false,
       onPanResponderRelease: (_, gesture) => {
-        if (gesture.dx > 36 && Math.abs(gesture.dy) < 160) closeReadyToMeet();
+        if (gesture.dx > 26 && Math.abs(gesture.dy) < 180) closeReadyToMeet();
       },
       onPanResponderTerminate: (_, gesture) => {
-        if (gesture.dx > 36 && Math.abs(gesture.dy) < 160) closeReadyToMeet();
+        if (gesture.dx > 26 && Math.abs(gesture.dy) < 180) closeReadyToMeet();
       },
     }),
   ).current;
@@ -12414,7 +13388,7 @@ function ReadyToMeetFeature({
         >
           <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: availableToMeet && availabilitySaved ? "#42E278" : C.pink }} />
           <Text style={{ color: availableToMeet && availabilitySaved ? C.paper : C.ink, fontSize: 13, fontWeight: "900" }}>
-            {availableToMeet && availabilitySaved ? "Take me off Ready to Meet" : "Choose when I’m available"}
+            {availableToMeet && availabilitySaved ? "Take me off Ready to Meet" : "Choose when I'm available"}
           </Text>
         </Pressable>
         {availableToMeet && availabilitySaved ? (
@@ -12490,7 +13464,7 @@ function ReadyToMeetFeature({
             </Pressable>
           </View>
         ) : null}
-        {visibleReadyPeople.length ? (
+        {readyPeopleTotal > 0 ? (
           <ScrollView
             contentInsetAdjustmentBehavior="automatic"
             showsVerticalScrollIndicator={false}
@@ -12529,7 +13503,7 @@ function ReadyToMeetFeature({
                         onPress={(event) => {
                           event.stopPropagation();
                           if (isCurrentUserReadyCard) return;
-                          if (canViewReadyMeetProfiles || paidChatIds.includes(profile.id || profile.name)) {
+                          if (canViewReadyMeetProfile(profile)) {
                             onOpenChat(profile);
                             return;
                           }
@@ -12575,7 +13549,87 @@ function ReadyToMeetFeature({
               </Pressable>
             ) : null}
           </ScrollView>
-        ) : <View style={{ flex: 1 }} />}
+        ) : <ReadyMeetEmptyStory />}
+        {paywall && selectedProfileRef.current ? (
+          <View
+            style={{
+              position: "absolute",
+              zIndex: 50,
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              backgroundColor: "rgba(7,10,24,0.72)",
+              paddingHorizontal: 20,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <View
+              style={{
+                width: "100%",
+                maxWidth: 390,
+                borderRadius: 26,
+                backgroundColor: "#F3EDF9",
+                borderWidth: 1,
+                borderColor: "#C6B3E7",
+                padding: 18,
+                gap: 11,
+                boxShadow: "0 22px 48px rgba(0,0,0,0.38)",
+              }}
+            >
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close Ready to Meet access options"
+                onPress={() => {
+                  setPaywall(false);
+                  setSelected(null);
+                }}
+                style={{ alignSelf: "flex-end" }}
+              >
+                <X width={21} height={21} color={C.ink} />
+              </Pressable>
+              <LockKeyhole width={27} height={27} color="#59359C" />
+              <Text selectable style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>
+                Ready to Meet access
+              </Text>
+              <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+                Ready to Meet access is {formatMoney(9.99)} for 7 days. Use it to view Ready-to-Meet profiles and start chats during that window. Premium and KindredPass include Ready-to-Meet access.
+              </Text>
+              <Text selectable style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>
+                Wallet balance: {formatMoney(walletBalance)}
+              </Text>
+              <Text selectable style={{ color: "#59359C", fontSize: 12, lineHeight: 17, fontWeight: "900" }}>
+                Wallet Ready to Meet pass: {formatMoney(9.99)} for 7 days.
+              </Text>
+              <Button
+                compact
+                label={walletBalance >= 9.99 ? (unlockingChat ? "Unlocking access..." : `Use Wallet ? ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
+                disabled={unlockingChat}
+                onPress={async () => {
+                  if (!selectedProfileRef.current) return;
+                  if (walletBalance < 9.99) {
+                    setPaywall(false);
+                    setSelected(null);
+                    closeReadyToMeet();
+                    onOpenWallet();
+                    return;
+                  }
+                  setUnlockingChat(true);
+                  const unlocked = await onUnlockReadyMeetChat(selectedProfileRef.current);
+                  setUnlockingChat(false);
+                  if (unlocked) {
+                    setPaywall(false);
+                    setSelected(selectedProfileRef.current);
+                  }
+                }}
+              />
+              <Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 15 }}>
+                This Wallet deduction unlocks Ready to Meet access for 7 days. Wallet top-ups are non-refundable except where required by law.
+              </Text>
+            </View>
+          </View>
+        ) : null}
       </View>
       </Modal>
     );
@@ -12631,9 +13685,9 @@ function ReadyToMeetFeature({
             selectable
             style={{ color: "#CBE8D8", fontSize: 12, fontWeight: "800" }}
           >
-            {expanded
-              ? "Hide nearby people"
-              : "Live now · click to view those ready to meet"}
+            {expanded ?
+              "Hide nearby people"
+              : "Live now ? click to view those ready to meet"}
           </Text>
         </View>
         <Text style={{ color: C.paper, fontSize: 23, fontWeight: "900" }}>
@@ -12676,7 +13730,7 @@ function ReadyToMeetFeature({
           >
             <View style={{ width: 11, height: 11, borderRadius: 6, backgroundColor: availableToMeet && availabilitySaved ? "#42E278" : C.line }} />
             <Text style={{ color: availableToMeet && availabilitySaved ? C.paper : C.ink, fontSize: 13, fontWeight: "900" }}>
-              {availableToMeet && availabilitySaved ? "You’re available to meet" : availableToMeet ? "Set your meet window" : "Make me available to meet"}
+              {availableToMeet && availabilitySaved ? "You're available to meet" : availableToMeet ? "Set your meet window" : "Make me available to meet"}
             </Text>
           </Pressable>
           {availableToMeet && !availabilitySaved ? (
@@ -12798,7 +13852,7 @@ function ReadyToMeetFeature({
               style={{ borderRadius: 15, backgroundColor: "#E7F2EA", paddingHorizontal: 13, paddingVertical: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}
             >
               <Text selectable style={{ flex: 1, color: C.sage, fontSize: 11, lineHeight: 16, fontWeight: "900" }}>
-                {readyMeetDateTime.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} {readyMeetDateTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} – {readyMeetEndDateTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                {readyMeetDateTime.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} {readyMeetDateTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} ? {readyMeetEndDateTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
               </Text>
               <Text style={{ color: C.sage, fontSize: 11, fontWeight: "900" }}>Edit</Text>
             </Pressable>
@@ -12808,7 +13862,7 @@ function ReadyToMeetFeature({
               onPress={takeReadyMeetOffline}
               style={{ minHeight: 39, borderRadius: 20, backgroundColor: "#F8E7E2", borderWidth: 1, borderColor: "#E9B7AA", alignItems: "center", justifyContent: "center", paddingHorizontal: 13 }}
             >
-              <Text style={{ color: "#9C3225", fontSize: 12, fontWeight: "900" }}>I’m no longer available</Text>
+              <Text style={{ color: "#9C3225", fontSize: 12, fontWeight: "900" }}>I'm no longer available</Text>
             </Pressable>
             </View>
           ) : null}
@@ -12823,7 +13877,7 @@ function ReadyToMeetFeature({
               }}
             >
               <Text selectable style={{ color: C.ink, fontWeight: "900" }}>
-                Finding your city map…
+                Finding your city map...
               </Text>
             </View>
           ) : locationStatus === "denied" ? (
@@ -12877,7 +13931,7 @@ function ReadyToMeetFeature({
                         longitude: coordinates.longitude + offsets[index][1],
                       }}
                       title={`${profile.name}, ${profile.age}`}
-                      description={`About ${distances[index]} miles away · area only`}
+                      description={`About ${distances[index]} miles away ? area only`}
                       onPress={() => openReadyMeetProfile(profile)}
                     >
                       <View style={{ width: 54, height: 54 }}>
@@ -13045,7 +14099,7 @@ function ReadyToMeetFeature({
                   selectable
                   style={{ color: C.sage, fontSize: 11, fontWeight: "800" }}
                 >
-                  Ready nearby · approximate area
+                  Ready nearby ? approximate area
                 </Text>
               </View>
               <Pressable
@@ -13130,7 +14184,7 @@ function ReadyToMeetFeature({
           </Text>
           <Button
             compact
-            label={walletBalance >= 9.99 ? (unlockingChat ? "Unlocking chat…" : `Use Wallet · ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
+            label={walletBalance >= 9.99 ? (unlockingChat ? "Unlocking chat..." : `Use Wallet ? ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
             disabled={unlockingChat}
             onPress={async () => {
               if (!selectedProfileRef.current) return;
@@ -13177,6 +14231,7 @@ function ExploreRecommendations({
   paidReadyMeetChatIds,
   onUnlockReadyMeetChat,
   onOpenWallet,
+  canOpenReadyMeetProfileWithoutAccess,
   onBlock,
   onReport,
 }: {
@@ -13189,16 +14244,17 @@ function ExploreRecommendations({
   currentReadyToMeetAvailability?: { available?: boolean; availableAt?: string; expiresAt?: string };
   onRefreshReadyToMeetPeople?: () => void | Promise<void>;
   onReadyToMeetAvailabilitySave?: (availability: { available: boolean; availableAt?: string; expiresAt?: string; latitude?: number; longitude?: number }) => void | Promise<void>;
-  onProfilePress: (profile: Profile) => void;
+  onProfilePress?: (profile: Profile) => void;
   onLike: (profile: Profile) => void;
   onOpenChat: (profile: Profile) => void;
   canUseReadyMeetChat: boolean;
-  walletBalance: number;
+  walletBalance?: number;
   paidReadyMeetChatIds: readonly string[];
   onUnlockReadyMeetChat: (profile: Profile) => Promise<boolean>;
-  onOpenWallet: () => void;
-  onBlock: (profile: Profile, reason?: MemberReportReason, details?: string) => void;
-  onReport: (profile: Profile, reason: MemberReportReason, details: string) => void;
+  onOpenWallet?: () => void;
+  canOpenReadyMeetProfileWithoutAccess?: (profile: Profile) => boolean;
+  onBlock: (profile: Profile, reason: MemberReportReason, details: string) => void;
+  onReport?: (profile: Profile, reason: MemberReportReason, details: string) => void;
 }) {
   return (
     <ScrollView
@@ -13207,25 +14263,6 @@ function ExploreRecommendations({
     >
       <View style={{ paddingHorizontal: 18 }}>
         <Logo size="compact" />
-      </View>
-      <View style={{ paddingHorizontal: 18, gap: 5 }}>
-        <Text
-          selectable
-          style={{
-            color: C.ink,
-            fontFamily: "serif",
-            fontSize: 34,
-            fontWeight: "900",
-          }}
-        >
-          Explore
-        </Text>
-        <Text
-          selectable
-          style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}
-        >
-          Recommendations with promising common ground.
-        </Text>
       </View>
       <ReadyToMeetFeature
         people={readyPeople}
@@ -13239,11 +14276,20 @@ function ExploreRecommendations({
         paidChatIds={paidReadyMeetChatIds}
         onUnlockReadyMeetChat={onUnlockReadyMeetChat}
         onOpenWallet={onOpenWallet}
+        canOpenProfileWithoutReadyMeetAccess={canOpenReadyMeetProfileWithoutAccess}
         likedProfileKeys={likedProfileKeys}
         onLike={onLike}
         onBlock={onBlock}
         onReport={onReport}
       />
+      <View style={{ paddingHorizontal: 18, gap: 5 }}>
+        <Text
+          selectable
+          style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}
+        >
+          Recommendations with promising common ground.
+        </Text>
+      </View>
       <RecommendationCarousel
         title="Similar interests"
         description="People who enjoy some of the same things you do."
@@ -13315,6 +14361,7 @@ function LikedYouExperience({
   onChat,
   walletBalance,
   onOpenWallet,
+  onViewMembershipPlans,
   onWalletReveal,
   onLikeRevealed,
 }: {
@@ -13324,10 +14371,11 @@ function LikedYouExperience({
   subscribed: boolean;
   viewerInterests?: readonly string[];
   viewerGoals?: readonly string[];
-  onProfilePress: (profile: Profile) => void;
+  onProfilePress?: (profile: Profile) => void;
   onChat: (profile: Profile) => void;
-  walletBalance: number;
-  onOpenWallet: () => void;
+  walletBalance?: number;
+  onOpenWallet?: () => void;
+  onViewMembershipPlans: () => void;
   onWalletReveal: (like: IncomingLike, profile: Profile) => Promise<boolean>;
   onLikeRevealed: (like: IncomingLike, profile: Profile) => void;
 }) {
@@ -13352,17 +14400,6 @@ function LikedYouExperience({
       >
         <Logo size="compact" />
         <View style={{ gap: 5 }}>
-          <Text
-            selectable
-            style={{
-              color: C.ink,
-              fontFamily: "serif",
-              fontSize: 34,
-              fontWeight: "900",
-            }}
-          >
-            Liked You
-          </Text>
           <Text
             selectable
             style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}
@@ -13395,7 +14432,7 @@ function LikedYouExperience({
                 textAlign: "center",
               }}
             >
-              Complete your profile and start connecting. Genuine likes will
+              Complete your profile and start connecting. Likes will
               appear here when someone is interested.
             </Text>
           </View>
@@ -13414,10 +14451,10 @@ function LikedYouExperience({
                 accessibilityRole="button"
                 key={profile.name}
                 onPress={() =>
-                  mutual
-                    ? onChat(profile)
-                    : locked
-                      ? setShowPaywall(profile)
+                  mutual ?
+                    onChat(profile)
+                    : locked ?
+                      setShowPaywall(profile)
                       : onProfilePress(profile)
                 }
                 style={{
@@ -13525,7 +14562,7 @@ function LikedYouExperience({
                           fontWeight: mutual ? "900" : "700",
                         }}
                       >
-                        {mutual ? "It’s a match · Chat now" : profile.culture}
+                        {mutual ? "It's a match ? Chat now" : profile.culture}
                       </Text>
                     </>
                   )}
@@ -13584,7 +14621,7 @@ function LikedYouExperience({
               selectable
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 28,
                 fontWeight: "900",
               }}
@@ -13601,7 +14638,10 @@ function LikedYouExperience({
             </Text>
             <Button
               label="View membership plans"
-              onPress={() => setShowPaywall(null)}
+              onPress={() => {
+                setShowPaywall(null);
+                onViewMembershipPlans();
+              }}
             />
             <Pressable
               accessibilityRole="button"
@@ -13617,8 +14657,8 @@ function LikedYouExperience({
                 );
                 if (!paid) return;
                 setWalletRevealedProfiles((current) =>
-                  current.includes(showPaywall.name)
-                    ? current
+                  current.includes(showPaywall.name) ?
+                    current
                     : [...current, showPaywall.name],
                 );
                 const revealedLike = incoming.find((item) => item.profile.name === showPaywall.name)?.like;
@@ -13660,6 +14700,144 @@ function LikedYouExperience({
   );
 }
 
+function MembershipOptionsModal({
+  visible,
+  onClose,
+  onPurchasePlan,
+  premiumActive,
+  kindredPassActive,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onPurchasePlan: (plan: "premium" | "kindred_pass") => Promise<boolean>;
+  premiumActive: boolean;
+  kindredPassActive: boolean;
+}) {
+  const [busyPlan, setBusyPlan] = useState<"premium" | "kindred_pass" | "">("");
+  const [notice, setNotice] = useState("");
+  const buyPlan = async (plan: "premium" | "kindred_pass") => {
+    setBusyPlan(plan);
+    setNotice("");
+    try {
+      const confirmed = await onPurchasePlan(plan);
+      if (confirmed) {
+        setNotice(plan === "premium" ? "Premium is active." : "KindredPass is active for 24 hours.");
+      } else {
+        setNotice("Checkout was not completed or Stripe is still confirming it.");
+      }
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : "Checkout could not be opened.");
+    } finally {
+      setBusyPlan("");
+    }
+  };
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(34,31,27,0.56)",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20,
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            maxWidth: 430,
+            borderRadius: 30,
+            backgroundColor: C.paper,
+            padding: 20,
+            gap: 14,
+            boxShadow: "0 24px 56px rgba(0,0,0,0.30)",
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <View style={{ gap: 3, flex: 1 }}>
+              <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 26, fontWeight: "900" }}>
+                Choose your access
+              </Text>
+              <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17, fontWeight: "800" }}>
+                Reveal likes faster and unlock richer connection tools.
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close membership options"
+              onPress={onClose}
+              style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "#F1E9DD" }}
+            >
+              <X width={21} height={21} color={C.ink} />
+            </Pressable>
+          </View>
+          <View style={{ gap: 11 }}>
+            <View
+              style={{
+                borderRadius: 24,
+                backgroundColor: "#F1E8FF",
+                borderWidth: 1,
+                borderColor: "#C8AFE8",
+                padding: 15,
+                gap: 10,
+              }}
+            >
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <View style={{ flex: 1 }}>
+                  <Text selectable style={{ color: "#59359C", fontSize: 22, fontWeight: "900" }}>KindredPass</Text>
+                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>$19.99 ? Premium access for 24 hours</Text>
+                </View>
+                <BadgeCheck width={29} height={29} color="#59359C" />
+              </View>
+              <Text selectable style={{ color: C.ink, fontSize: 12, lineHeight: 18, fontWeight: "800" }}>
+                Best for trying Premium, travel days, events, and short bursts of active matching.
+              </Text>
+              <Button
+                compact
+                disabled={kindredPassActive || Boolean(busyPlan)}
+                label={kindredPassActive ? "KindredPass active" : busyPlan === "kindred_pass" ? "Opening checkout..." : "Get KindredPass"}
+                onPress={() => buyPlan("kindred_pass")}
+              />
+            </View>
+            <View
+              style={{
+                borderRadius: 24,
+                backgroundColor: "#FFF1B8",
+                borderWidth: 1,
+                borderColor: "#E4C23B",
+                padding: 15,
+                gap: 10,
+              }}
+            >
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <View style={{ flex: 1 }}>
+                  <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Premium</Text>
+                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>$49.99 ? the full KindredCube experience</Text>
+                </View>
+                <Star width={30} height={30} color="#B78100" fill="#E7B51E" />
+              </View>
+              <Text selectable style={{ color: C.ink, fontSize: 12, lineHeight: 18, fontWeight: "800" }}>
+                See who liked you, use Ready to Meet, send photo comments, and apply advanced filters.
+              </Text>
+              <Button
+                compact
+                disabled={premiumActive || Boolean(busyPlan)}
+                label={premiumActive ? "Premium active" : busyPlan === "premium" ? "Opening checkout..." : "Get Premium"}
+                onPress={() => buyPlan("premium")}
+              />
+            </View>
+          </View>
+          {notice ? (
+            <Text selectable style={{ color: notice.includes("active") ? C.sage : C.clay, fontSize: 12, lineHeight: 17, textAlign: "center", fontWeight: "900" }}>
+              {notice}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function profileInterestsForCard(profile: Profile) {
   const signals = profileMatchingSignals(profile);
   const realInterests = Array.isArray(signals.interests) ? signals.interests : [];
@@ -13684,6 +14862,84 @@ function profileBioForCard(profile: Profile) {
   ];
   const safeIndex = Math.abs(profile.portrait || 0) % bios.length;
   return bios[safeIndex] || bios[0];
+}
+
+function extractProfilePromptEntries(profile: Profile) {
+  const matching = profile.discovery?.matching || {};
+  const matchingProfile =
+    matching && typeof matching === "object" && !Array.isArray(matching) &&
+    (matching as Record<string, unknown>).profile &&
+    typeof (matching as Record<string, unknown>).profile === "object" &&
+    !Array.isArray((matching as Record<string, unknown>).profile)
+      ? (matching as Record<string, unknown>).profile as Record<string, unknown>
+      : {};
+  const containers: unknown[] = [
+    profile.promptAnswers,
+    (matching as Record<string, unknown>).promptAnswers,
+    (matching as Record<string, unknown>).prompts,
+    matchingProfile.promptAnswers,
+  ];
+  const entries: Array<{ prompt: string; answer: string }> = [];
+  const addEntries = (value: unknown) => {
+    if (!value) return;
+    if (typeof value === "string") {
+      try {
+        addEntries(JSON.parse(value));
+      } catch {
+        return;
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(addEntries);
+      return;
+    }
+    if (typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    const prompt =
+      typeof record.prompt === "string" ? record.prompt.trim() :
+      typeof record.question === "string" ? record.question.trim() :
+      typeof record.title === "string" ? record.title.trim() :
+      "";
+    const answer =
+      typeof record.answer === "string" ? record.answer.trim() :
+      typeof record.response === "string" ? record.response.trim() :
+      typeof record.value === "string" ? record.value.trim() :
+      "";
+    if (prompt && answer) {
+      entries.push({ prompt, answer });
+      return;
+    }
+    Object.values(record).forEach(addEntries);
+  };
+  containers.forEach(addEntries);
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    const key = `${entry.prompt}\n${entry.answer}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function profilePromptForPhoto(profile: Profile) {
+  const promptEntry = extractProfilePromptEntries(profile)[0];
+
+  if (promptEntry?.prompt && promptEntry?.answer) {
+    return {
+      prompt: promptEntry.prompt.trim(),
+      answer: promptEntry.answer.trim(),
+    };
+  }
+
+  return null;
+}
+
+function profilePromptsForGallery(profile: Profile) {
+  const prompts = extractProfilePromptEntries(profile);
+
+  const fallback = profilePromptForPhoto(profile);
+  return prompts.length ? prompts : fallback ? [fallback] : [];
 }
 
 function profileGoalsForCard(profile: Profile) {
@@ -13712,7 +14968,7 @@ function profileOccupationEducationLine(profile: Profile) {
   return [
     profile.role ? `\u{1F4BC} ${profile.role}` : "",
     profileEducation(profile) ? `\u{1F393} ${profileEducation(profile)}` : "",
-  ].filter(Boolean).join(" · ");
+  ].filter(Boolean).join(" ? ");
 }
 
 function profileDetailEmoji(label: string) {
@@ -13783,8 +15039,8 @@ function profilePhotoUris(profile: Profile) {
   const matchingPhotos = Array.isArray(matching.photos)
     ? matching.photos
         .map((photo) =>
-          photo && typeof photo === "object" && "uri" in photo
-            ? (photo as { uri?: unknown }).uri
+          photo && typeof photo === "object" && "uri" in photo ?
+            (photo as { uri?: unknown }).uri
             : undefined,
         )
         .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
@@ -13841,6 +15097,7 @@ function ProfilePhotoGallery({
   const insets = useSafeAreaInsets();
   const photos = profileGalleryItems(profile);
   const photoCount = photos.length;
+  const photoPrompts = profilePromptsForGallery(profile);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [commentedPhotoIndexes, setCommentedPhotoIndexes] = useState<number[]>([]);
   const [commentMessage, setCommentMessage] = useState("");
@@ -13851,10 +15108,12 @@ function ProfilePhotoGallery({
   const closePan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponderCapture: (_, gesture) =>
+        gesture.dy > 18 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.15,
       onMoveShouldSetPanResponder: (_, gesture) =>
-        gesture.dy > 26 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.4,
+        gesture.dy > 18 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.15,
       onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy > 80 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.2) onClose();
+        if (gesture.dy > 58 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.1) onClose();
       },
     }),
   ).current;
@@ -13897,12 +15156,62 @@ function ProfilePhotoGallery({
         >
           {photos.map((photo, index) => (
             <View key={`${profile.name}-gallery-${photo.kind}-${photo.value}-${index}`} style={{ width, height: height - insets.top - insets.bottom - 90, alignItems: "center", justifyContent: "center" }}>
-              <View style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120), overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#211E1A" }}>
+              <View style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120), overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#211E1A", position: "relative" }}>
                 {photo.kind === "uri" ? (
                   <Image source={{ uri: String(photo.value) }} resizeMode="cover" style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120) }} />
                 ) : (
                   <Portrait index={Number(photo.value)} size={width} />
                 )}
+                {index > 0 && photoPrompts.length ? (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      left: 18,
+                      right: 18,
+                      bottom: 20,
+                      borderRadius: 20,
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.55)",
+                      backgroundColor: "rgba(255,253,249,0.34)",
+                      paddingHorizontal: 13,
+                      paddingVertical: 10,
+                      boxShadow: "0 12px 30px rgba(0,0,0,0.24)",
+                    }}
+                  >
+                    <Text
+                      selectable
+                      numberOfLines={1}
+                      style={{
+                        color: C.paper,
+                        fontSize: 10,
+                        letterSpacing: 0.45,
+                        textTransform: "uppercase",
+                        fontWeight: "900",
+                        textShadowColor: "rgba(0,0,0,0.5)",
+                        textShadowOffset: { width: 0, height: 1 },
+                        textShadowRadius: 2,
+                      }}
+                    >
+                      {photoPrompts[(index - 1) % photoPrompts.length]?.prompt || ""}
+                    </Text>
+                    <Text
+                      selectable
+                      numberOfLines={2}
+                      style={{
+                        color: C.paper,
+                        fontSize: 13,
+                        lineHeight: 17,
+                        fontWeight: "900",
+                        textShadowColor: "rgba(0,0,0,0.45)",
+                        textShadowOffset: { width: 0, height: 1 },
+                        textShadowRadius: 2,
+                      }}
+                    >
+                      {photoPrompts[(index - 1) % photoPrompts.length]?.answer || ""}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </View>
           ))}
@@ -14057,14 +15366,14 @@ function ProfilePhotoGallery({
               boxShadow: "0 18px 38px rgba(0,0,0,0.32)",
             }}
           >
-            <Text selectable style={{ color: C.ink, fontFamily: "serif", fontSize: 30, lineHeight: 34, fontWeight: "900", textAlign: "center" }}>
+            <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 30, lineHeight: 34, fontWeight: "900", textAlign: "center" }}>
               Comments are one of the best ways to get noticed.
             </Text>
             <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19, fontWeight: "800", textAlign: "center" }}>
               Your profile and comment will show up in Liked You.
             </Text>
             <Text selectable style={{ color: C.clay, fontSize: 11, fontWeight: "900", textAlign: "center" }}>
-              Photo comment · {formatMoney(-2.5, { signed: true })}
+              Photo comment ? {formatMoney(-2.5, { signed: true })}
             </Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
               <Pressable
@@ -14099,7 +15408,7 @@ function ProfilePhotoGallery({
                 style={{ flex: 1, minHeight: 40, borderRadius: 20, backgroundColor: C.ink, alignItems: "center", justifyContent: "center" }}
               >
                 <Text style={{ color: C.paper, fontSize: 12, fontWeight: "900" }}>
-                  {walletBalance >= 2.5 ? `Wallet · ${formatMoney(-2.5, { signed: true })}` : "Load Wallet"}
+                  {walletBalance >= 2.5 ? `Wallet ? ${formatMoney(-2.5, { signed: true })}` : "Load Wallet"}
                 </Text>
               </Pressable>
             </View>
@@ -14117,21 +15426,21 @@ function ProfilePhotoGallery({
 
 function ConnectExperience(props: {
   people: Profile[];
-  onProfilePress: (profile: Profile) => void;
+  onProfilePress?: (profile: Profile) => void;
   onLike: (profile: Profile) => void;
   onPass: (profile: Profile) => void;
-  hasCommentPlan: boolean;
-  walletBalance: number;
+  hasCommentPlan?: boolean;
+  walletBalance?: number;
   onWalletSpend: (amount: number) => void;
-  onPhotoComment: (profile: Profile, photoIndex: number) => Promise<boolean>;
-  onOpenWallet: () => void;
+  onPhotoComment?: (profile: Profile, photoIndex: number) => Promise<boolean>;
+  onOpenWallet?: () => void;
 }) {
   if (!props.people.length) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 28 }}>
         <View style={{ width: "100%", maxWidth: 430, borderRadius: 28, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 24, gap: 12, alignItems: "center" }}>
           <PeopleIcon size={58} />
-          <Text selectable style={{ color: C.ink, fontFamily: "serif", fontSize: 28, fontWeight: "900", textAlign: "center" }}>
+          <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 28, fontWeight: "900", textAlign: "center" }}>
             Your strongest connections are being prepared
           </Text>
           <Text selectable style={{ color: C.muted, fontSize: 14, lineHeight: 21, textAlign: "center" }}>
@@ -14156,14 +15465,14 @@ function ConnectExperienceDeck({
   onOpenWallet,
 }: {
   people: Profile[];
-  onProfilePress: (profile: Profile) => void;
+  onProfilePress?: (profile: Profile) => void;
   onLike: (profile: Profile) => void;
   onPass: (profile: Profile) => void;
-  hasCommentPlan: boolean;
-  walletBalance: number;
+  hasCommentPlan?: boolean;
+  walletBalance?: number;
   onWalletSpend: (amount: number) => void;
-  onPhotoComment: (profile: Profile, photoIndex: number) => Promise<boolean>;
-  onOpenWallet: () => void;
+  onPhotoComment?: (profile: Profile, photoIndex: number) => Promise<boolean>;
+  onOpenWallet?: () => void;
 }) {
   const { width } = useWindowDimensions();
   const deck = people;
@@ -14176,6 +15485,7 @@ function ConnectExperienceDeck({
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
   const position = useRef(new Animated.ValueXY()).current;
   const current = deck[index % deck.length];
+  const currentPhotoPrompts = current ? profilePromptsForGallery(current) : [];
   const advancingRef = useRef(false);
   const advanceRef = useRef<(direction: "like" | "pass") => void>(() => {});
   const advance = (direction: "like" | "pass") => {
@@ -14323,7 +15633,7 @@ function ConnectExperienceDeck({
                   justifyContent: "center",
                 }}
               >
-                <Text style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>↗</Text>
+                <Text style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>?</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -14396,7 +15706,7 @@ function ConnectExperienceDeck({
                 selectable
                 style={{
                   color: C.ink,
-                  fontFamily: "serif",
+                  fontFamily: BRAND_FONT,
                   fontSize: 28,
                   fontWeight: "900",
                 }}
@@ -14493,7 +15803,7 @@ function ConnectExperienceDeck({
               autoFocus
               value={comment}
               onChangeText={setComment}
-              placeholder="Write a thoughtful photo comment…"
+              placeholder="Write a thoughtful photo comment..."
               placeholderTextColor="#948A7F"
               style={{ minHeight: 48, color: C.ink }}
             />
@@ -14546,7 +15856,7 @@ function ConnectExperienceDeck({
               selectable
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 23,
                 fontWeight: "900",
               }}
@@ -14664,26 +15974,76 @@ function ConnectExperienceDeck({
             </View>
           </View>
           <View style={{ flexDirection: "row", gap: 9 }}>
-            {profileGalleryItems(current).slice(1).map((photo, photoIndex) => (
-              <Pressable
-                key={`${photo.kind}-${photo.value}-${photoIndex}`}
-                accessibilityRole="button"
-                accessibilityLabel={`Enlarge ${current.name}'s photo ${photoIndex + 2}`}
-                onPress={() => setGalleryIndex(photoIndex + 1)}
-                style={{
-                  flex: 1,
-                  aspectRatio: 0.9,
-                  borderRadius: 18,
-                  overflow: "hidden",
-                }}
-              >
-                {photo.kind === "uri" ? (
-                  <Image source={{ uri: String(photo.value) }} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
-                ) : (
-                  <Portrait index={Number(photo.value) % 18} size={210} />
-                )}
-              </Pressable>
-            ))}
+            {profileGalleryItems(current).slice(1).map((photo, photoIndex) => {
+              const savedPrompt = currentPhotoPrompts.length ?
+                 currentPhotoPrompts[photoIndex % currentPhotoPrompts.length]
+                : null;
+              return (
+                <Pressable
+                  key={`${photo.kind}-${photo.value}-${photoIndex}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Enlarge ${current.name}'s photo ${photoIndex + 2}`}
+                  onPress={() => setGalleryIndex(photoIndex + 1)}
+                  style={{
+                    flex: 1,
+                    aspectRatio: 0.9,
+                    borderRadius: 18,
+                    overflow: "hidden",
+                  }}
+                >
+                  {photo.kind === "uri" ? (
+                    <Image source={{ uri: String(photo.value) }} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
+                  ) : (
+                    <Portrait index={Number(photo.value) % 18} size={210} />
+                  )}
+                  {savedPrompt ? (
+                    <View
+                      pointerEvents="none"
+                      style={{
+                        position: "absolute",
+                        left: 8,
+                        right: 8,
+                        bottom: 8,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.48)",
+                        backgroundColor: "rgba(255,255,255,0.24)",
+                        paddingHorizontal: 8,
+                        paddingVertical: 7,
+                      }}
+                    >
+                      <Text
+                        selectable
+                        numberOfLines={1}
+                        style={{
+                          color: "#FFFFFF",
+                          fontSize: 9,
+                          fontWeight: "900",
+                          textShadowColor: "rgba(0,0,0,0.55)",
+                          textShadowRadius: 5,
+                        }}
+                      >
+                        {savedPrompt?.prompt || ""}
+                      </Text>
+                      <Text
+                        selectable
+                        numberOfLines={2}
+                        style={{
+                          color: "#FFFFFF",
+                          fontSize: 10,
+                          fontWeight: "800",
+                          lineHeight: 13,
+                          textShadowColor: "rgba(0,0,0,0.58)",
+                          textShadowRadius: 5,
+                        }}
+                      >
+                        {savedPrompt?.answer || ""}
+                      </Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
           </View>
         </View>
       </ScrollView>
@@ -14732,7 +16092,7 @@ function ConnectExperienceDeck({
               selectable
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 27,
                 fontWeight: "900",
               }}
@@ -14813,7 +16173,7 @@ function ConnectExperienceDeck({
               selectable
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 27,
                 fontWeight: "900",
               }}
@@ -14866,17 +16226,6 @@ function ExploreScreen() {
     >
       <Logo size="compact" />
       <View style={{ gap: 5 }}>
-        <Text
-          selectable
-          style={{
-            color: C.ink,
-            fontFamily: "serif",
-            fontSize: 34,
-            fontWeight: "900",
-          }}
-        >
-          Explore
-        </Text>
         <Text
           selectable
           style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}
@@ -14935,17 +16284,6 @@ function LikedYouScreen() {
       <View style={{ gap: 5 }}>
         <Text
           selectable
-          style={{
-            color: C.ink,
-            fontFamily: "serif",
-            fontSize: 34,
-            fontWeight: "900",
-          }}
-        >
-          Liked You
-        </Text>
-        <Text
-          selectable
           style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}
         >
           People who are interested in connecting with you will appear here.
@@ -14969,7 +16307,7 @@ function LikedYouScreen() {
             justifyContent: "center",
           }}
         >
-          <Text style={{ color: C.pink, fontSize: 39 }}>♡</Text>
+          <Text style={{ color: C.pink, fontSize: 39 }}>?</Text>
           <View
             style={{
               position: "absolute",
@@ -15034,7 +16372,7 @@ function FilterPanel({ onClose }: { onClose: () => void }) {
           selectable
           style={{
             color: C.ink,
-            fontFamily: "serif",
+            fontFamily: BRAND_FONT,
             fontSize: 31,
             fontWeight: "900",
           }}
@@ -15056,7 +16394,7 @@ function FilterPanel({ onClose }: { onClose: () => void }) {
             justifyContent: "center",
           }}
         >
-          <Text style={{ color: C.ink, fontSize: 23 }}>×</Text>
+          <Text style={{ color: C.ink, fontSize: 23 }}>?</Text>
         </Pressable>
       </View>
       <Text selectable style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}>
@@ -15281,10 +16619,10 @@ function ConnectFilters({
     max = 5,
   ) =>
     setter(
-      current.includes(item)
-        ? current.filter((value) => value !== item)
-        : current.length < max
-          ? [...current, item]
+      current.includes(item) ?
+        current.filter((value) => value !== item)
+        : current.length < max ?
+          [...current, item]
           : current,
     );
   const chip = (label: string, selected: boolean, onPress: () => void) => (
@@ -15334,7 +16672,7 @@ function ConnectFilters({
             selectable
             style={{
               color: C.ink,
-              fontFamily: "serif",
+              fontFamily: BRAND_FONT,
               fontSize: 31,
               fontWeight: "900",
             }}
@@ -15402,7 +16740,7 @@ function ConnectFilters({
             )}
           </View>
           <ToggleRow
-            label="I’m open to dating everyone"
+            label="I'm open to dating everyone"
             value={openEveryone}
             onChange={(value) => {
               setOpenEveryone(value);
@@ -15641,6 +16979,7 @@ function ConnectFiltersTabbed({
   onClose: () => void;
   profileInterests: string[];
 }) {
+  const safeProfileInterests = Array.isArray(profileInterests) ? profileInterests : [];
   const [tab, setTab] = useState<"basic" | "advanced">("basic");
   const [dating, setDating] = useState<string[]>(["Women"]);
   const [openEveryone, setOpenEveryone] = useState(false);
@@ -15650,7 +16989,7 @@ function ConnectFiltersTabbed({
   const [distance, setDistance] = useState(25);
   const [distanceUnit, setDistanceUnit] = useState<"mi" | "km">("mi");
   const [mustShareInterests, setMustShareInterests] = useState<string[]>(
-    profileInterests.slice(0, 5),
+    safeProfileInterests.slice(0, 5),
   );
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [languages, setLanguages] = useState<string[]>([]);
@@ -15671,10 +17010,10 @@ function ConnectFiltersTabbed({
     max = 5,
   ) =>
     setter(
-      current.includes(item)
-        ? current.filter((value) => value !== item)
-        : current.length < max
-          ? [...current, item]
+      current.includes(item) ?
+        current.filter((value) => value !== item)
+        : current.length < max ?
+          [...current, item]
           : current,
     );
   const toggleAdvanced = (group: string, item: string, max = 5) =>
@@ -15682,10 +17021,10 @@ function ConnectFiltersTabbed({
       const selected = current[group] ?? [];
       return {
         ...current,
-        [group]: selected.includes(item)
-          ? selected.filter((value) => value !== item)
-          : selected.length < max
-            ? [...selected, item]
+        [group]: selected.includes(item) ?
+          selected.filter((value) => value !== item)
+          : selected.length < max ?
+            [...selected, item]
             : selected,
       };
     });
@@ -15694,12 +17033,28 @@ function ConnectFiltersTabbed({
     const totalInches = Math.round(cm / 2.54);
     return `${Math.floor(totalInches / 12)}'${totalInches % 12}\"`;
   };
+  const filterOptions = (...keys: string[]) =>
+    keys.flatMap((key) => (Array.isArray(detailOptions[key]) ? detailOptions[key] : []));
   const advancedGroups: {
     title: string;
     key: string;
     options: string[];
     max?: number;
   }[] = [
+    {
+      title: "Hard filters",
+      key: "hardFilters",
+      options: [
+        "Only show people who want children",
+        "Only show people seeking marriage",
+        "Only show non-smokers",
+        "Only show non-drinkers",
+        "Only show people with the same religion",
+        "Only show people within my selected distance",
+        "Only show people within my selected age range",
+      ],
+      max: 7,
+    },
     {
       title: "What are they looking for?",
       key: "relationship",
@@ -15708,37 +17063,39 @@ function ConnectFiltersTabbed({
     {
       title: "Children preferences",
       key: "kids",
-      options: detailOptions.Kids,
+      options: [
+        ...new Set(filterOptions("Have kids", "Want kids").filter((item) => item !== "Skip")),
+      ],
       max: 3,
     },
     {
       title: "Education",
       key: "education",
-      options: detailOptions.Education,
+      options: filterOptions("Education"),
       max: 3,
     },
     {
       title: "Exercise",
       key: "exercise",
-      options: detailOptions.Exercise,
+      options: filterOptions("Exercise"),
       max: 3,
     },
     {
       title: "Cannabis",
       key: "cannabis",
-      options: detailOptions.Cannabis,
+      options: filterOptions("Cannabis"),
       max: 3,
     },
     {
       title: "Politics",
       key: "politics",
-      options: detailOptions.Politics,
+      options: filterOptions("Politics"),
       max: 3,
     },
     {
       title: "Religion",
       key: "religion",
-      options: detailOptions.Religion,
+      options: filterOptions("Religion"),
       max: 4,
     },
   ];
@@ -15765,7 +17122,7 @@ function ConnectFiltersTabbed({
               selectable
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 31,
                 fontWeight: "900",
               }}
@@ -15997,7 +17354,7 @@ function ConnectFiltersTabbed({
                 {mustShareInterests.map((item) => (
                   <FilterChipButton
                     key={item}
-                    label={`${item} ×`}
+                    label={`${item} ?`}
                     selected
                     onPress={() =>
                       toggle(item, mustShareInterests, setMustShareInterests, 8)
@@ -16078,7 +17435,7 @@ function ConnectFiltersTabbed({
                 {languages.map((item) => (
                   <FilterChipButton
                     key={item}
-                    label={`${item} ×`}
+                    label={`${item} ?`}
                     selected
                     onPress={() => setLanguages([])}
                   />
@@ -16101,10 +17458,10 @@ function ConnectFiltersTabbed({
                 <Text
                   style={{ color: C.pink, fontSize: 12, fontWeight: "900" }}
                 >
-                  {languagePickerOpen
-                    ? "Close languages"
-                    : languages.length
-                      ? "Change language"
+                  {languagePickerOpen ?
+                    "Close languages"
+                    : languages.length ?
+                      "Change language"
                       : "+ Choose language"}
                 </Text>
               </Pressable>
@@ -16311,7 +17668,7 @@ function ConnectFiltersTabbed({
               selectable
               style={{
                 color: C.ink,
-                fontFamily: "serif",
+                fontFamily: BRAND_FONT,
                 fontSize: 27,
                 fontWeight: "900",
               }}
@@ -16352,8 +17709,8 @@ function ConnectFiltersTabbed({
 async function registerDeviceForMessagePush() {
   if (process.env.EXPO_OS === "web") return;
   const existing = await Notifications.getPermissionsAsync();
-  const permission = existing.granted
-    ? existing
+  const permission = existing.granted ?
+    existing
     : await Notifications.requestPermissionsAsync();
   if (!permission.granted) return;
   if (Platform.OS === "android") {
@@ -16383,7 +17740,7 @@ function SignedInHome({
   startInProfileEditor = false,
 }: {
   people: Profile[];
-  onProfilePress: (profile: Profile) => void;
+  onProfilePress?: (profile: Profile) => void;
   onLogout: () => void;
   initialUser?: AuthenticatedUser | null;
   startInProfileEditor?: boolean;
@@ -16424,6 +17781,7 @@ function SignedInHome({
   const [profileEditing, setProfileEditing] = useState(startInProfileEditor);
   const [profileEditorVersion, setProfileEditorVersion] = useState(0);
   const [startSettingsInWallet, setStartSettingsInWallet] = useState(false);
+  const [membershipOptionsOpen, setMembershipOptionsOpen] = useState(false);
   const [walletBalance, setWalletBalance] = useState(0);
   const [premiumActive, setPremiumActive] = useState(false);
   const [kindredPassActive, setKindredPassActive] = useState(false);
@@ -16525,7 +17883,7 @@ function SignedInHome({
           const key = likeProfileKey(profile);
           if (!profile.chatLastMessageAt || profile.chatLastMessageSenderId === initialUser?.id || activeKey === key) return;
           const previouslySeenAt = seenChatMessageTimesRef.current[key];
-          if (previouslySeenAt && previouslySeenAt !== profile.chatLastMessageAt) next.add(key);
+          if (!previouslySeenAt || previouslySeenAt !== profile.chatLastMessageAt) next.add(key);
           seenChatMessageTimesRef.current[key] = profile.chatLastMessageAt;
         });
         return Array.from(next);
@@ -16554,9 +17912,10 @@ function SignedInHome({
   ) => {
     const before = await refreshPaymentState();
     const checkout = await createPaymentCheckout(purchaseType, walletAmount);
-    const browserResult = await WebBrowser.openAuthSessionAsync(checkout.url, "kindredcube://payment-complete");
-    if (browserResult.type !== "success" || browserResult.url?.includes("canceled=true")) return false;
-    const sessionId = browserResult.url?.match(/[?&]session_id=([^&]+)/)?.[1];
+    const browserResult = await openKindredInAppSession(checkout.url, "kindredcube://payment-complete");
+    const completedUrl = "url" in browserResult ? browserResult.url : undefined;
+    if (browserResult.type !== "success" || !completedUrl || completedUrl.includes("canceled=true")) return false;
+    const sessionId = completedUrl.match(/[&]session_id=([^&]+)/)?.[1];
     if (sessionId) {
       const confirmedSummary = await confirmPaymentCheckout(decodeURIComponent(sessionId));
       setWalletBalance(confirmedSummary.walletBalanceCents / 100);
@@ -16565,10 +17924,10 @@ function SignedInHome({
     }
     for (let attempt = 0; attempt < 15; attempt += 1) {
       const summary = await refreshPaymentState();
-      const confirmed = purchaseType === "wallet"
-        ? summary.walletBalanceCents > before.walletBalanceCents
-        : purchaseType === "premium"
-          ? summary.premiumActive
+      const confirmed = purchaseType === "wallet" ?
+        summary.walletBalanceCents > before.walletBalanceCents
+        : purchaseType === "premium" ?
+          summary.premiumActive
           : summary.kindredPassActive;
       if (confirmed) return true;
       await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -16800,46 +18159,46 @@ function SignedInHome({
         setReadyMeetPassExpiresAt(typeof settings.readyMeetPassExpiresAt === "string" ? settings.readyMeetPassExpiresAt : "");
         setLikedProfiles(Array.isArray(settings.likedProfileIds) ? settings.likedProfileIds as string[] : []);
         setRevealedIncomingLikeIds(
-          Array.isArray(settings.revealedIncomingLikeIds)
-            ? (settings.revealedIncomingLikeIds as unknown[]).filter((item): item is string => typeof item === "string")
+          Array.isArray(settings.revealedIncomingLikeIds) ?
+            (settings.revealedIncomingLikeIds as unknown[]).filter((item): item is string => typeof item === "string")
             : [],
         );
         setDismissedRecommendationIds(
           settings.dismissedRecommendationIds &&
           typeof settings.dismissedRecommendationIds === "object" &&
-          !Array.isArray(settings.dismissedRecommendationIds)
-            ? settings.dismissedRecommendationIds as Record<string, string>
+          !Array.isArray(settings.dismissedRecommendationIds) ?
+            settings.dismissedRecommendationIds as Record<string, string>
             : {},
         );
-        const normalizedPhotos = Array.isArray(normalizedProfile.photos)
-          ? (normalizedProfile.photos as Array<{ uri?: unknown }>)
+        const normalizedPhotos = Array.isArray(normalizedProfile.photos) ?
+          (normalizedProfile.photos as Array<{ uri?: unknown }>)
           : [];
         const firstSavedPhotoUri =
           normalizedPhotos
             .map((photo) => cleanMediaUri(photo?.uri))
             .find((uri) => uri.length > 0) || "";
         setProfilePhotoUri(
-          typeof normalizedProfile.bestPhotoUri === "string" && normalizedProfile.bestPhotoUri.trim()
-            ? resolveServerMediaUri(normalizedProfile.bestPhotoUri)
+          typeof normalizedProfile.bestPhotoUri === "string" && normalizedProfile.bestPhotoUri.trim() ?
+            resolveServerMediaUri(normalizedProfile.bestPhotoUri)
             : firstSavedPhotoUri,
         );
         setProfileStrength(
-          typeof normalizedProfile.profileStrength === "number"
-            ? normalizedProfile.profileStrength
+          typeof normalizedProfile.profileStrength === "number" ?
+            normalizedProfile.profileStrength
             : 0,
         );
         if (typeof normalizedProfile.profileStrength === "number" && normalizedProfile.profileStrength >= 100) {
           setShowRecommendation(false);
         }
         setProfileInterests(
-          Array.isArray(normalizedProfile.interests)
-            ? (normalizedProfile.interests as string[])
+          Array.isArray(normalizedProfile.interests) ?
+            (normalizedProfile.interests as string[])
             : [],
         );
         setProfileBio(typeof normalizedProfile.bio === "string" ? normalizedProfile.bio : "");
         setSearchingFor(
-          Array.isArray(normalizedProfile.relationshipGoals)
-            ? (normalizedProfile.relationshipGoals as string[])
+          Array.isArray(normalizedProfile.relationshipGoals) ?
+            (normalizedProfile.relationshipGoals as string[])
             : [],
         );
         setPrivateSpaceLoaded(true);
@@ -16847,8 +18206,8 @@ function SignedInHome({
       .catch((caught) => {
         if (!active) return;
         setPrivateSpaceLoadError(
-          caught instanceof Error
-            ? caught.message
+          caught instanceof Error ?
+            caught.message
             : "Your saved profile could not be loaded. Check your connection and try again.",
         );
       });
@@ -16944,8 +18303,8 @@ function SignedInHome({
       !privateSpaceLoaded ||
       identityVerificationStatus !== "verified"
     ) return;
-    const currentStrength = typeof privateProfileRef.current.profileStrength === "number"
-      ? privateProfileRef.current.profileStrength
+    const currentStrength = typeof privateProfileRef.current.profileStrength === "number" ?
+      privateProfileRef.current.profileStrength
       : 0;
     const nextCap = verificationStrengthCap(identityVerificationStatus, identityVerificationMethod);
     const nextStrength = Math.min(nextCap, Math.max(currentStrength, Math.min(90, currentStrength) + verificationStrengthBonus(identityVerificationStatus, identityVerificationMethod)));
@@ -16958,8 +18317,8 @@ function SignedInHome({
   }, [identityVerificationMethod, identityVerificationStatus, persistProfileData, privateSpaceLoaded]);
   useEffect(() => {
     if (!privateSpaceLoaded) return;
-    const currentStrength = typeof privateProfileRef.current.profileStrength === "number"
-      ? privateProfileRef.current.profileStrength
+    const currentStrength = typeof privateProfileRef.current.profileStrength === "number" ?
+      privateProfileRef.current.profileStrength
       : 0;
     const nextCap = verificationStrengthCap(identityVerificationStatus, identityVerificationMethod);
     if (currentStrength <= nextCap) return;
@@ -16993,10 +18352,19 @@ function SignedInHome({
     const reasonCode = memberSafetyReasonCode(reason) || "other";
     reportMemberProfile({ profileId: report.profileId, reason: reasonCode, details }).catch(() => undefined);
   }, [persistSettingsData]);
-  const saveProfileNow = useCallback(async () => {
+  const saveProfileNow = useCallback(async (patch: Record<string, unknown>) => {
     if (savePrivateSpaceTimer.current) {
       clearTimeout(savePrivateSpaceTimer.current);
       savePrivateSpaceTimer.current = null;
+    }
+    if (patch) {
+      privateProfileRef.current = {
+        ...privateProfileRef.current,
+        ...patch,
+        identity: initialUser?.identity || privateProfileRef.current.identity,
+        seeking: initialUser?.seeking || privateProfileRef.current.seeking,
+      };
+      setPrivateProfile(privateProfileRef.current);
     }
     const saved = await updatePrivateSpace(
       privateProfileRef.current,
@@ -17008,7 +18376,7 @@ function SignedInHome({
     setPrivateSettings(saved.settings);
     await refreshDiscoveryPeople();
     await refreshReadyToMeetPeople();
-  }, [refreshDiscoveryPeople, refreshReadyToMeetPeople]);
+  }, [initialUser.identity, initialUser.seeking, refreshDiscoveryPeople, refreshReadyToMeetPeople]);
   const flushAndLogout = useCallback(async () => {
     if (savePrivateSpaceTimer.current) {
       clearTimeout(savePrivateSpaceTimer.current);
@@ -17069,38 +18437,12 @@ function SignedInHome({
   }, []);
   if (!privateSpaceLoaded) {
     return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: C.cream,
-          paddingHorizontal: 28,
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 16,
-        }}
-      >
-        <Logo size="compact" align="center" />
-        <Text
-          selectable
-          style={{ color: C.ink, fontSize: 24, fontWeight: "900", textAlign: "center" }}
-        >
-          {privateSpaceLoadError ? "Your profile is still safe" : "Loading your saved profile"}
-        </Text>
-        <Text
-          accessibilityRole={privateSpaceLoadError ? "alert" : undefined}
-          selectable
-          style={{ color: privateSpaceLoadError ? "#9C3225" : C.muted, fontSize: 13, lineHeight: 19, textAlign: "center" }}
-        >
-          {privateSpaceLoadError || "Restoring your photos and profile information…"}
-        </Text>
-        {privateSpaceLoadError ? (
-          <Button
-            compact
-            label="Try loading again"
-            onPress={() => setPrivateSpaceReloadKey((value) => value + 1)}
-          />
-        ) : null}
-      </View>
+      <WelcomeLoadingScreen
+        title="Loading your saved profile"
+        message="Restoring your photos and profile information…"
+        error={privateSpaceLoadError}
+        onRetry={() => setPrivateSpaceReloadKey((value) => value + 1)}
+      />
     );
   }
   const viewerSignals = viewerMatchingSignals(privateProfile, initialUser, blockedProfileIds);
@@ -17120,7 +18462,7 @@ function SignedInHome({
     return new Date(hiddenUntil).getTime() <= Date.now();
   };
   const filteredIncomingLikes = incomingLikes.filter((like) =>
-    !(like.chatStarted && incomingLikeMatchIsActive(like)) &&
+    !incomingLikeMatchIsActive(like) &&
     datingDirectionMatches(viewerDating, discoveryCandidateToProfile(like.profile)),
   );
   const rankedRecommendations = rankMatches(
@@ -17187,8 +18529,8 @@ function SignedInHome({
     id: initialUser?.id || "current-user-ready",
     name: memberUsername || initialUser?.username || "You",
     gender: initialUser?.identity || (typeof privateProfile.identity === "string" ? privateProfile.identity : ""),
-    age: typeof privateProfile.dateOfBirth === "string"
-      ? ageFromDate(new Date(`${privateProfile.dateOfBirth}T00:00:00`))
+    age: typeof privateProfile.dateOfBirth === "string" ?
+      ageFromDate(new Date(`${privateProfile.dateOfBirth}T00:00:00`))
       : 0,
     culture: typeof privateProfile.culture === "string" ? privateProfile.culture : "",
     role: typeof privateProfile.occupation === "string" && privateProfile.occupation.trim() ? privateProfile.occupation.trim() : "You",
@@ -17199,6 +18541,7 @@ function SignedInHome({
     idVerified: identityVerificationStatus === "verified" && identityVerificationMethod !== "video_selfie",
     selfieVerified: identityVerificationStatus === "verified" && identityVerificationMethod === "video_selfie",
     meetupVerified: privateProfile.meetupVerified === true || privateSettings.meetupVerified === true,
+    promptAnswers: safeProfilePromptAnswers(privateProfile.promptAnswers),
   };
   const selectedProfileIsConnected = selectedMemberProfile
     ? profileIsMatched(selectedMemberProfile) ||
@@ -17242,8 +18585,8 @@ function SignedInHome({
       currentReadyToMeetAvailability={
         privateSettings.readyToMeetAvailability &&
         typeof privateSettings.readyToMeetAvailability === "object" &&
-        !Array.isArray(privateSettings.readyToMeetAvailability)
-          ? privateSettings.readyToMeetAvailability as { available?: boolean; availableAt?: string; expiresAt?: string }
+        !Array.isArray(privateSettings.readyToMeetAvailability) ?
+          privateSettings.readyToMeetAvailability as { available?: boolean; availableAt?: string; expiresAt?: string }
           : undefined
       }
       onRefreshReadyToMeetPeople={refreshReadyToMeetPeople}
@@ -17267,6 +18610,9 @@ function SignedInHome({
         setStartSettingsInWallet(true);
         setSettingsOpen(true);
       }}
+      canOpenReadyMeetProfileWithoutAccess={(profile) =>
+        profileIsMatched(profile) || profileIsInChats(profile)
+      }
       onUnlockReadyMeetChat={async (profile) => {
         const profileId = profile.id || `dummy-${profile.name.toLowerCase()}`;
         if (readyMeetPassActive || paidReadyMeetChatIds.includes(profileId)) return true;
@@ -17305,6 +18651,7 @@ function SignedInHome({
         setStartSettingsInWallet(true);
         setSettingsOpen(true);
       }}
+      onViewMembershipPlans={() => setMembershipOptionsOpen(true)}
       onWalletReveal={async () => {
         try {
           const result = await spendWallet(
@@ -17421,13 +18768,14 @@ function SignedInHome({
     />
   );
   const tabs = [
-    { key: "profile" as const, icon: "?", label: "Profile" },
+    { key: "profile" as const, icon: "◯", label: "Profile" },
     { key: "explore" as const, icon: "", label: "Explore" },
-    { key: "connect" as const, icon: "◆", label: "Connect" },
+    { key: "connect" as const, icon: "♥", label: "Connect" },
     { key: "liked" as const, icon: "♡", label: "Liked You" },
     { key: "chats" as const, icon: "", label: "Chats" },
   ];
   const likedActivityCount = filteredIncomingLikes.filter((like) =>
+    !incomingLikeMatchIsActive(like) &&
     !like.chatStarted &&
     !revealedIncomingLikeIds.includes(like.id)
   ).length;
@@ -17475,7 +18823,7 @@ function SignedInHome({
                 }}
               >
                 <Text selectable style={{ color: C.muted, fontWeight: "800" }}>
-                  Loading your private profile…
+                  Loading your private profile...
                 </Text>
               </View>
             ) : (
@@ -17541,6 +18889,13 @@ function SignedInHome({
         </View>
         {tab === "profile" ? null : content}
       </View>
+      <MembershipOptionsModal
+        visible={membershipOptionsOpen}
+        onClose={() => setMembershipOptionsOpen(false)}
+        onPurchasePlan={(plan) => openPaymentCheckout(plan)}
+        premiumActive={premiumActive}
+        kindredPassActive={kindredPassActive}
+      />
       <Modal
         visible={Boolean(matchCelebrationProfile)}
         transparent
@@ -17581,8 +18936,8 @@ function SignedInHome({
                 <ProfileImage profile={matchCelebrationProfile} size={112} />
               </View>
             ) : null}
-            <Text selectable style={{ color: C.ink, fontFamily: "serif", fontSize: 32, fontWeight: "900", textAlign: "center" }}>
-              It’s a match
+            <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 32, fontWeight: "900", textAlign: "center" }}>
+              It's a match
             </Text>
             <Text selectable style={{ color: C.muted, fontSize: 14, lineHeight: 21, textAlign: "center" }}>
               You and {matchCelebrationProfile?.name || "this member"} liked each other. You can start chatting now.
@@ -17650,7 +19005,7 @@ function SignedInHome({
             </Text>
             <Button
               compact
-              label={walletBalance >= 9.99 ? (chatUnlocking ? "Unlocking chat…" : `Pay with Wallet · ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
+              label={walletBalance >= 9.99 ? (chatUnlocking ? "Unlocking chat..." : `Pay with Wallet ? ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
               disabled={chatUnlocking}
               onPress={async () => {
                 const profile = chatPaywallProfile;
@@ -17867,8 +19222,8 @@ function LifestylePicker({
   const selected = (item: string) =>
     multiple ? Boolean(values?.includes(item)) : value === item;
   const groupSelected = (name: string) =>
-    multiple
-      ? Boolean(values?.some((item) => lifestyleGroups[name].includes(item)))
+    multiple ?
+      Boolean(values?.some((item) => lifestyleGroups[name].includes(item)))
       : Boolean(value && lifestyleGroups[name].includes(value));
   const choose = (item: string) => {
     onSelect(item);
@@ -17879,11 +19234,10 @@ function LifestylePicker({
       <View style={{ gap: 10 }}>
         <Pressable
           onPress={() => setGroup("")}
-          style={{ alignSelf: "flex-start", paddingVertical: 4 }}
+          style={{ alignSelf: "flex-start", paddingVertical: 4, flexDirection: "row", alignItems: "center", gap: 3 }}
         >
-          <Text style={{ color: C.clay, fontWeight: "800" }}>
-            {"? All lifestyles"}
-          </Text>
+          <ChevronLeft width={15} height={15} color={C.clay} strokeWidth={3} />
+          <Text style={{ color: C.clay, fontWeight: "800" }}>All lifestyles</Text>
         </Pressable>
         <Text style={{ color: C.ink, fontSize: 14, fontWeight: "800" }}>
           Describe it in your own words
@@ -17892,7 +19246,7 @@ function LifestylePicker({
           autoFocus
           value={custom}
           onChangeText={setCustom}
-          placeholder="For example: Gothic, outdoorsy, faith-centered…"
+          placeholder="For example: Gothic, outdoorsy, faith-centered..."
           placeholderTextColor="#948A7F"
           style={{
             minHeight: 50,
@@ -17922,11 +19276,10 @@ function LifestylePicker({
       <View style={{ gap: 8 }}>
         <Pressable
           onPress={() => setGroup("")}
-          style={{ alignSelf: "flex-start", paddingVertical: 3 }}
+          style={{ alignSelf: "flex-start", paddingVertical: 3, flexDirection: "row", alignItems: "center", gap: 3 }}
         >
-          <Text style={{ color: C.clay, fontWeight: "800" }}>
-            {"? All lifestyles"}
-          </Text>
+          <ChevronLeft width={15} height={15} color={C.clay} strokeWidth={3} />
+          <Text style={{ color: C.clay, fontWeight: "800" }}>All lifestyles</Text>
         </Pressable>
         <View
           style={{
@@ -18048,6 +19401,7 @@ function Qualifier({
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState(initialAnswers);
   const [draftBirthDate, setDraftBirthDate] = useState(new Date(1995, 0, 1));
+  const [dobPickerOpen, setDobPickerOpen] = useState(false);
   const [dobStatus, setDobStatus] = useState<
     "unsaved" | "saved" | "restricted"
   >("unsaved");
@@ -18077,8 +19431,8 @@ function Qualifier({
       (entry) => entry !== "Open to everyone",
     );
     update({
-      interests: current.includes(item)
-        ? current.filter((entry) => entry !== item)
+      interests: current.includes(item) ?
+        current.filter((entry) => entry !== item)
         : [...current, item],
     });
   };
@@ -18143,13 +19497,13 @@ function Qualifier({
     answers.interests.length > 0,
   ][step];
   const titles = [
-    "Let’s get you connected.",
+    "Let's get you connected.",
     "Your age and preferences.",
     "How do you describe your personal lifestyle?",
     "Who would you like to discover?",
   ];
   const subtitles = [
-    "Tell us who you are and who you’re interested in.",
+    "Tell us who you are and who you're interested in.",
     "Save your date of birth, then adjust the age range.",
     "Start broad, then choose the community or lifestyle that feels most like you.",
     "Choose one or more, write your own, or stay open to everyone.",
@@ -18196,14 +19550,14 @@ function Qualifier({
               textAlign: "center",
             }}
           >
-            YOUR MATCH · {step + 1} OF 5
+            YOUR MATCH ? {step + 1} OF 5
           </Text>
           <Text
             adjustsFontSizeToFit
             numberOfLines={step === 2 ? 2 : 1}
             style={{
               color: C.ink,
-              fontFamily: "serif",
+              fontFamily: BRAND_FONT,
               fontWeight: "700",
               fontSize: compact ? 25 : 29,
               lineHeight: compact ? 27 : 32,
@@ -18248,7 +19602,7 @@ function Qualifier({
                   textAlign: "center",
                 }}
               >
-                I AM A…
+                I AM A...
               </Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
                 {identityOptions.map((item) => (
@@ -18271,7 +19625,7 @@ function Qualifier({
                   textAlign: "center",
                 }}
               >
-                I’M INTERESTED IN…
+                I'M INTERESTED IN...
               </Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
                 {seekingOptions.map((item) => (
@@ -18289,36 +19643,99 @@ function Qualifier({
           )}
           {step === 1 && (
             <>
-              <View
-                style={{
-                  backgroundColor: C.paper,
-                  borderWidth: 1,
-                  borderColor: C.line,
-                  borderRadius: 16,
-                  padding: 4,
-                  alignItems: "center",
-                }}
-              >
-                <DateTimePicker
-                  value={draftBirthDate}
-                  mode="date"
-                  display="spinner"
-                  minimumDate={new Date(1900, 0, 1)}
-                  maximumDate={new Date()}
-                  onChange={(_, date) => {
-                    if (date) {
-                      setDraftBirthDate(date);
-                      setDobStatus("unsaved");
-                      update({ dateOfBirth: "" });
-                    }
+              {process.env.EXPO_OS === "ios" ? (
+                <View
+                  style={{
+                    backgroundColor: C.paper,
+                    borderWidth: 1,
+                    borderColor: C.line,
+                    borderRadius: 16,
+                    padding: 4,
+                    alignItems: "center",
                   }}
-                  style={{ width: 285, height: compact ? 105 : 120 }}
-                />
-              </View>
+                >
+                  <DateTimePicker
+                    value={draftBirthDate}
+                    mode="date"
+                    display="spinner"
+                    minimumDate={new Date(1900, 0, 1)}
+                    maximumDate={new Date()}
+                    onChange={(_, date) => {
+                      if (date) {
+                        setDraftBirthDate(date);
+                        setDobStatus("unsaved");
+                        update({ dateOfBirth: "" });
+                      }
+                    }}
+                    style={{ width: 285, height: compact ? 105 : 120 }}
+                  />
+                </View>
+              ) : (
+                <View
+                  style={{
+                    backgroundColor: C.paper,
+                    borderWidth: 1,
+                    borderColor: C.line,
+                    borderRadius: 16,
+                    padding: 12,
+                    gap: 8,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "900", letterSpacing: 0.5 }}>
+                    DATE OF BIRTH
+                  </Text>
+                  <Text selectable style={{ color: C.ink, fontSize: 19, fontWeight: "900" }}>
+                    {draftBirthDate.toLocaleDateString(undefined, {
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Choose date of birth"
+                    onPress={() => setDobPickerOpen(true)}
+                    style={{
+                      minHeight: 40,
+                      borderRadius: 20,
+                      backgroundColor: "#F7F3ED",
+                      borderWidth: 1,
+                      borderColor: C.line,
+                      paddingHorizontal: 16,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>
+                      Choose date of birth
+                    </Text>
+                  </Pressable>
+                  {dobPickerOpen ? (
+                    <DateTimePicker
+                      value={draftBirthDate}
+                      mode="date"
+                      display="default"
+                      minimumDate={new Date(1900, 0, 1)}
+                      maximumDate={new Date()}
+                      onChange={(event, date) => {
+                        setDobPickerOpen(false);
+                        if (event.type === "dismissed") return;
+                        if (date) {
+                          setDraftBirthDate(date);
+                          setDobStatus("unsaved");
+                          update({ dateOfBirth: "" });
+                        }
+                      }}
+                    />
+                  ) : null}
+                </View>
+              )}
               <Button
                 compact
                 label="Save date of birth"
                 onPress={() => {
+                  setDobPickerOpen(false);
                   const age = ageFromDate(draftBirthDate);
                   if (age < 18) {
                     setDobStatus("restricted");
@@ -18456,7 +19873,7 @@ export default function App() {
     return () => setAuthExpiredHandler(null);
   }, []);
   useEffect(() => {
-    const timer = setTimeout(() => setLaunching(false), 900);
+    const timer = setTimeout(() => setLaunching(false), 11_000);
     return () => clearTimeout(timer);
   }, []);
   useEffect(() => {
@@ -18501,6 +19918,33 @@ export default function App() {
     return () => subscription.remove();
   }, []);
   useEffect(() => {
+    let active = true;
+    Linking.getInitialURL()
+      .then((url) => {
+        if (!active) return;
+        if (url && (url.includes("verify-email") || url.includes("reset-password"))) return;
+        getCurrentUser()
+          .then((user) => {
+            if (!active) return;
+            setSessionUser(user);
+            setStartInProfileEditor(false);
+            setScreen((current) =>
+              current === "landing" || current === "account-choice" || current === "login"
+                ? "home"
+                : current,
+            );
+          })
+          .catch(() => {
+            // No saved session, expired credentials, or temporary network issue.
+            // Keep the normal landing/login flow without forcing a logout screen.
+          });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
     if (!verificationTicket) return;
     let active = true;
     completeEmailLogin(verificationTicket)
@@ -18516,8 +19960,8 @@ export default function App() {
         if (!active) return;
         setVerificationTicket("");
         setVerificationError(
-          caught instanceof Error
-            ? caught.message
+          caught instanceof Error ?
+            caught.message
             : "KindredCube could not complete your secure sign-in.",
         );
         setScreen("verifying");
@@ -18538,26 +19982,10 @@ export default function App() {
   if (launching)
     return (
       <SafeAreaProvider>
-        <View
-          style={{
-            flex: 1,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: C.cream,
-          }}
-        >
-          <StatusBar
-            style="dark"
-            translucent={false}
-            backgroundColor={C.cream}
-          />
-          <Image
-            accessibilityLabel="KindredCube app icon"
-            source={require("./assets/kindredcube-horizontal-logo-transparent.png")}
-            resizeMode="contain"
-            style={{ width: 180, height: 180, borderRadius: 36 }}
-          />
-        </View>
+        <WelcomeLoadingScreen
+          title="Welcome to KindredCube"
+          message="Shared values. Real connection."
+        />
       </SafeAreaProvider>
     );
   let content;
@@ -18637,7 +20065,7 @@ export default function App() {
             selectable
             style={{
               color: C.ink,
-              fontFamily: "serif",
+              fontFamily: BRAND_FONT,
               fontSize: 29,
               fontWeight: "900",
               textAlign: "center",
@@ -18702,4 +20130,3 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
-

@@ -22,6 +22,8 @@ DROP POLICY IF EXISTS help_content_admin_write ON help_content_pages;
 CREATE POLICY help_content_admin_write ON help_content_pages
   FOR ALL
   USING (
+    current_user = 'kindred_admin'
+    OR
     EXISTS (
       SELECT 1 FROM users u
        WHERE u.id = nullif(current_setting('app.user_id', true), '')::uuid
@@ -29,6 +31,8 @@ CREATE POLICY help_content_admin_write ON help_content_pages
     )
   )
   WITH CHECK (
+    current_user = 'kindred_admin'
+    OR
     EXISTS (
       SELECT 1 FROM users u
        WHERE u.id = nullif(current_setting('app.user_id', true), '')::uuid

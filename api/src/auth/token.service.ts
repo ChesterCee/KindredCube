@@ -9,6 +9,7 @@ type AccessClaims = { sub: string; sid: string; type: "access" };
 @Injectable()
 export class TokenService {
   private readonly tokenPepper: string;
+  private readonly refreshTokenTtlDays: number;
 
   constructor(
     @Inject(JwtService)
@@ -20,6 +21,10 @@ export class TokenService {
     if (this.tokenPepper.length < 32) {
       throw new Error("SESSION_TOKEN_PEPPER must be at least 32 characters");
     }
+    const configuredRefreshDays = Number(process.env.REFRESH_TOKEN_TTL_DAYS || "180");
+    this.refreshTokenTtlDays = Number.isFinite(configuredRefreshDays)
+      ? Math.min(Math.max(Math.trunc(configuredRefreshDays), 1), 365)
+      : 180;
   }
 
   async createSession(userId: string, deviceName: string | undefined, userAgent: string) {
@@ -195,8 +200,8 @@ export class TokenService {
     const refreshTokenHash = this.hashOpaque(refreshToken);
     await client.query(
       `INSERT INTO session_refresh_tokens (session_id, token_hash, expires_at)
-       VALUES ($1, $2, now() + interval '30 days')`,
-      [sessionId, refreshTokenHash],
+       VALUES ($1, $2, now() + ($3::int * interval '1 day'))`,
+      [sessionId, refreshTokenHash, this.refreshTokenTtlDays],
     );
     const accessToken = await this.jwt.signAsync(
       { sub: userId, sid: sessionId, type: "access" },

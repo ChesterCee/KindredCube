@@ -50,6 +50,7 @@ export async function syncDiscoveryProfile(
     readyToMeet,
     readyToMeetAt: readyToMeetAt.slice(0, 50),
     readyToMeetExpiresAt: readyToMeetExpiresAt.slice(0, 50),
+    promptAnswers: safePromptAnswers(profile.promptAnswers),
   };
   const culture = text(profile.culture) || stringList(profile.personalLifestyle, 1)[0] || "";
   const visible = settings.profilePaused !== true && settings.incognitoMode !== true;
@@ -137,6 +138,28 @@ function safePhotos(value: unknown) {
         .filter((photo) => photo.uri)
         .slice(0, 9)
     : [];
+}
+
+function safePromptAnswers(value: unknown) {
+  const prompts = Array.isArray(value)
+    ? Object.fromEntries(value.map((item, index) => [String(index), item]))
+    : record(value);
+  return Object.fromEntries(
+    Object.entries(prompts)
+      .map(([category, item]) => {
+        const prompt = record(item);
+        const promptText = text(prompt.prompt) || text(prompt.question) || text(prompt.title);
+        const answerText = text(prompt.answer) || text(prompt.response) || text(prompt.value);
+        return [
+          category.slice(0, 60),
+          {
+            prompt: promptText.slice(0, 180),
+            answer: answerText.slice(0, 600),
+          },
+        ] as const;
+      })
+      .filter(([, item]) => item.prompt && item.answer),
+  );
 }
 
 function finiteCoordinate(value: unknown, minimum: number, maximum: number) {

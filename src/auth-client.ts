@@ -67,6 +67,9 @@ export type IdentityVerificationStatus =
 let webAccessToken = "";
 let webRefreshToken = "";
 let authExpiredHandler: (() => void) | null = null;
+let refreshPromise: Promise<RefreshResult> | null = null;
+
+type RefreshResult = "refreshed" | "invalid" | "network_error";
 
 export function setAuthExpiredHandler(handler: (() => void) | null) {
   authExpiredHandler = handler;
@@ -118,8 +121,16 @@ async function request<T>(
   }
   if (authenticated && response.status === 401 && retryAfterRefresh) {
     const refreshed = await refreshSession();
-    if (refreshed) return request<T>(path, options, true, false);
-    await expireSession();
+    if (refreshed === "refreshed") return request<T>(path, options, true, false);
+    if (refreshed === "invalid") {
+      await expireSession();
+    } else {
+      throw new ApiError(
+        "KindredCube could not refresh your secure session. Check your connection and try again.",
+        0,
+        "SESSION_REFRESH_NETWORK_ERROR",
+      );
+    }
   } else if (authenticated && response.status === 401) {
     await expireSession();
   }
@@ -133,9 +144,17 @@ async function request<T>(
   return data as T;
 }
 
-async function refreshSession() {
+async function refreshSession(): Promise<RefreshResult> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = doRefreshSession().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
+async function doRefreshSession(): Promise<RefreshResult> {
   const refreshToken = await getRefreshToken();
-  if (!API_URL || !refreshToken) return false;
+  if (!API_URL || !refreshToken) return "invalid";
   try {
     const response = await fetch(`${API_URL}/v1/auth/refresh`, {
       method: "POST",
@@ -144,14 +163,13 @@ async function refreshSession() {
     });
     if (!response.ok) {
       await clearTokens();
-      return false;
+      return "invalid";
     }
     const pair = (await response.json()) as TokenPair;
     await saveTokens(pair);
-    return true;
+    return "refreshed";
   } catch {
-    await clearTokens();
-    return false;
+    return "network_error";
   }
 }
 
@@ -480,6 +498,27 @@ export function submitVideoSelfieVerification(input: {
 }) {
   return request<{ status: IdentityVerificationStatus; verifiedAt?: string | null; verificationMethod: "video_selfie"; reasonCode?: string }>(
     "/v1/verification/video-selfie",
+    { method: "POST", body: JSON.stringify(input) },
+    true,
+  );
+}
+
+export function checkSelfiePose(input: {
+  faceImageBase64: string;
+  faceImageMimeType?: "image/jpeg" | "image/png" | "image/webp";
+  expectedPose: "straight" | "left" | "right";
+}) {
+  return request<{
+    ok: boolean;
+    expectedPose: "straight" | "left" | "right";
+    detectedPose?: string;
+    confidence?: number;
+    yaw?: number;
+    pitch?: number;
+    roll?: number;
+    message: string;
+  }>(
+    "/v1/verification/selfie-pose-check",
     { method: "POST", body: JSON.stringify(input) },
     true,
   );
@@ -880,10 +919,10 @@ async function saveTokens(pair: TokenPair) {
   }
   await Promise.all([
     SecureStore.setItemAsync(ACCESS_TOKEN_KEY, pair.accessToken, {
-      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
     }),
     SecureStore.setItemAsync(REFRESH_TOKEN_KEY, pair.refreshToken, {
-      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
     }),
   ]);
 }

@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { json, urlencoded } from "express";
+import { json, urlencoded, type NextFunction, type Request, type Response } from "express";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
 
@@ -15,6 +15,12 @@ async function bootstrap() {
   app.getHttpAdapter().getInstance().disable("x-powered-by");
   app.getHttpAdapter().getInstance().set("trust proxy", 1);
   app.use(helmet());
+  app.use("/v1", (_request: Request, response: Response, next: NextFunction) => {
+    response.setHeader("Cache-Control", "no-store, no-transform");
+    response.setHeader("Pragma", "no-cache");
+    response.setHeader("Vary", "Authorization, Cookie");
+    next();
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,

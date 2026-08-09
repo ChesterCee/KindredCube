@@ -649,6 +649,7 @@ export class AuthService {
       await client.query("DELETE FROM user_private_spaces WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM password_reset_tokens WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM email_verification_tokens WHERE user_id = $1", [userId]);
+      await client.query("DELETE FROM email_login_tickets WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM password_credentials WHERE user_id = $1", [userId]);
       await client.query(
         `UPDATE auth_sessions

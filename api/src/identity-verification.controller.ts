@@ -43,6 +43,19 @@ class VideoSelfieVerificationDto {
   faceImageMimeType?: string;
 }
 
+class SelfiePoseCheckDto {
+  @IsString()
+  @MaxLength(7_000_000)
+  faceImageBase64!: string;
+
+  @IsOptional()
+  @IsIn(["image/jpeg", "image/png", "image/webp"])
+  faceImageMimeType?: string;
+
+  @IsIn(["straight", "left", "right"])
+  expectedPose!: "straight" | "left" | "right";
+}
+
 @Controller("v1/verification")
 @UseGuards(AccessTokenGuard)
 export class IdentityVerificationController {
@@ -61,6 +74,11 @@ export class IdentityVerificationController {
   @Post("video-selfie")
   videoSelfie(@Req() request: AuthenticatedRequest, @Body() input: VideoSelfieVerificationDto) {
     return this.verification.createVideoSelfie(request.user.id, input);
+  }
+
+  @Post("selfie-pose-check")
+  selfiePoseCheck(@Req() request: AuthenticatedRequest, @Body() input: SelfiePoseCheckDto) {
+    return this.verification.checkSelfiePose(request.user.id, input);
   }
 }
 

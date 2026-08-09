@@ -26,9 +26,27 @@ export type MatchingSignals = {
   culturePreferences?: string[];
   lifestyle?: Record<string, string>;
   hasChildren?: boolean;
+  wantsChildren?: string;
   acceptsPartnerWithChildren?: boolean;
   allowsSmoking?: boolean;
   religion?: string;
+  religionDifferenceOpenness?: 1 | 2 | 3 | 4 | 5;
+  politics?: string;
+  compatibilityResponses?: Record<
+    string,
+    {
+      category:
+        | "coreValues"
+        | "faithSpirituality"
+        | "relationships"
+        | "ethics"
+        | "conflictPersonality"
+        | "lifestyle"
+        | "ambition"
+        | "politicsSociety";
+      value: 1 | 2 | 3 | 4 | 5;
+    }
+  >;
   essentialReligions?: string[];
   distanceKm?: number;
   maximumDistanceKm?: number;
@@ -46,6 +64,17 @@ export type MatchComponentScores = {
   readiness: number;
 };
 
+export type CompatibilityCategoryScores = {
+  coreValues: number;
+  faithSpirituality: number;
+  relationships: number;
+  ethics: number;
+  conflictPersonality: number;
+  lifestyle: number;
+  ambition: number;
+  politicsSociety: number;
+};
+
 export type MatchResult = {
   eligible: boolean;
   score: number;
@@ -54,17 +83,20 @@ export type MatchResult = {
   placement: "kindred-picks" | "connect" | "explore" | "none";
   exclusions: string[];
   components: MatchComponentScores;
+  categoryScores: CompatibilityCategoryScores;
   explanationKeys: string[];
   scoringVersion: "kindredcube-v1";
 };
 
-const finalWeights = {
-  culturalValues: 27,
-  intentions: 18,
-  lifestyle: 13.5,
-  languages: 13.5,
-  culturalDiscovery: 9,
-  location: 9,
+const compatibilityWeights = {
+  coreValues: 20,
+  faithSpirituality: 20,
+  relationships: 20,
+  ethics: 15,
+  conflictPersonality: 10,
+  lifestyle: 7,
+  ambition: 5,
+  politicsSociety: 3,
 } as const;
 
 const normalized = (value: number) => Math.max(0, Math.min(1, value));
@@ -116,6 +148,140 @@ function locationSimilarity(first: MatchingSignals, second: MatchingSignals) {
   return first.openToRelocate || second.openToRelocate ? 0.55 : 0;
 }
 
+function responseDistanceCompatibility(first: number, second: number) {
+  const distance = Math.abs(first - second);
+  if (distance <= 0) return 1;
+  if (distance === 1) return 0.75;
+  if (distance === 2) return 0.5;
+  if (distance === 3) return 0.25;
+  return 0;
+}
+
+function categoryResponseCompatibility(
+  first: MatchingSignals,
+  second: MatchingSignals,
+  category: keyof CompatibilityCategoryScores,
+) {
+  const firstResponses = first.compatibilityResponses || {};
+  const secondResponses = second.compatibilityResponses || {};
+  const sharedKeys = Object.keys(firstResponses).filter(
+    (key) =>
+      firstResponses[key]?.category === category &&
+      secondResponses[key]?.category === category &&
+      typeof firstResponses[key]?.value === "number" &&
+      typeof secondResponses[key]?.value === "number",
+  );
+  if (!sharedKeys.length) return null;
+  const total = sharedKeys.reduce(
+    (sum, key) =>
+      sum + responseDistanceCompatibility(firstResponses[key]!.value, secondResponses[key]!.value),
+    0,
+  );
+  return normalized(total / sharedKeys.length);
+}
+
+function sameText(first?: string, second?: string) {
+  return Boolean(first?.trim() && second?.trim() && first.trim().toLowerCase() === second.trim().toLowerCase());
+}
+
+function religionCompatibility(first: MatchingSignals, second: MatchingSignals) {
+  const responseScore = categoryResponseCompatibility(first, second, "faithSpirituality");
+  const sameReligion = sameText(first.religion, second.religion);
+  const firstOpen = first.religionDifferenceOpenness;
+  const secondOpen = second.religionDifferenceOpenness;
+  const oneRequiresSameFaith = firstOpen === 1 || secondOpen === 1;
+  const oneStronglyPrefersSameFaith = firstOpen === 2 || secondOpen === 2;
+  const bothOpen = (firstOpen ?? 4) >= 4 && (secondOpen ?? 4) >= 4;
+
+  let ruleScore: number | null = null;
+  if (first.religion && second.religion) {
+    if (sameReligion && oneRequiresSameFaith) ruleScore = 1;
+    else if (sameReligion) ruleScore = 0.88;
+    else if (oneRequiresSameFaith) ruleScore = 0.12;
+    else if (oneStronglyPrefersSameFaith) ruleScore = 0.32;
+    else if (bothOpen) ruleScore = 0.78;
+    else ruleScore = 0.58;
+  }
+
+  if (responseScore === null && ruleScore === null) return 0.62;
+  return normalized((responseScore ?? ruleScore ?? 0.62) * 0.55 + (ruleScore ?? responseScore ?? 0.62) * 0.45);
+}
+
+function normalizedKidsPreference(value?: string) {
+  const normalizedValue = value?.trim().toLowerCase() || "";
+  if (!normalizedValue) return "";
+  if (normalizedValue.includes("don't") || normalizedValue.includes("dont") || normalizedValue.includes("does not") || normalizedValue === "no") return "no";
+  if (normalizedValue.includes("open") || normalizedValue.includes("unsure") || normalizedValue.includes("not sure")) return "open";
+  if (normalizedValue.includes("yes") || normalizedValue.includes("want")) return "yes";
+  return normalizedValue;
+}
+
+function childrenCompatibility(first: MatchingSignals, second: MatchingSignals) {
+  const firstWant = normalizedKidsPreference(first.wantsChildren);
+  const secondWant = normalizedKidsPreference(second.wantsChildren);
+  if (!firstWant || !secondWant) return null;
+  if (firstWant === secondWant) return firstWant === "open" ? 0.76 : 0.94;
+  if ((firstWant === "yes" && secondWant === "no") || (firstWant === "no" && secondWant === "yes")) return 0.1;
+  if (firstWant === "open" || secondWant === "open") return 0.62;
+  return 0.45;
+}
+
+function relationshipIntentionCompatibility(first: MatchingSignals, second: MatchingSignals) {
+  const intentOverlap = overlap(first.relationshipGoals, second.relationshipGoals);
+  if (intentOverlap !== null) return intentOverlap;
+  return null;
+}
+
+function compatibilityCategoryScores(viewer: MatchingSignals, candidate: MatchingSignals): CompatibilityCategoryScores {
+  const responseOr = (category: keyof CompatibilityCategoryScores, fallback: number) =>
+    categoryResponseCompatibility(viewer, candidate, category) ?? fallback;
+
+  const cvi = vectorSimilarity(viewer.cvi, candidate.cvi);
+  const values = overlap(viewer.values, candidate.values);
+  const personality = viewer.personality && candidate.personality
+    ? viewer.personality === candidate.personality ? 0.8 : 0.65
+    : null;
+  const coreValues = responseOr(
+    "coreValues",
+    normalized((cvi ?? 0.62) * 0.62 + (values ?? 0.6) * 0.28 + (personality ?? 0.6) * 0.1),
+  );
+  const faithSpirituality = religionCompatibility(viewer, candidate);
+  const children = childrenCompatibility(viewer, candidate);
+  const intentions = relationshipIntentionCompatibility(viewer, candidate);
+  const relationships = normalized(
+    responseOr("relationships", (intentions ?? 0.62) * 0.72 + (children ?? 0.62) * 0.28),
+  );
+  const ethics = responseOr("ethics", normalized((values ?? 0.6) * 0.72 + (overlap(viewer.communities, candidate.communities) ?? 0.6) * 0.28));
+  const conflictPersonality = responseOr("conflictPersonality", normalized((personality ?? 0.62) * 0.65 + (values ?? 0.6) * 0.35));
+  const lifestyle = responseOr("lifestyle", lifestyleSimilarity(viewer, candidate) ?? 0.62);
+  const ambition = responseOr(
+    "ambition",
+    normalized((values ?? 0.6) * 0.55 + (overlap(viewer.relationshipGoals, candidate.relationshipGoals) ?? 0.62) * 0.45),
+  );
+  const politicsSociety = responseOr(
+    "politicsSociety",
+    viewer.politics && candidate.politics ? (sameText(viewer.politics, candidate.politics) ? 0.82 : 0.55) : 0.62,
+  );
+
+  return {
+    coreValues: Math.round(coreValues * 100),
+    faithSpirituality: Math.round(faithSpirituality * 100),
+    relationships: Math.round(relationships * 100),
+    ethics: Math.round(ethics * 100),
+    conflictPersonality: Math.round(conflictPersonality * 100),
+    lifestyle: Math.round(lifestyle * 100),
+    ambition: Math.round(ambition * 100),
+    politicsSociety: Math.round(politicsSociety * 100),
+  };
+}
+
+function weightedCompatibilityScore(categories: CompatibilityCategoryScores) {
+  return Object.entries(compatibilityWeights).reduce(
+    (sum, [key, weight]) => sum + (categories[key as keyof CompatibilityCategoryScores] / 100) * weight,
+    0,
+  );
+}
+
 export function scoreMatch(viewer: MatchingSignals, candidate: MatchingSignals): MatchResult {
   const exclusions: string[] = [];
   if (viewer.blockedIds?.includes(candidate.id) || candidate.blockedIds?.includes(viewer.id)) exclusions.push("blocked");
@@ -155,24 +321,19 @@ export function scoreMatch(viewer: MatchingSignals, candidate: MatchingSignals):
   const personality = viewer.personality && candidate.personality
     ? viewer.personality === candidate.personality ? 0.8 : 0.65
     : null;
-  const culturalValues = normalized((cvi ?? 0.62) * 0.67 + (values ?? 0.6) * 0.22 + (personality ?? 0.6) * 0.11);
-  const intentions = overlap(viewer.relationshipGoals, candidate.relationshipGoals) ?? 0.62;
+  const categoryScores = compatibilityCategoryScores(viewer, candidate);
+  const culturalValues = categoryScores.coreValues / 100;
+  const intentions = categoryScores.relationships / 100;
   const lifestyle = lifestyleSimilarity(viewer, candidate) ?? 0.62;
   const languages = overlap(viewer.languages, candidate.languages) ?? 0.6;
   const culturePreference = candidate.culture && viewer.culturePreferences?.length
     ? viewer.culturePreferences.some((item) => item.toLowerCase() === candidate.culture!.toLowerCase()) ? 1 : 0.45
     : 0.65;
   const communities = overlap(viewer.communities, candidate.communities) ?? 0.6;
-  const culturalDiscovery = normalized(culturePreference * 0.7 + communities * 0.3);
+  const culturalDiscovery = normalized(culturePreference * 0.45 + communities * 0.25 + (categoryScores.ethics / 100) * 0.3);
   const location = locationSimilarity(viewer, candidate) ?? (candidate.readyToMeet ? 0.72 : 0.62);
 
-  const compatibilityScore =
-    culturalValues * finalWeights.culturalValues +
-    intentions * finalWeights.intentions +
-    lifestyle * finalWeights.lifestyle +
-    languages * finalWeights.languages +
-    culturalDiscovery * finalWeights.culturalDiscovery +
-    location * finalWeights.location;
+  const compatibilityScore = weightedCompatibilityScore(categoryScores);
   const readiness =
     (candidate.idVerified ? 3 : 0) +
     (candidate.selfieVerified ? 2 : 0) +
@@ -191,7 +352,7 @@ export function scoreMatch(viewer: MatchingSignals, candidate: MatchingSignals):
     locationSimilarity(viewer, candidate),
   ].filter((value) => value !== null).length;
   const coverage = Math.round((knownFields / 9) * 100);
-  const score = Math.round((compatibilityScore + readiness) * 10) / 10;
+  const score = Math.round(Math.min(100, compatibilityScore + readiness) * 10) / 10;
   const eligible = exclusions.length === 0;
   const placement = !eligible || score < 55
     ? "none"
@@ -226,6 +387,7 @@ export function scoreMatch(viewer: MatchingSignals, candidate: MatchingSignals):
       location: Math.round(location * 100),
       readiness: Math.round(readiness * 10) / 10,
     },
+    categoryScores,
     explanationKeys: explanations
       .filter(([value]) => value >= 0.7)
       .sort((first, second) => second[0] - first[0])
