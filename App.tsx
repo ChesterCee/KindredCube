@@ -23,6 +23,7 @@ import {
   CalendarHeart,
   Camera,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
@@ -36,6 +37,7 @@ import {
   MessageCircle,
   MessageSquare,
   Mic,
+  MinusCircle,
   Pause,
   Pencil,
   Play,
@@ -109,6 +111,10 @@ import {
   updatePrivateSpace,
   uploadChatMedia,
   uploadProfilePhoto,
+  startInstagramPhotoImport,
+  getInstagramPhotos,
+  importInstagramProfilePhotos,
+  InstagramMediaItem,
   PUBLIC_API_URL,
   ModerationAppeal,
   AdminPurchase,
@@ -123,8 +129,15 @@ import {
   getPostMeetCheckStatus,
   ModerationQueueItem,
   requestAdminMfaChallenge,
+  createSupportTicket,
+  closeSupportTicket,
+  getSupportTickets,
+  replyToUserSupportTicket,
+  replyToSupportTicket,
+  closeAdminSupportTicket,
   verifyAdminMfaCode,
   saveAdminHelpContent,
+  SupportTicket,
   setAuthExpiredHandler,
   IncomingLike,
 } from "./src/auth-client";
@@ -164,6 +177,16 @@ async function openKindredInAppSession(url: string, returnUrl = "kindredcube://b
   }
 }
 
+async function openPublicWebsiteUrl(url: string) {
+  const normalizedUrl = url.trim();
+  if (!/^https:\/\/kindredcube\.com(\/|$)/i.test(normalizedUrl)) return;
+  try {
+    await WebBrowser.openBrowserAsync(normalizedUrl);
+  } catch {
+    await Linking.openURL(normalizedUrl).catch(() => undefined);
+  }
+}
+
 const C = {
   ink: "#221F1B",
   cream: "#F7F1E7",
@@ -182,6 +205,8 @@ const CHAT_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 const CHAT_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 const TECTAVIS_GREEN = "#4E8F2F";
 const KINDREDCUBE_ORANGE = "#F58220";
+const INSTAGRAM_ICON = require("./assets/instagram-icon.png");
+const PROFILE_UPLOAD_CAMERA_ICON = require("./assets/profile-upload-camera.png");
 
 function formatMoney(amount: number, options: { signed?: boolean } = {}) {
   const prefix = options.signed && amount < 0 ? "-" : "";
@@ -842,6 +867,7 @@ type Profile = {
   portrait: number;
   photoUri?: string;
   photoUris?: string[];
+  instagramPhotoUris?: string[];
   realMember?: boolean;
   idVerified?: boolean;
   selfieVerified?: boolean;
@@ -854,7 +880,7 @@ type Profile = {
   promptAnswers?: Record<string, { prompt: string; answer: string }>;
 };
 
-function safeProfilePromptAnswers(value: unknown): Profile["promptAnswers"] {
+function safeProfilePromptAnswers(value: unknown): Record<string, { prompt: string; answer: string }> {
   if (!value) return {};
   if (typeof value === "string") {
     try {
@@ -873,6 +899,25 @@ function safeProfilePromptAnswers(value: unknown): Profile["promptAnswers"] {
     if (prompt && answer) output[key] = { prompt, answer };
   });
   return output;
+}
+
+function mergeProfilePromptAnswers(...values: unknown[]): Profile["promptAnswers"] {
+  const merged: Record<string, { prompt: string; answer: string }> = {};
+  const seen = new Set<string>();
+  values.forEach((value) => {
+    const parsed = safeProfilePromptAnswers(value);
+    Object.entries(parsed).forEach(([key, entry]) => {
+      const prompt = entry?.prompt?.trim();
+      const answer = entry?.answer?.trim();
+      if (!prompt || !answer) return;
+      const dedupeKey = `${prompt}\n${answer}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      const safeKey = key && !merged[key] ? key : `prompt-${Object.keys(merged).length + 1}`;
+      merged[safeKey] = { prompt, answer };
+    });
+  });
+  return merged;
 }
 
 function stringArray(value: unknown) {
@@ -909,6 +954,24 @@ function normalizeProfileMediaUris(profile: Record<string, unknown>) {
 
 function discoveryCandidateToProfile(candidate: DiscoveryCandidate): Profile {
   const matching = candidate.matching && typeof candidate.matching === "object" ? candidate.matching : {};
+  const candidateRecord = candidate as unknown as Record<string, unknown>;
+  const matchingRecord = matching as Record<string, unknown>;
+  const matchingProfile =
+    matchingRecord.profile && typeof matchingRecord.profile === "object" && !Array.isArray(matchingRecord.profile)
+      ? matchingRecord.profile as Record<string, unknown>
+      : {};
+  const promptAnswers = mergeProfilePromptAnswers(
+    candidateRecord.promptAnswers,
+    candidateRecord.prompts,
+    matchingRecord.promptAnswers,
+    matchingRecord.prompts,
+    matchingProfile.promptAnswers,
+    matchingProfile.prompts,
+  );
+  const enrichedMatching = {
+    ...matchingRecord,
+    promptAnswers,
+  };
   const matchingPhotos = Array.isArray(matching.photos)
     ? matching.photos
         .map((photo) =>
@@ -928,6 +991,15 @@ function discoveryCandidateToProfile(candidate: DiscoveryCandidate): Profile {
       ].map(cleanMediaUri).filter((uri): uri is string => uri.length > 0),
     ),
   ];
+  const instagramPhotoUris = [
+    ...new Set(
+      [
+        ...instagramPhotoUrisFromRecords(matching.photos),
+        ...instagramPhotoUrisFromRecords(candidateRecord.photos),
+        ...instagramPhotoUrisFromRecords(matchingProfile.photos),
+      ].filter((uri): uri is string => uri.length > 0),
+    ),
+  ];
   const role = typeof matching.occupation === "string" && matching.occupation.trim()
     ? matching.occupation.trim()
     : candidate.role;
@@ -943,12 +1015,13 @@ function discoveryCandidateToProfile(candidate: DiscoveryCandidate): Profile {
     portrait: -1,
     photoUri: photoUris[0],
     photoUris,
+    instagramPhotoUris,
     realMember: true,
     idVerified,
     selfieVerified,
     meetupVerified: candidate.meetupVerified,
-    discovery: { ...candidate, idVerified, selfieVerified },
-    promptAnswers: safeProfilePromptAnswers((matching as Record<string, unknown>).promptAnswers),
+    discovery: { ...candidate, idVerified, selfieVerified, matching: enrichedMatching },
+    promptAnswers,
   });
 }
 
@@ -1005,6 +1078,17 @@ const previewProfiles: Profile[] = [
   { name: "Kenji", gender: "Man", age: 33, culture: "Japanese", role: "Software engineer", portrait: 19 },
   { name: "Wei", gender: "Man", age: 30, culture: "Chinese", role: "Finance analyst", portrait: 20 },
   { name: "Sizwe", gender: "Man", age: 35, culture: "Zulu South African", role: "Creative director", portrait: 21 },
+];
+
+const registrationPreviewProfiles: Profile[] = [
+  { name: "Marcus", gender: "Man", age: 34, culture: "Black American", role: "Product lead", portrait: 100 },
+  { name: "Mateo", gender: "Man", age: 31, culture: "Latino", role: "Restaurant founder", portrait: 101 },
+  { name: "Daniel", gender: "Man", age: 32, culture: "White American", role: "Architect", portrait: 102 },
+  { name: "Kenji", gender: "Man", age: 33, culture: "Asian", role: "Software engineer", portrait: 103 },
+  { name: "Maya", gender: "Woman", age: 29, culture: "Black American", role: "Designer", portrait: 104 },
+  { name: "Sofia", gender: "Woman", age: 28, culture: "Latina", role: "Brand strategist", portrait: 105 },
+  { name: "Claire", gender: "Woman", age: 31, culture: "White American", role: "Architect", portrait: 106 },
+  { name: "Aiko", gender: "Woman", age: 30, culture: "Asian", role: "Creative director", portrait: 107 },
 ];
 
 const globalCities = [
@@ -1101,6 +1185,7 @@ function WelcomeLoadingScreen({
   const { width, height } = useWindowDimensions();
   const progress = useRef(new Animated.Value(0)).current;
   const [showLoadingDetails, setShowLoadingDetails] = useState(false);
+  const [gifReady, setGifReady] = useState(false);
   const gifDetailsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaWidth = Math.min(width * 0.92, 430);
   const mediaHeight = Math.min(height * 0.68, mediaWidth * (1920 / 1080));
@@ -1113,6 +1198,7 @@ function WelcomeLoadingScreen({
 
   const revealLoadingDetailsAfterGif = useCallback(() => {
     if (gifDetailsTimerRef.current) return;
+    setGifReady(true);
     gifDetailsTimerRef.current = setTimeout(() => setShowLoadingDetails(true), 1200);
   }, []);
 
@@ -1156,12 +1242,18 @@ function WelcomeLoadingScreen({
         }}
       >
         <Image
+          accessibilityLabel="KindredCube welcome artwork"
+          source={require("./assets/kindredcube-welcome-loader-poster.png")}
+          resizeMode="cover"
+          style={{ position: "absolute", width: "100%", height: "100%" }}
+        />
+        <Image
           accessibilityLabel="KindredCube welcome animation"
           source={require("./assets/kindredcube-welcome-loader.gif")}
           resizeMode="cover"
           onLoad={revealLoadingDetailsAfterGif}
           onLoadEnd={revealLoadingDetailsAfterGif}
-          style={{ width: "100%", height: "100%" }}
+          style={{ width: "100%", height: "100%", opacity: gifReady ? 1 : 0 }}
         />
       </View>
       {showLoadingDetails || error ? (
@@ -2323,6 +2415,35 @@ function Portrait({
       </View>
     );
   }
+  if (index >= 100 && index < 108) {
+    const boxSize = size ?? 64;
+    const originalIndex = index - 100;
+    const col = originalIndex % 4;
+    const row = Math.floor(originalIndex / 4);
+    return (
+      <View
+        style={{
+          width: boxSize,
+          height: boxSize,
+          overflow: "hidden",
+          backgroundColor: C.line,
+        }}
+      >
+        <Image
+          blurRadius={blurred ? 64 : 0}
+          source={require("./assets/registration/registration-preview-people.png")}
+          resizeMode="stretch"
+          style={{
+            position: "absolute",
+            width: boxSize * 4,
+            height: boxSize * 2,
+            left: -col * boxSize,
+            top: -row * boxSize,
+          }}
+        />
+      </View>
+    );
+  }
   if (index >= 16) {
     const originalIndex = index - 16;
     const col = originalIndex % 3;
@@ -2886,11 +3007,87 @@ function verificationStrengthBonus(status: IdentityVerificationStatus, method: I
   return method === "video_selfie" ? 5 : 10;
 }
 
+function calculateProfileStrengthValue(
+  profile: Record<string, unknown>,
+  status: IdentityVerificationStatus,
+  method: IdentityVerificationMethod,
+) {
+  const photos = Array.isArray(profile.photos) ? profile.photos : [];
+  const prompts = profile.promptAnswers && typeof profile.promptAnswers === "object" && !Array.isArray(profile.promptAnswers)
+    ? profile.promptAnswers as Record<string, unknown>
+    : {};
+  const details = profile.details && typeof profile.details === "object" && !Array.isArray(profile.details)
+    ? profile.details as Record<string, unknown>
+    : {};
+  const compatibilityResponses = profile.compatibilityResponses && typeof profile.compatibilityResponses === "object" && !Array.isArray(profile.compatibilityResponses)
+    ? profile.compatibilityResponses as Record<string, unknown>
+    : {};
+  const stringList = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+  const textValue = (value: unknown) => typeof value === "string" ? value.trim() : "";
+  const validPromptCount = Object.values(prompts).filter((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const prompt = entry as Record<string, unknown>;
+    return textValue(prompt.prompt).length > 0 && textValue(prompt.answer).length >= 3;
+  }).length;
+  const kindredTypeAnswerCount = kindredTypeQuestions.filter((question) => {
+    const response = compatibilityResponses[question.key];
+    return Boolean(response && typeof response === "object" && !Array.isArray(response) && typeof (response as Record<string, unknown>).value === "number");
+  }).length;
+  const completionItems = [
+    Boolean(textValue(profile.personality)),
+    kindredTypeAnswerCount === kindredTypeQuestions.length,
+    stringList(profile.relationshipGoals).length > 0,
+    stringList(profile.interests).length > 0,
+    stringList(profile.causes).length > 0,
+    stringList(profile.values).length > 0,
+    Boolean(textValue(profile.bio)),
+    Boolean(textValue(profile.work)),
+    Boolean(textValue(profile.occupation)),
+    Boolean(textValue(profile.hometown)),
+    Object.keys(details).length >= 4,
+    stringList(profile.languages).length > 0,
+  ];
+  const baseCompletionScore = Math.round((completionItems.filter(Boolean).length / completionItems.length) * 54);
+  const promptCompletionScore = Math.min(12, validPromptCount * 4);
+  const photoCompletionScore = Math.min(24, photos.length * 8);
+  return Math.min(
+    verificationStrengthCap(status, method),
+    Math.min(90, photoCompletionScore + promptCompletionScore + baseCompletionScore) +
+      verificationStrengthBonus(status, method),
+  );
+}
+
 function mergeFreshProfileIntoChatProfile(fresh: Profile, existing?: Profile): Profile {
   const freshNormalized = normalizeProfileVerification(fresh);
   const existingNormalized = existing ? normalizeProfileVerification(existing) : undefined;
+  const freshMatching = freshNormalized.discovery?.matching && typeof freshNormalized.discovery.matching === "object"
+    ? freshNormalized.discovery.matching as Record<string, unknown>
+    : {};
+  const existingMatching = existingNormalized?.discovery?.matching && typeof existingNormalized.discovery.matching === "object"
+    ? existingNormalized.discovery.matching as Record<string, unknown>
+    : {};
+  const promptAnswers = mergeProfilePromptAnswers(
+    existingNormalized?.promptAnswers,
+    existingMatching.promptAnswers,
+    existingMatching.prompts,
+    freshNormalized.promptAnswers,
+    freshMatching.promptAnswers,
+    freshMatching.prompts,
+  );
   const discovery = freshNormalized.discovery || existingNormalized?.discovery;
-  const merged = existingNormalized ? { ...existingNormalized, ...freshNormalized, discovery } : { ...freshNormalized, discovery };
+  const mergedDiscovery = discovery
+    ? {
+        ...discovery,
+        matching: {
+          ...(existingMatching || {}),
+          ...(freshMatching || {}),
+          promptAnswers,
+        },
+      }
+    : discovery;
+  const merged = existingNormalized
+    ? { ...existingNormalized, ...freshNormalized, discovery: mergedDiscovery, promptAnswers }
+    : { ...freshNormalized, discovery: mergedDiscovery, promptAnswers };
   const idVerified = Boolean(profileHasStripeVerification(freshNormalized) || (existingNormalized ? profileHasStripeVerification(existingNormalized) : false));
   const selfieVerified = !idVerified && Boolean(profileHasSelfieVerification(freshNormalized) || (existingNormalized ? profileHasSelfieVerification(existingNormalized) : false));
   const meetupVerified = Boolean(profileMeetupVerified(freshNormalized) || (existingNormalized ? profileMeetupVerified(existingNormalized) : false));
@@ -2899,6 +3096,7 @@ function mergeFreshProfileIntoChatProfile(fresh: Profile, existing?: Profile): P
     discovery: merged.discovery
       ? {
           ...merged.discovery,
+          matching: merged.discovery.matching,
           idVerified,
           selfieVerified,
           meetupVerified,
@@ -3100,13 +3298,10 @@ function profilesForSeeking<T extends readonly Profile[] | Profile[]>(
 
 function profilesForRegistrationPreview(
   people: readonly Profile[],
-  interests: string[],
+  _interests: string[],
   seeking: string,
 ) {
-  const seekingPool = profilesForSeeking(people, seeking);
-  const cultureMatches = profilesForSelectedDiscovery(seekingPool, interests);
-  if (cultureMatches.length) return cultureMatches;
-  return seekingPool;
+  return profilesForSeeking(people, seeking);
 }
 
 function Results({
@@ -3187,12 +3382,12 @@ function Results({
   }, [answers.seeking, answers.interests.join("|")]);
   const areas = nearbyAreas(city);
   const previewShown = profilesForRegistrationPreview(
-    previewProfiles,
+    registrationPreviewProfiles,
     answers.interests,
     answers.seeking,
   );
   const shown = previewShown.slice(0, visiblePreviewCount);
-  const firstProfile = previewShown[0] || previewProfiles[0]!;
+  const firstProfile = previewShown[0] || registrationPreviewProfiles[0]!;
   const mapHeight = Math.max(250, Math.min(480, height - 375));
   return (
     <ScrollView
@@ -3626,8 +3821,31 @@ function Registration({
             textAlign: "center",
           }}
         >
-          By registering, you agree to the Terms, Privacy Policy, and Community
-          Guidelines.
+          By registering, you agree to our{" "}
+          <Text
+            accessibilityRole="link"
+            onPress={() =>
+              WebBrowser.openBrowserAsync("https://kindredcube.com/terms").catch(() =>
+                Linking.openURL("https://kindredcube.com/terms").catch(() => undefined),
+              )
+            }
+            style={{ color: C.clay, fontWeight: "900", textDecorationLine: "underline" }}
+          >
+            Terms
+          </Text>
+          {" "}and{" "}
+          <Text
+            accessibilityRole="link"
+            onPress={() =>
+              WebBrowser.openBrowserAsync("https://kindredcube.com/privacy").catch(() =>
+                Linking.openURL("https://kindredcube.com/privacy").catch(() => undefined),
+              )
+            }
+            style={{ color: C.clay, fontWeight: "900", textDecorationLine: "underline" }}
+          >
+            Privacy Policy
+          </Text>
+          .
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -3929,6 +4147,7 @@ function ProfileDetail({
   const profileSwipeX = useRef(new Animated.Value(0)).current;
   const [profileSwipeDelta, setProfileSwipeDelta] = useState(0);
   const photoPrompts = profilePromptsForGallery(profile);
+  const profileCanSwipe = !readyMeetMode && (Boolean(onLike) || Boolean(onPass));
   swipeLeftRef.current = onSwipeLeft;
   swipeRightRef.current = onSwipeRight;
   const finishProfileSwipe = useCallback(
@@ -3957,7 +4176,7 @@ function ProfileDetail({
     <View
       style={{ flex: 1 }}
       onTouchStart={(event) => {
-        if (!readyMeetMode && !onLike && !onPass) return;
+        if (!profileCanSwipe) return;
         profileTouchStart.current = {
           x: event.nativeEvent.pageX,
           y: event.nativeEvent.pageY,
@@ -3965,7 +4184,7 @@ function ProfileDetail({
         setProfileSwipeDelta(0);
       }}
       onTouchMove={(event) => {
-        if ((!readyMeetMode && !onLike && !onPass) || !profileTouchStart.current) return;
+        if (!profileCanSwipe || !profileTouchStart.current) return;
         const dx = event.nativeEvent.pageX - profileTouchStart.current.x;
         const dy = event.nativeEvent.pageY - profileTouchStart.current.y;
         if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.1) {
@@ -3975,7 +4194,7 @@ function ProfileDetail({
         }
       }}
       onTouchEnd={(event) => {
-        if ((!readyMeetMode && !onLike && !onPass) || !profileTouchStart.current) return;
+        if (!profileCanSwipe || !profileTouchStart.current) return;
         const dx = event.nativeEvent.pageX - profileTouchStart.current.x;
         const dy = event.nativeEvent.pageY - profileTouchStart.current.y;
         profileTouchStart.current = null;
@@ -3992,7 +4211,7 @@ function ProfileDetail({
       contentContainerStyle={{
         paddingHorizontal: 20,
         paddingTop: 16,
-        paddingBottom: !readyMeetMode && (onLike || onPass) ? 112 : 30,
+        paddingBottom: readyMeetMode && onConnect ? 116 : profileCanSwipe ? 112 : 30,
         gap: 15,
       }}
     >
@@ -4045,29 +4264,6 @@ function ProfileDetail({
           >
             <Text style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>?</Text>
           </Pressable>
-          {readyMeetMode && onConnect ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Connect with ${profile.name}`}
-              onPress={onConnect}
-              style={{
-                position: "absolute",
-                right: 14,
-                bottom: 14,
-                minHeight: 44,
-                borderRadius: 22,
-                backgroundColor: C.ink,
-                paddingHorizontal: 18,
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 5px 14px rgba(34,31,27,0.25)",
-              }}
-            >
-              <Text style={{ color: C.paper, fontSize: 12, fontWeight: "900" }}>
-                Connect with {profile.name}
-              </Text>
-            </Pressable>
-          ) : null}
         </View>
         {!readyMeetMode && Math.abs(profileSwipeDelta) > 20 ? (
           <View
@@ -4091,13 +4287,13 @@ function ProfileDetail({
             </Text>
           </View>
         ) : null}
-        {readyMeetMode || (!readyMeetMode && (onLike || onPass)) ? (
+        {profileCanSwipe ? (
           <View
             pointerEvents="none"
-            style={{ backgroundColor: readyMeetMode ? "#173F31" : "#F7F3ED", paddingHorizontal: 14, paddingVertical: 10 }}
+            style={{ backgroundColor: "#F7F3ED", paddingHorizontal: 14, paddingVertical: 10 }}
           >
-            <Text style={{ color: readyMeetMode ? C.paper : C.ink, fontSize: 11, fontWeight: "900", textAlign: "center" }}>
-              Swipe right to like ? swipe left to pass
+            <Text style={{ color: C.ink, fontSize: 11, fontWeight: "900", textAlign: "center" }}>
+              Swipe right to like · swipe left to pass
             </Text>
           </View>
         ) : null}
@@ -4218,9 +4414,7 @@ function ProfileDetail({
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
           {profileGalleryItems(profile).slice(1).map((item, photoIndex) => {
             const galleryIndexForPhoto = photoIndex + 1;
-            const savedPrompt = photoPrompts.length ?
-               photoPrompts[photoIndex % photoPrompts.length]
-              : null;
+            const savedPrompt = photoPrompts[photoIndex] || null;
             return (
               <Pressable
                 key={`${item.kind}-${item.value}-${photoIndex}`}
@@ -4234,6 +4428,7 @@ function ProfileDetail({
                 ) : (
                   <Portrait index={Number(item.value)} size={136} />
                 )}
+                {item.source === "instagram" ? <InstagramPhotoBadge compact /> : null}
                 {savedPrompt ? (
                   <View
                     pointerEvents="none"
@@ -4302,7 +4497,7 @@ function ProfileDetail({
       />
     ) : null}
     </Animated.View>
-    {!readyMeetMode && (onLike || onPass) ? (
+    {profileCanSwipe ? (
       <View
         style={{
           position: "absolute",
@@ -4367,6 +4562,29 @@ function ProfileDetail({
           </Pressable>
         ) : null}
       </View>
+    ) : null}
+    {readyMeetMode && onConnect ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Chat with ${profile.name}`}
+        onPress={onConnect}
+        style={{
+          position: "absolute",
+          right: 22,
+          bottom: 24,
+          width: 62,
+          height: 62,
+          borderRadius: 31,
+          backgroundColor: C.pink,
+          borderWidth: 3,
+          borderColor: "rgba(255,253,249,0.94)",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: "0 12px 28px rgba(236,45,117,0.32)",
+        }}
+      >
+        <MessageCircle width={29} height={29} color={C.paper} strokeWidth={2.8} />
+      </Pressable>
     ) : null}
     </View>
   );
@@ -4828,7 +5046,7 @@ function Connect({
         </Pressable>
       </View>
       <Text selectable style={{ color: C.muted, fontSize: 10 }}>
-          Swipe right to like ? Swipe left to pass ? Photo comments use Premium or Wallet
+          Swipe right to like · Swipe left to pass · Photo comments use Premium or Wallet
       </Text>
     </ScrollView>
   );
@@ -4880,7 +5098,7 @@ function CompleteProfileRecommendation({
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: C.pink, fontSize: 28 }}>?</Text>
+            <Heart width={30} height={30} color={C.pink} fill={C.pink} />
           </View>
           <View style={{ gap: 5 }}>
             <Text
@@ -4963,6 +5181,8 @@ function MessagesScreen({
   onVerificationStatusChange,
   onVerificationMethodChange,
   onCurrentUserMeetupVerified,
+  completedPostMeetCheckKeys = [],
+  onPostMeetCheckCompleted,
 }: {
   username: string;
   assistantAvailable: boolean;
@@ -4985,6 +5205,8 @@ function MessagesScreen({
   onVerificationStatusChange?: (status: IdentityVerificationStatus) => void;
   onVerificationMethodChange?: (method: IdentityVerificationMethod) => void;
   onCurrentUserMeetupVerified?: () => void;
+  completedPostMeetCheckKeys?: string[];
+  onPostMeetCheckCompleted?: (key: string) => void;
 }) {
   const [conversationOpen, setConversationOpen] = useState(false);
   const [chatListFilter, setChatListFilter] = useState<"all" | "unread">("all");
@@ -5007,7 +5229,7 @@ function MessagesScreen({
         keyboardVerticalOffset={8}
       >
         <View style={{ flex: 1, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 30, gap: 10 }}>
-          <ReadyMeetChat currentUserId={currentUserId} profile={activeMemberChat} onBack={onCloseMemberChat} onProfilePress={onProfilePress} onBlock={onBlockMember} onReport={onReportMember} onMessageSent={onMemberMessageSent} readyNearby={memberReadyNearby} online={false} verificationStatus={verificationStatus} verificationMethod={verificationMethod} onVerificationStatusChange={onVerificationStatusChange} onVerificationMethodChange={onVerificationMethodChange} onCurrentUserMeetupVerified={onCurrentUserMeetupVerified} />
+          <ReadyMeetChat currentUserId={currentUserId} profile={activeMemberChat} onBack={onCloseMemberChat} onProfilePress={onProfilePress} onBlock={onBlockMember} onReport={onReportMember} onMessageSent={onMemberMessageSent} readyNearby={memberReadyNearby} online={false} verificationStatus={verificationStatus} verificationMethod={verificationMethod} onVerificationStatusChange={onVerificationStatusChange} onVerificationMethodChange={onVerificationMethodChange} onCurrentUserMeetupVerified={onCurrentUserMeetupVerified} completedPostMeetCheckKeys={completedPostMeetCheckKeys} onPostMeetCheckCompleted={onPostMeetCheckCompleted} />
         </View>
       </KeyboardAvoidingView>
     );
@@ -5364,7 +5586,7 @@ function ProfileCompletionScreen({ onConnect }: { onConnect: () => void }) {
   );
 }
 
-type MemberPhoto = { id: string; uri?: string; portrait?: number };
+type MemberPhoto = { id: string; uri?: string; portrait?: number; source?: "instagram" | "phone" };
 type SelectionEditor = {
   title: string;
   options: string[];
@@ -5805,6 +6027,11 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
   const [stats, setStats] = useState<AdminUserStats | null>(null);
   const [purchaseStats, setPurchaseStats] = useState<AdminPurchaseStat[]>([]);
   const [purchases, setPurchases] = useState<AdminPurchase[]>([]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [selectedAdminSupportTicket, setSelectedAdminSupportTicket] = useState<SupportTicket | null>(null);
+  const [adminSupportReply, setAdminSupportReply] = useState("");
+  const [adminSupportCloseReason, setAdminSupportCloseReason] = useState("Issue resolved by support");
+  const [adminSupportBusy, setAdminSupportBusy] = useState(false);
   const [adminMfaToken, setAdminMfaToken] = useState("");
   const [code, setCode] = useState("");
   const [notice, setNotice] = useState("");
@@ -5824,6 +6051,7 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
         setPurchases(result.purchases);
         setQueue(result.queue);
         setAppeals(result.appeals);
+        setSupportTickets(result.supportTickets || []);
       })
       .catch((caught) => {
         setNotice(caught instanceof Error ? caught.message : "Moderation queue could not be loaded.");
@@ -5880,6 +6108,49 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
       setNotice(caught instanceof Error ? caught.message : "Appeal could not be reviewed.");
     }
   };
+  const syncAdminSupportTicket = (ticket: SupportTicket) => {
+    setSupportTickets((current) => current.map((item) => item.id === ticket.id ? ticket : item));
+    setSelectedAdminSupportTicket(ticket);
+  };
+  const submitAdminSupportReply = async () => {
+    if (!selectedAdminSupportTicket || adminSupportBusy) return;
+    const message = adminSupportReply.trim();
+    if (!message) {
+      setNotice("Write a reply before sending.");
+      return;
+    }
+    setAdminSupportBusy(true);
+    setNotice("");
+    try {
+      const result = await replyToSupportTicket(selectedAdminSupportTicket.id, message, adminMfaToken);
+      syncAdminSupportTicket(result.ticket);
+      setAdminSupportReply("");
+      setNotice(`Reply sent to ${result.ticket.ticketNumber}.`);
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : "Support reply could not be sent.");
+    } finally {
+      setAdminSupportBusy(false);
+    }
+  };
+  const submitAdminSupportClose = async () => {
+    if (!selectedAdminSupportTicket || adminSupportBusy) return;
+    const reason = adminSupportCloseReason.trim();
+    if (!reason) {
+      setNotice("Add a reason before closing this ticket.");
+      return;
+    }
+    setAdminSupportBusy(true);
+    setNotice("");
+    try {
+      const result = await closeAdminSupportTicket(selectedAdminSupportTicket.id, reason, adminMfaToken);
+      syncAdminSupportTicket(result.ticket);
+      setNotice(`Ticket ${result.ticket.ticketNumber} was closed.`);
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : "Support ticket could not be closed.");
+    } finally {
+      setAdminSupportBusy(false);
+    }
+  };
   if (adminMfaToken) {
     const menuItems = [
       { key: "help", label: "Help Hub Content", icon: FileText },
@@ -5900,8 +6171,59 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
       { title: "Appeals", count: appeals.length, body: appeals.length ? appeals.map((appeal) => `${appeal.public_username || appeal.email}: ${appeal.details}`).join("\n\n") : "No open appeals." },
       { title: "Reported", count: queue.filter((item) => item.report_count > 0).length, body: queue.filter((item) => item.report_count > 0).slice(0, 8).map((item) => `${item.username || item.profile_id} · ${item.report_count} report(s)\n${item.latest_report_reason || "No reason"}`).join("\n\n") || "No reported profiles." },
       { title: "Blocked", count: queue.filter((item) => item.block_count > 0).length, body: queue.filter((item) => item.block_count > 0).slice(0, 8).map((item) => `${item.username || item.profile_id} · ${item.block_count} block(s)\n${item.latest_block_reason || "No reason"}`).join("\n\n") || "No blocked profiles." },
-      { title: "Support Requests", count: 0, body: "Real-time support inbox will appear here. Support email notifications should be sent from support@kindredcube.com once the support message endpoint is connected." },
     ];
+    const supportTicketColumns = [
+      { title: "New tickets", status: "open", tickets: supportTickets.filter((ticket) => ticket.status === "open") },
+      { title: "In review", status: "in_review", tickets: supportTickets.filter((ticket) => ticket.status === "in_review" || ticket.status === "resolved") },
+      { title: "Closed", status: "closed", tickets: supportTickets.filter((ticket) => ticket.status === "closed") },
+    ];
+    const userBars = [
+      { label: "Total", value: stats?.total_users || 0, color: "#101B3D" },
+      { label: "Active", value: stats?.active_users || 0, color: "#2F9E59" },
+      { label: "Pending", value: stats?.pending_users || 0, color: "#F2C94C" },
+      { label: "Deleted", value: stats?.deleted_users || 0, color: "#D94E4E" },
+    ];
+    const maxUserBarValue = Math.max(1, ...userBars.map((item) => item.value));
+    const niceUserGraphMax = maxUserBarValue <= 10 ? 10 : maxUserBarValue <= 20 ? 20 : maxUserBarValue <= 30 ? 30 : maxUserBarValue <= 100 ? 100 : Math.ceil(maxUserBarValue / 100) * 100;
+    const userAxisLabels = [niceUserGraphMax, Math.round(niceUserGraphMax * 0.75), Math.round(niceUserGraphMax * 0.5), Math.round(niceUserGraphMax * 0.25), 0];
+    const purchaseGraphWidth = Math.max(300, Math.min(desktop ? width - 360 : width - 64, 920));
+    const purchaseGraphHeight = 230;
+    const purchaseWindowDays = analyticsRange === "1d" ? 1 : analyticsRange === "7d" ? 7 : analyticsRange === "30d" ? 30 : 90;
+    const purchaseBucketCount = analyticsRange === "1d" ? 8 : analyticsRange === "7d" ? 7 : analyticsRange === "30d" ? 10 : 12;
+    const nowForPurchaseChart = new Date();
+    const purchaseBuckets = Array.from({ length: purchaseBucketCount }, (_, index) => {
+      const start = new Date(nowForPurchaseChart);
+      const daysBack = purchaseWindowDays * (purchaseBucketCount - index - 1) / purchaseBucketCount;
+      start.setDate(nowForPurchaseChart.getDate() - Math.ceil(daysBack));
+      return {
+        label: analyticsRange === "1d"
+          ? `${Math.max(0, 24 - ((purchaseBucketCount - index) * 3))}:00`
+          : start.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        wallet: 0,
+        kindred_pass: 0,
+        premium: 0,
+      };
+    });
+    const countedPurchases = purchases.filter((purchase) => ["paid", "succeeded", "completed"].includes(purchase.status.toLowerCase()));
+    const purchaseSource = countedPurchases.length ? countedPurchases : purchases;
+    purchaseSource.forEach((purchase) => {
+      const created = new Date(purchase.paid_at || purchase.created_at);
+      const ageMs = nowForPurchaseChart.getTime() - created.getTime();
+      const windowMs = purchaseWindowDays * 24 * 60 * 60 * 1000;
+      if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > windowMs) return;
+      const bucketIndex = Math.min(purchaseBucketCount - 1, Math.max(0, Math.floor((1 - ageMs / windowMs) * purchaseBucketCount)));
+      const type = purchase.purchase_type;
+      purchaseBuckets[bucketIndex][type] += 1;
+    });
+    const purchaseSeries = [
+      { key: "wallet" as const, label: "Wallet", color: "#101B3D" },
+      { key: "kindred_pass" as const, label: "KindredPass", color: "#7B3DA7" },
+      { key: "premium" as const, label: "Premium", color: "#F2C94C" },
+    ];
+    const maxPurchasePoint = Math.max(1, ...purchaseBuckets.flatMap((bucket) => purchaseSeries.map((series) => bucket[series.key])));
+    const purchaseChartPadding = 26;
+    const purchasePointX = (index: number) => purchaseChartPadding + (index / Math.max(1, purchaseBuckets.length - 1)) * (purchaseGraphWidth - purchaseChartPadding * 2);
+    const purchasePointY = (value: number) => purchaseChartPadding + (1 - value / maxPurchasePoint) * (purchaseGraphHeight - purchaseChartPadding * 2);
     return (
       <View style={{ flex: 1, backgroundColor: "#F6F7FB", flexDirection: desktop ? "row" : "column" }}>
         <View style={{ width: desktop ? 250 : "100%", backgroundColor: "#101B3D", padding: 18, gap: 16 }}>
@@ -5910,7 +6232,15 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
             {menuItems.map(({ key, label, icon: Icon }) => {
               const selected = activeSection === key;
               return (
-                <Pressable key={key} accessibilityRole="button" onPress={() => setActiveSection(key)} style={{ minHeight: 46, borderRadius: 10, backgroundColor: selected ? "#7B3DA7" : "transparent", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Pressable
+                  key={key}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setActiveSection(key);
+                    setSelectedAdminSupportTicket(null);
+                  }}
+                  style={{ minHeight: 46, borderRadius: 10, backgroundColor: selected ? "#7B3DA7" : "transparent", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10 }}
+                >
                   <Icon width={18} height={18} color={C.paper} />
                   <Text style={{ color: C.paper, fontSize: 13, fontWeight: "900" }}>{label}</Text>
                 </Pressable>
@@ -5951,26 +6281,148 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
                   ))}
                 </View>
               </View>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                {[
-                  ["Total users", stats?.total_users || 0],
-                  ["New users per day", Math.max(0, Math.round((stats?.active_users || 0) / (analyticsRange === "1d" ? 1 : analyticsRange === "7d" ? 7 : analyticsRange === "30d" ? 30 : 90)))],
-                  ["Deleted accounts", stats?.deleted_users || 0],
-                  ["Stripe verified", verifiedCount],
-                  ["Selfie verified", Math.max(0, (stats?.active_users || 0) - verifiedCount)],
-                  ["Ready to Meet invites", queue.length + appeals.length],
-                ].map(([label, value]) => (
-                  <View key={String(label)} style={{ minWidth: desktop ? "31%" : "47%", flex: 1, borderRadius: 18, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 14 }}>
-                    <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "900" }}>{label}</Text>
-                    <Text selectable style={{ color: C.ink, fontSize: 28, fontWeight: "900" }}>{String(value)}</Text>
+              <View style={{ borderRadius: 24, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 16, gap: 14 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <View style={{ gap: 3 }}>
+                    <Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>User account overview</Text>
+                    <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "800" }}>Total, active, pending, and deleted accounts</Text>
                   </View>
-                ))}
+                  <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "900" }}>Max {niceUserGraphMax}</Text>
+                </View>
+                <View style={{ minHeight: 245, flexDirection: "row", gap: 12 }}>
+                  <View style={{ width: 38, justifyContent: "space-between", paddingBottom: 31 }}>
+                    {userAxisLabels.map((label) => (
+                      <Text key={label} selectable style={{ color: C.muted, fontSize: 10, fontWeight: "900", textAlign: "right" }}>{label}</Text>
+                    ))}
+                  </View>
+                  <View style={{ flex: 1, height: 220, borderLeftWidth: 1, borderBottomWidth: 1, borderColor: "#D7D0C4", flexDirection: "row", alignItems: "flex-end", justifyContent: "space-around", paddingHorizontal: 10, paddingTop: 8 }}>
+                    {[0.25, 0.5, 0.75, 1].map((line) => (
+                      <View key={line} pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: `${line * 100}%`, height: 1, backgroundColor: "rgba(16,27,61,0.07)" }} />
+                    ))}
+                    {userBars.map((bar) => {
+                      const heightPercent = Math.max(4, (bar.value / niceUserGraphMax) * 100);
+                      return (
+                        <View key={bar.label} style={{ width: desktop ? 86 : 58, height: "100%", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
+                          <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>{bar.value}</Text>
+                          <View
+                            style={{
+                              width: "72%",
+                              height: `${heightPercent}%`,
+                              minHeight: bar.value ? 12 : 4,
+                              borderTopLeftRadius: 16,
+                              borderTopRightRadius: 16,
+                              backgroundColor: bar.color,
+                              shadowColor: bar.color,
+                              shadowOpacity: 0.22,
+                              shadowRadius: 10,
+                              shadowOffset: { width: 0, height: 6 },
+                              elevation: 3,
+                            }}
+                          />
+                          <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 11, fontWeight: "900" }}>{bar.label}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {[
+                    ["New users/day", Math.max(0, Math.round((stats?.active_users || 0) / (analyticsRange === "1d" ? 1 : analyticsRange === "7d" ? 7 : analyticsRange === "30d" ? 30 : 90)))],
+                    ["Stripe verified", verifiedCount],
+                    ["Selfie verified", Math.max(0, (stats?.active_users || 0) - verifiedCount)],
+                    ["Ready to Meet invites", queue.length + appeals.length],
+                  ].map(([label, value]) => (
+                    <View key={String(label)} style={{ borderRadius: 14, backgroundColor: "#F8F3EC", paddingHorizontal: 12, paddingVertical: 9 }}>
+                      <Text selectable style={{ color: C.muted, fontSize: 10, fontWeight: "900" }}>{label}</Text>
+                      <Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>{String(value)}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
             </View>
           ) : null}
           {activeSection === "purchases" ? (
             <View style={{ gap: 12 }}>
               <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Purchases</Text>
+              <View style={{ borderRadius: 28, backgroundColor: "#081426", padding: 18, gap: 14, overflow: "hidden" }}>
+                <View pointerEvents="none" style={{ position: "absolute", left: -80, top: -90, width: 220, height: 220, borderRadius: 110, backgroundColor: "rgba(123,61,167,0.22)" }} />
+                <View pointerEvents="none" style={{ position: "absolute", right: -90, bottom: -100, width: 240, height: 240, borderRadius: 120, backgroundColor: "rgba(242,201,76,0.18)" }} />
+                <View style={{ flexDirection: desktop ? "row" : "column", justifyContent: "space-between", gap: 10 }}>
+                  <View style={{ gap: 3 }}>
+                    <Text selectable style={{ color: C.paper, fontSize: 17, fontWeight: "900" }}>Purchase activity</Text>
+                    <Text selectable style={{ color: "rgba(255,255,255,0.65)", fontSize: 11, fontWeight: "800" }}>Wallet, KindredPass, and Premium trends</Text>
+                  </View>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                    {purchaseSeries.map((series) => (
+                      <View key={series.key} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: series.color }} />
+                        <Text selectable style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>{series.label}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+                <View style={{ width: purchaseGraphWidth, height: purchaseGraphHeight, alignSelf: "center" }}>
+                  {[0, 0.25, 0.5, 0.75, 1].map((line) => (
+                    <View key={line} pointerEvents="none" style={{ position: "absolute", left: purchaseChartPadding, right: purchaseChartPadding, top: purchasePointY(maxPurchasePoint * line), height: 1, backgroundColor: "rgba(255,255,255,0.09)" }} />
+                  ))}
+                  {purchaseSeries.map((series) => (
+                    <View key={series.key} pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, width: purchaseGraphWidth, height: purchaseGraphHeight }}>
+                      {purchaseBuckets.slice(0, -1).map((bucket, index) => {
+                        const next = purchaseBuckets[index + 1] || bucket;
+                        const x1 = purchasePointX(index);
+                        const y1 = purchasePointY(bucket[series.key]);
+                        const x2 = purchasePointX(index + 1);
+                        const y2 = purchasePointY(next[series.key]);
+                        const length = Math.hypot(x2 - x1, y2 - y1);
+                        const angle = `${Math.atan2(y2 - y1, x2 - x1)}rad`;
+                        return (
+                          <View
+                            key={`${series.key}-${index}`}
+                            style={{
+                              position: "absolute",
+                              left: x1,
+                              top: y1,
+                              width: length,
+                              height: 3,
+                              borderRadius: 999,
+                              backgroundColor: series.color,
+                              shadowColor: series.color,
+                              shadowOpacity: 0.45,
+                              shadowRadius: 8,
+                              transform: [{ rotate: angle }],
+                              transformOrigin: "0px 1.5px",
+                            } as any}
+                          />
+                        );
+                      })}
+                      {purchaseBuckets.map((bucket, index) => (
+                        <View
+                          key={`${series.key}-dot-${index}`}
+                          style={{
+                            position: "absolute",
+                            left: purchasePointX(index) - 5,
+                            top: purchasePointY(bucket[series.key]) - 5,
+                            width: 10,
+                            height: 10,
+                            borderRadius: 5,
+                            backgroundColor: series.color,
+                            borderWidth: 2,
+                            borderColor: "#081426",
+                          }}
+                        />
+                      ))}
+                    </View>
+                  ))}
+                  <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: purchaseChartPadding - 8 }}>
+                    {purchaseBuckets.map((bucket, index) => (
+                      <Text key={`${bucket.label}-${index}`} selectable numberOfLines={1} style={{ color: "rgba(255,255,255,0.58)", fontSize: 9, fontWeight: "800", width: 46, textAlign: "center" }}>{bucket.label}</Text>
+                    ))}
+                  </View>
+                </View>
+                <Text selectable style={{ color: "rgba(255,255,255,0.62)", fontSize: 10, fontWeight: "800" }}>
+                  Scale: highest purchase point is {maxPurchasePoint}. Paid purchases are prioritized; pending activity is shown when no paid records exist.
+                </Text>
+              </View>
               {purchases.slice(0, 80).map((purchase) => (
                 <View key={purchase.id} style={{ borderRadius: 18, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 13, gap: 4 }}>
                   <Text selectable style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>{purchase.username} · {purchase.purchase_type === "kindred_pass" ? "KindredPass" : purchase.purchase_type === "premium" ? "Premium" : "Wallet"}</Text>
@@ -5981,19 +6433,140 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
           ) : null}
           {activeSection === "support" ? (
             <View style={{ gap: 12 }}>
-              <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Support</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                {supportSections.map((section) => (
-                  <View key={section.title} style={{ minWidth: desktop ? "48%" : "100%", flex: 1, borderRadius: 20, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 14, gap: 8 }}>
-                    <Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>{section.title} ({section.count})</Text>
-                    <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>{section.body}</Text>
+              {selectedAdminSupportTicket ? (
+                <View style={{ borderRadius: 24, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: desktop ? 22 : 15, gap: 14 }}>
+                  <View style={{ flexDirection: desktop ? "row" : "column", justifyContent: "space-between", gap: 10 }}>
+                    <View style={{ gap: 5, flex: 1 }}>
+                      <Pressable accessibilityRole="button" onPress={() => setSelectedAdminSupportTicket(null)} style={{ alignSelf: "flex-start", minHeight: 34, justifyContent: "center" }}>
+                        <Text style={{ color: C.pink, fontSize: 13, fontWeight: "900" }}>Back to support tickets</Text>
+                      </Pressable>
+                      <Text selectable style={{ color: C.ink, fontSize: 24, fontWeight: "900" }}>{selectedAdminSupportTicket.ticketNumber}</Text>
+                      <Text selectable style={{ color: C.muted, fontSize: 13, fontWeight: "800" }}>
+                        {selectedAdminSupportTicket.username || selectedAdminSupportTicket.email || "KindredCube user"} · {new Date(selectedAdminSupportTicket.createdAt).toLocaleString()}
+                      </Text>
+                    </View>
+                    <View style={{ alignSelf: desktop ? "flex-start" : "flex-start", borderRadius: 999, backgroundColor: selectedAdminSupportTicket.status === "closed" ? "#ECE7DD" : "#EAF7EE", paddingHorizontal: 12, paddingVertical: 7 }}>
+                      <Text style={{ color: selectedAdminSupportTicket.status === "closed" ? C.muted : "#315C3B", fontSize: 11, fontWeight: "900", textTransform: "capitalize" }}>
+                        {selectedAdminSupportTicket.status.replace("_", " ")}
+                      </Text>
+                    </View>
                   </View>
-                ))}
-              </View>
-              <View style={{ borderRadius: 20, backgroundColor: "#FFF8E3", borderWidth: 1, borderColor: "#E6CF80", padding: 14, gap: 8 }}>
-                <Text selectable style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>Support chat channel</Text>
-                <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>Next server step: add support conversations with WebSocket delivery and email notifications from support@kindredcube.com.</Text>
-              </View>
+                  <View style={{ borderRadius: 18, backgroundColor: "#F8F3EC", padding: 14, gap: 8 }}>
+                    <Text selectable style={{ color: C.clay, fontSize: 12, fontWeight: "900" }}>Reason</Text>
+                    <Text selectable style={{ color: C.ink, fontSize: 17, fontWeight: "900" }}>{selectedAdminSupportTicket.reason}</Text>
+                    <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>{selectedAdminSupportTicket.message}</Text>
+                  </View>
+                  <View style={{ gap: 10 }}>
+                    <Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>Conversation</Text>
+                    {(selectedAdminSupportTicket.messages?.length ? selectedAdminSupportTicket.messages : [{ id: `${selectedAdminSupportTicket.id}-initial`, senderType: "user", body: selectedAdminSupportTicket.message, createdAt: selectedAdminSupportTicket.createdAt } as const]).map((message) => {
+                      const adminMessage = message.senderType === "admin";
+                      return (
+                        <View key={message.id} style={{ alignSelf: adminMessage ? "flex-end" : "flex-start", maxWidth: "88%", borderRadius: 16, backgroundColor: adminMessage ? C.ink : "#F3EFE8", padding: 11, gap: 4 }}>
+                          <Text selectable style={{ color: adminMessage ? C.paper : C.ink, fontSize: 12, fontWeight: "900" }}>
+                            {adminMessage ? "Support" : ("senderEmail" in message ? message.senderEmail : null) || selectedAdminSupportTicket.username || selectedAdminSupportTicket.email || "User"}
+                          </Text>
+                          <Text selectable style={{ color: adminMessage ? C.paper : C.ink, fontSize: 13, lineHeight: 18 }}>{message.body}</Text>
+                          <Text selectable style={{ color: adminMessage ? "#CEC8BE" : C.muted, fontSize: 10, fontWeight: "800" }}>{new Date(message.createdAt).toLocaleString()}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                  {selectedAdminSupportTicket.closeReason ? (
+                    <View style={{ borderRadius: 16, backgroundColor: "#EAF7EE", padding: 12, gap: 4 }}>
+                      <Text selectable style={{ color: "#315C3B", fontSize: 12, fontWeight: "900" }}>Closed reason</Text>
+                      <Text selectable style={{ color: "#315C3B", fontSize: 13, lineHeight: 18 }}>{selectedAdminSupportTicket.closeReason}</Text>
+                      {selectedAdminSupportTicket.closedAt ? (
+                        <Text selectable style={{ color: C.muted, fontSize: 10, fontWeight: "800" }}>Closed {new Date(selectedAdminSupportTicket.closedAt).toLocaleString()}</Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+                  {selectedAdminSupportTicket.status !== "closed" ? (
+                    <View style={{ flexDirection: desktop ? "row" : "column", gap: 12 }}>
+                      <View style={{ flex: 1, gap: 8 }}>
+                        <Text selectable style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>Reply to customer</Text>
+                        <TextInput
+                          value={adminSupportReply}
+                          onChangeText={setAdminSupportReply}
+                          placeholder="Write a support reply..."
+                          placeholderTextColor="#948A7F"
+                          multiline
+                          style={{ minHeight: 120, borderRadius: 16, borderWidth: 1, borderColor: C.line, padding: 12, color: C.ink, textAlignVertical: "top" }}
+                        />
+                        <Button compact label={adminSupportBusy ? "Sending..." : "Send reply"} onPress={submitAdminSupportReply} />
+                      </View>
+                      <View style={{ flex: 1, gap: 8 }}>
+                        <Text selectable style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>Close ticket</Text>
+                        <TextInput
+                          value={adminSupportCloseReason}
+                          onChangeText={setAdminSupportCloseReason}
+                          placeholder="Reason for closing this ticket"
+                          placeholderTextColor="#948A7F"
+                          multiline
+                          style={{ minHeight: 120, borderRadius: 16, borderWidth: 1, borderColor: C.line, padding: 12, color: C.ink, textAlignVertical: "top" }}
+                        />
+                        <Button compact label={adminSupportBusy ? "Closing..." : "Close ticket"} onPress={submitAdminSupportClose} />
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
+              ) : (
+                <>
+                  <View style={{ gap: 4 }}>
+                    <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Support</Text>
+                    <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>Compact ticket cards. Click a case to open the full support record.</Text>
+                  </View>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                    {supportSections.map((section) => (
+                      <View key={section.title} style={{ minWidth: desktop ? "31%" : "100%", flex: 1, borderRadius: 18, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 12, gap: 7 }}>
+                        <Text selectable style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>{section.title} ({section.count})</Text>
+                        <Text selectable numberOfLines={5} style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>{section.body}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <View style={{ flexDirection: desktop ? "row" : "column", gap: 12, alignItems: "stretch" }}>
+                    {supportTicketColumns.map((column) => (
+                      <View key={column.title} style={{ flex: 1, minWidth: desktop ? 230 : "100%", gap: 9 }}>
+                        <Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>{column.title} ({column.tickets.length})</Text>
+                        {column.tickets.length ? column.tickets.map((ticket) => (
+                          <Pressable
+                            key={ticket.id}
+                            accessibilityRole="button"
+                            onPress={() => setSelectedAdminSupportTicket(ticket)}
+                            style={{
+                              minHeight: 94,
+                              borderRadius: 18,
+                              backgroundColor: C.paper,
+                              borderWidth: 1,
+                              borderColor: ticket.status === "closed" ? C.line : "#D9EAD7",
+                              padding: 12,
+                              gap: 6,
+                              shadowColor: "#001d30",
+                              shadowOpacity: 0.08,
+                              shadowRadius: 10,
+                              shadowOffset: { width: 0, height: 5 },
+                              elevation: 2,
+                            }}
+                          >
+                            <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                              <Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 15, fontWeight: "900", flex: 1 }}>{ticket.ticketNumber}</Text>
+                              <View style={{ borderRadius: 999, backgroundColor: ticket.status === "closed" ? "#ECE7DD" : "#EAF7EE", paddingHorizontal: 8, paddingVertical: 4 }}>
+                                <Text style={{ color: ticket.status === "closed" ? C.muted : "#315C3B", fontSize: 9, fontWeight: "900", textTransform: "capitalize" }}>{ticket.status.replace("_", " ")}</Text>
+                              </View>
+                            </View>
+                            <Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>{ticket.username || ticket.email || "KindredCube user"}</Text>
+                            <Text selectable numberOfLines={1} style={{ color: C.clay, fontSize: 12, fontWeight: "800" }}>{ticket.reason}</Text>
+                            <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 10, fontWeight: "800" }}>{new Date(ticket.updatedAt || ticket.createdAt).toLocaleString()}</Text>
+                          </Pressable>
+                        )) : (
+                          <View style={{ minHeight: 94, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.66)", borderWidth: 1, borderColor: C.line, padding: 12, justifyContent: "center" }}>
+                            <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>No tickets here.</Text>
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                </>
+              )}
             </View>
           ) : null}
           {activeSection === "settings" ? (
@@ -6131,7 +6704,7 @@ function TectavisAdminPortal() {
     if (busy || locked || !email.trim() || !password) return;
     const normalizedEmail = email.trim().toLowerCase();
     if (normalizedEmail !== allowedAdmin) {
-      setNotice("This portal is restricted to the Tectavis owner account.");
+      setNotice("This restricted page is only available to the approved KindredCube administrator.");
       setFailedAttempts((current) => current + 1);
       return;
     }
@@ -6141,7 +6714,7 @@ function TectavisAdminPortal() {
       const user = await loginAccount(normalizedEmail, password);
       if (user.email.toLowerCase() !== allowedAdmin) {
         await logoutAccount();
-        setNotice("This account is not authorized for the Tectavis portal.");
+        setNotice("This account is not authorized for this restricted page.");
         setFailedAttempts((current) => current + 1);
         return;
       }
@@ -6160,6 +6733,21 @@ function TectavisAdminPortal() {
       setBusy(false);
     }
   }, [busy, email, failedAttempts, locked, password]);
+
+  const sendAdminPasswordReset = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const targetEmail = email.trim().toLowerCase() || allowedAdmin;
+      await requestPasswordReset(targetEmail);
+      setNotice("If this admin account exists, a secure password reset link has been sent to the admin email.");
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : "The password reset link could not be sent.");
+    } finally {
+      setBusy(false);
+    }
+  }, [allowedAdmin, busy, email]);
 
   if (adminUser) {
     return (
@@ -6193,7 +6781,7 @@ function TectavisAdminPortal() {
       <View style={{ flex: desktop ? 1 : undefined, alignItems: "center", justifyContent: "center" }}>
         <View>
           <Image
-            accessibilityLabel="Tectavis"
+            accessibilityLabel="KindredCube admin"
             source={require("./assets/tectavis-logo-transparent.png")}
             resizeMode="contain"
             style={{
@@ -6228,7 +6816,7 @@ function TectavisAdminPortal() {
           keyboardType="email-address"
           textContentType="username"
           returnKeyType="next"
-          placeholder="Admin email"
+          placeholder="Email"
           placeholderTextColor="#948A7F"
           style={{
             minHeight: 50,
@@ -6291,6 +6879,16 @@ function TectavisAdminPortal() {
             {locked ? `Locked ${remainingSeconds}s` : busy ? "Checking access..." : "Sign-in"}
           </Text>
         </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={sendAdminPasswordReset}
+          style={{ alignSelf: "center", paddingHorizontal: 10, paddingVertical: 4 }}
+        >
+          <Text style={{ color: adminNavy, fontSize: 13, fontWeight: "900" }}>
+            Forgot password? Send reset link
+          </Text>
+        </Pressable>
         <Text
           selectable
           style={{ color: C.muted, fontSize: 12, lineHeight: 18, textAlign: "center", marginTop: 4 }}
@@ -6308,13 +6906,15 @@ function SecurityPrivacySettingsPage({
   notice,
   onBack,
   onRequestPasswordReset,
+  onDeleteAccountPress,
 }: {
   busy: boolean;
   notice: string;
   onBack: () => void;
   onRequestPasswordReset: () => void;
+  onDeleteAccountPress?: () => void;
 }) {
-  const policyUrl = "https://kindredcube.com/security-and-privacy";
+  const policyUrl = "https://kindredcube.com/privacy";
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
@@ -6346,7 +6946,7 @@ function SecurityPrivacySettingsPage({
           selectable
           style={{ flex: 1, color: C.ink, fontSize: 19, fontWeight: "900", textAlign: "center" }}
         >
-          Security and Privacy
+          Privacy
         </Text>
         <View style={{ width: 64 }} />
       </View>
@@ -6412,6 +7012,48 @@ function SecurityPrivacySettingsPage({
         ) : null}
       </View>
 
+      {onDeleteAccountPress ? (
+        <View
+          style={{
+            borderRadius: 22,
+            backgroundColor: C.paper,
+            borderWidth: 1,
+            borderColor: "#E2A29B",
+            padding: 16,
+            gap: 10,
+          }}
+        >
+          <Text selectable style={{ color: C.ink, fontSize: 17, fontWeight: "900" }}>
+            Delete account
+          </Text>
+          <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+            Permanently delete your KindredCube account, profile, saved photos, active sessions, and password access.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onDeleteAccountPress}
+            style={{
+              alignSelf: "flex-start",
+              minHeight: 34,
+              borderRadius: 17,
+              borderWidth: 1,
+              borderColor: "#E2A29B",
+              backgroundColor: "transparent",
+              paddingHorizontal: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <Trash2 width={14} height={14} color="#8F1F18" />
+            <Text style={{ color: "#8F1F18", fontSize: 11, fontWeight: "900" }}>
+              Delete account
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <View
         style={{
           borderRadius: 22,
@@ -6439,10 +7081,10 @@ function SecurityPrivacySettingsPage({
           <FileText width={22} height={22} color={C.muted} />
           <View style={{ flex: 1, gap: 2 }}>
             <Text selectable style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>
-              Security and Privacy Policy
+              Privacy Policy
             </Text>
             <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 10 }}>
-              Open policy in your browser
+              Open Privacy Policy on kindredcube.com
             </Text>
           </View>
           <ChevronRight width={18} height={18} color={C.muted} />
@@ -6451,6 +7093,61 @@ function SecurityPrivacySettingsPage({
     </ScrollView>
   );
 }
+
+type NotificationPreferenceKey =
+  | "newMessages"
+  | "newAdmirers"
+  | "newMatches"
+  | "expiringMatches"
+  | "profileTips"
+  | "kindredEvents"
+  | "marketing"
+  | "vibration";
+
+const defaultNotificationPreferences: Record<NotificationPreferenceKey, boolean> = {
+  newMessages: true,
+  newAdmirers: true,
+  newMatches: true,
+  expiringMatches: true,
+  profileTips: true,
+  kindredEvents: true,
+  marketing: true,
+  vibration: true,
+};
+
+const notificationPreferenceGroups: Array<{
+  title: string;
+  items: Array<{ key: NotificationPreferenceKey; label: string; description: string }>;
+}> = [
+  {
+    title: "Message notifications",
+    items: [
+      { key: "newMessages", label: "New messages", description: "Messages from your connections." },
+    ],
+  },
+  {
+    title: "Match notifications",
+    items: [
+      { key: "newAdmirers", label: "New admirers", description: "People who liked you." },
+      { key: "newMatches", label: "New matches", description: "When you both like each other." },
+      { key: "expiringMatches", label: "Expiring matches", description: "Matches that need a first chat before they expire." },
+    ],
+  },
+  {
+    title: "Profile notifications",
+    items: [
+      { key: "profileTips", label: "Top profile tips", description: "Tips to improve your profile and visibility." },
+    ],
+  },
+  {
+    title: "Other notifications",
+    items: [
+      { key: "kindredEvents", label: "KindredCube events", description: "Events and app updates." },
+      { key: "marketing", label: "Marketing communications", description: "Offers, launches, and product news." },
+      { key: "vibration", label: "Enable app vibration", description: "Use vibration for important in-app alerts." },
+    ],
+  },
+];
 
 function SettingsScreen({
   balance,
@@ -6461,6 +7158,7 @@ function SettingsScreen({
   onDone,
   onLogout,
   onDeleteAccount,
+  userEmail = "",
   startInWallet = false,
 }: {
   balance: number;
@@ -6471,14 +7169,32 @@ function SettingsScreen({
   onDone: () => void;
   onLogout: () => void;
   onDeleteAccount?: (reasons: string[], details: string) => Promise<void>;
+  userEmail?: string;
   startInWallet?: boolean;
 }) {
   const [walletOpen, setWalletOpen] = useState(startInWallet);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [connectionType, setConnectionType] = useState<"dating" | "community">(
     initialSettings.connectionType === "community" ? "community" : "dating",
   );
+  const [notificationPreferences, setNotificationPreferences] = useState<Record<NotificationPreferenceKey, boolean>>(() => {
+    const savedPreferences =
+      initialSettings.notificationPreferences &&
+      typeof initialSettings.notificationPreferences === "object" &&
+      !Array.isArray(initialSettings.notificationPreferences)
+        ? initialSettings.notificationPreferences as Record<string, unknown>
+        : {};
+    return {
+      ...defaultNotificationPreferences,
+      ...Object.fromEntries(
+        Object.entries(savedPreferences).filter((entry): entry is [NotificationPreferenceKey, boolean] =>
+          entry[0] in defaultNotificationPreferences && typeof entry[1] === "boolean",
+        ),
+      ),
+    };
+  });
   const [saved, setSaved] = useState(false);
   const [securityNotice, setSecurityNotice] = useState("");
   const [securityBusy, setSecurityBusy] = useState(false);
@@ -6491,6 +7207,8 @@ function SettingsScreen({
       () => setDeleteOpen(false)
       : securityOpen ?
         () => setSecurityOpen(false)
+        : helpOpen ?
+          () => setHelpOpen(false)
         : onCancel;
   const settingsSwipeBack = useRef(
     PanResponder.create({
@@ -6503,6 +7221,14 @@ function SettingsScreen({
   useEffect(() => {
     onSettingsDataChange({ connectionType });
   }, [connectionType, onSettingsDataChange]);
+  const toggleNotificationPreference = (key: NotificationPreferenceKey) => {
+    setNotificationPreferences((current) => {
+      const next = { ...current, [key]: !current[key] };
+      onSettingsDataChange({ notificationPreferences: next });
+      return next;
+    });
+  };
+  const notificationEmail = userEmail;
   if (walletOpen)
     return (
       <View style={{ flex: 1 }} {...settingsSwipeBack.panHandlers}>
@@ -6520,12 +7246,18 @@ function SettingsScreen({
         onDeleteAccount={onDeleteAccount}
       />
     );
+  if (helpOpen)
+    return <HelpHubPage onBack={() => setHelpOpen(false)} onDeleteAccount={onDeleteAccount} />;
   if (securityOpen)
     return (
       <SecurityPrivacySettingsPage
         busy={securityBusy}
         notice={securityNotice}
         onBack={() => setSecurityOpen(false)}
+        onDeleteAccountPress={onDeleteAccount ? () => {
+          setSecurityOpen(false);
+          setDeleteOpen(true);
+        } : undefined}
         onRequestPasswordReset={async () => {
           if (securityBusy) return;
           setSecurityBusy(true);
@@ -6549,29 +7281,29 @@ function SettingsScreen({
     {
       title: "Notification settings",
       description: "Likes, matches, messages, reminders, and email preferences",
-      details: ["Likes and matches", "Messages", "Ready to Meet reminders", "Email preferences"],
+      details: [] as string[],
       icon: Bell,
     },
     {
-      title: "Security and privacy",
-      description:
-        "Reset password and view the Security and Privacy policy",
+      title: "Privacy",
+      description: "Delete account and open the Privacy Policy",
       details: [] as string[],
       icon: ShieldCheck,
     },
     {
       title: "Legal information",
-      description: "Open Terms, Privacy Policy, and Community Guidelines in your browser",
+      description: "Open Terms, Privacy, and Community Guidelines on kindredcube.com",
       details: [
-        "https://kindredcube.com/legal",
+        "Terms of Service|https://kindredcube.com/terms",
+        "Privacy Policy|https://kindredcube.com/privacy",
+        "Community Guidelines|https://kindredcube.com/community-guidelines",
       ],
       icon: FileText,
     },
     {
       title: "Get help",
-      description:
-        "Safety Center, contact support, report a problem, and accessibility",
-      details: ["Safety Center", "Contact support", "Report a problem", "Accessibility help"],
+      description: "Contact support now. More help tools are coming soon.",
+      details: ["Contact support", "Report a problem|coming-soon", "Accessibility help|coming-soon"],
       icon: CircleHelp,
     },
   ];
@@ -6639,7 +7371,7 @@ function SettingsScreen({
             Wallet
           </Text>
           <Text selectable style={{ color: "#CEC8BE", fontSize: 11 }}>
-            Add funds ? $10 minimum
+            Add funds · $10 minimum
           </Text>
         </View>
         <Text
@@ -6651,7 +7383,7 @@ function SettingsScreen({
             fontVariant: ["tabular-nums"],
           }}
         >
-          {formatMoney(balance)} ?
+          {formatMoney(balance)}
         </Text>
       </Pressable>
       <View
@@ -6822,7 +7554,7 @@ function SettingsScreen({
                 accessibilityRole="button"
                 accessibilityState={{ expanded: open }}
                 onPress={() => {
-                  if (row.title === "Security and privacy") {
+                  if (row.title === "Privacy") {
                     setSecurityOpen(true);
                     return;
                   }
@@ -6867,13 +7599,80 @@ function SettingsScreen({
                     backgroundColor: "#FAF7F2",
                   }}
                 >
-                  {row.details.map((item) => (
+                  {row.title === "Notification settings" ? (
+                    <>
+                      {notificationPreferenceGroups.map((group) => (
+                        <View key={group.title} style={{ gap: 8, paddingBottom: 4 }}>
+                          <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "900" }}>
+                            {group.title}
+                          </Text>
+                          {group.items.map((item) => {
+                            const active = notificationPreferences[item.key];
+                            return (
+                              <Pressable
+                                key={item.key}
+                                accessibilityRole="switch"
+                                accessibilityState={{ checked: active }}
+                                onPress={() => toggleNotificationPreference(item.key)}
+                                style={{
+                                  minHeight: 52,
+                                  borderRadius: 18,
+                                  backgroundColor: C.paper,
+                                  borderWidth: 1,
+                                  borderColor: C.line,
+                                  paddingHorizontal: 13,
+                                  paddingVertical: 9,
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  gap: 12,
+                                }}
+                              >
+                                <View style={{ flex: 1, gap: 2 }}>
+                                  <Text selectable style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>
+                                    {item.label}
+                                  </Text>
+                                  <Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 14 }}>
+                                    {item.description}
+                                  </Text>
+                                </View>
+                                <View
+                                  style={{
+                                    width: 46,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    padding: 3,
+                                    backgroundColor: active ? C.ink : "#D8D0C5",
+                                    alignItems: active ? "flex-end" : "flex-start",
+                                  }}
+                                >
+                                  <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: C.paper }} />
+                                </View>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      ))}
+                      <Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 15 }}>
+                        Email notifications are sent to {notificationEmail || "your account email"} when the related email toggle is on.
+                      </Text>
+                    </>
+                  ) : row.details.map((item) => {
+                    const [label, target] = item.split("|");
+                    const isComingSoon = target === "coming-soon";
+                    const isLink = target?.startsWith("https://") || label.startsWith("https://");
+                    return (
                     <Pressable
                       key={item}
-                      accessibilityRole={item.startsWith("https://") ? "link" : "button"}
+                      accessibilityRole={isLink ? "link" : "button"}
                       disabled={securityBusy && item === "Reset password"}
                       onPress={async () => {
-                        if (item === "Reset password") {
+                        if (label === "Contact support") {
+                          setOpenSection("");
+                          setHelpOpen(true);
+                          return;
+                        }
+                        if (isComingSoon) return;
+                        if (label === "Reset password") {
                           if (securityBusy) return;
                           setSecurityBusy(true);
                           setSecurityNotice("");
@@ -6891,7 +7690,8 @@ function SettingsScreen({
                           }
                           return;
                         }
-                        if (item.startsWith("https://")) WebBrowser.openBrowserAsync(item).catch(() => Linking.openURL(item).catch(() => undefined));
+                        const url = target?.startsWith("https://") ? target : label.startsWith("https://") ? label : "";
+                        if (url) await openPublicWebsiteUrl(url);
                       }}
                       style={{
                         flexDirection: "row",
@@ -6908,12 +7708,13 @@ function SettingsScreen({
                           lineHeight: 17,
                         }}
                       >
-                        {item.replace("and ", "")}
+                        {label}
+                        {isComingSoon ? " — Coming soon" : ""}
                       </Text>
-                      <ChevronRight width={16} height={16} color={C.muted} />
+                      {isComingSoon ? null : <ChevronRight width={16} height={16} color={C.muted} />}
                     </Pressable>
-                  ))}
-                  {row.title === "Security and privacy" && securityNotice ? (
+                  )})}
+                  {row.title === "Privacy" && securityNotice ? (
                     <Text
                       accessibilityRole="alert"
                       selectable
@@ -6974,12 +7775,12 @@ function SettingsScreen({
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "center",
-            gap: 4,
+            gap: 0,
           }}
         >
           <Text
             selectable
-            style={{ color: "#817C75", fontSize: 12, fontWeight: "900" }}
+            style={{ color: "#817C75", fontSize: 9, fontWeight: "400" }}
           >
             Powered by
           </Text>
@@ -6987,8 +7788,9 @@ function SettingsScreen({
             source={require("./assets/tectavis-logo-transparent.png")}
             resizeMode="contain"
             style={{
-              width: 112,
-              height: 36,
+              width: 84,
+              height: 27,
+              marginLeft: -7,
               tintColor: "#817C75",
               opacity: 0.82,
             }}
@@ -7147,6 +7949,54 @@ const fallbackHelpPages: HelpContentPage[] = [
   { slug: "saved-profile-data", category: "data_management", title: "Saved Profile Data", summary: "Your profile changes stay with your account.", body: "Photos, bio, prompts, and settings are saved to your private account space.", imageUrls: [], updatedAt: "" },
 ];
 
+const supportReasonOptions = [
+  "Profile setup",
+  "Account access",
+  "Photos",
+  "Verification",
+  "Payments",
+  "Ready to Meet",
+  "Matches and messages",
+  "Report a problem",
+  "Other",
+];
+
+const supportCloseReasonOptions = [
+  "Issue resolved by support",
+  "I figured it out myself",
+  "No longer needed",
+  "Created by mistake",
+  "Other",
+];
+
+const quickSupportSolutions = [
+  {
+    title: "How do I add photos?",
+    keywords: ["photo", "photos", "picture", "instagram", "upload"],
+    body: "Go to Profile, tap Edit profile, then use the Photos section. Add at least three clear photos and mark your strongest photo as Best.",
+  },
+  {
+    title: "How do I delete my account?",
+    keywords: ["delete", "remove", "account", "data"],
+    body: "Sign in to KindredCube, open Settings, open Privacy, then choose Delete account. Select your reason, type DELETE, and confirm.",
+  },
+  {
+    title: "How do I connect with someone?",
+    keywords: ["connect", "match", "like", "chat", "message"],
+    body: "Like a profile from Connect or Explore. When both people like each other, chat opens automatically.",
+  },
+  {
+    title: "How do I make my profile more visible?",
+    keywords: ["visible", "visibility", "recommend", "recommendation", "profile strength"],
+    body: "Add 3+ photos, a bio, interests, values, profile prompts, Kindred Type answers, and complete verification. Stronger profiles get better recommendations.",
+  },
+  {
+    title: "How does Ready to Meet work?",
+    keywords: ["ready", "meet", "availability", "available"],
+    body: "Ready to Meet shows people who saved an active availability window nearby. You can turn yourself off whenever plans change.",
+  },
+];
+
 function HelpHubPage({
   onBack,
   onDeleteAccount,
@@ -7159,6 +8009,22 @@ function HelpHubPage({
   const [selectedCategory, setSelectedCategory] = useState<HelpContentPage["category"] | null>(null);
   const [selectedPage, setSelectedPage] = useState<HelpContentPage | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [helpSearch, setHelpSearch] = useState("");
+  const [faqsOpen, setFaqsOpen] = useState(false);
+  const [supportFormOpen, setSupportFormOpen] = useState(false);
+  const [supportReason, setSupportReason] = useState("Profile setup");
+  const [supportMessage, setSupportMessage] = useState("");
+  const [supportSubmitting, setSupportSubmitting] = useState(false);
+  const [supportNotice, setSupportNotice] = useState("");
+  const [userSupportTickets, setUserSupportTickets] = useState<SupportTicket[]>([]);
+  const [selectedSupportTicket, setSelectedSupportTicket] = useState<SupportTicket | null>(null);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [closeTicketOpen, setCloseTicketOpen] = useState(false);
+  const [closeTicketReason, setCloseTicketReason] = useState("Issue resolved by support");
+  const [closeTicketDetails, setCloseTicketDetails] = useState("");
+  const [closingTicket, setClosingTicket] = useState(false);
+  const [ticketReply, setTicketReply] = useState("");
+  const [ticketReplySubmitting, setTicketReplySubmitting] = useState(false);
   useEffect(() => {
     let active = true;
     getHelpContent()
@@ -7166,13 +8032,34 @@ function HelpHubPage({
         if (active && result.pages.length) setPages(result.pages);
       })
       .catch(() => undefined);
+    getSupportTickets()
+      .then((result) => {
+        if (active) setUserSupportTickets(result.tickets || []);
+      })
+      .catch(() => undefined);
     return () => {
       active = false;
     };
   }, []);
   const goBack = () => {
+    if (closeTicketOpen) {
+      setCloseTicketOpen(false);
+      return;
+    }
+    if (supportFormOpen) {
+      setSupportFormOpen(false);
+      return;
+    }
     if (deleteOpen) {
       setDeleteOpen(false);
+      return;
+    }
+    if (selectedSupportTicket) {
+      setSelectedSupportTicket(null);
+      return;
+    }
+    if (updatesOpen) {
+      setUpdatesOpen(false);
       return;
     }
     if (selectedPage) {
@@ -7186,12 +8073,296 @@ function HelpHubPage({
     onBack();
   };
   const shownPages = selectedCategory ? pages.filter((page) => page.category === selectedCategory) : [];
+  const normalizedSearch = helpSearch.trim().toLowerCase();
+  const suggestedSolutions = normalizedSearch ?
+    [
+      ...quickSupportSolutions.filter((solution) =>
+        solution.title.toLowerCase().includes(normalizedSearch) ||
+        solution.body.toLowerCase().includes(normalizedSearch) ||
+        solution.keywords.some((keyword) => keyword.includes(normalizedSearch) || normalizedSearch.includes(keyword)),
+      ).map((solution) => ({ ...solution, source: "quick" as const })),
+      ...pages.filter((page) =>
+        page.title.toLowerCase().includes(normalizedSearch) ||
+        page.summary.toLowerCase().includes(normalizedSearch) ||
+        page.body.toLowerCase().includes(normalizedSearch),
+      ).slice(0, 5).map((page) => ({
+        title: page.title,
+        body: page.summary || page.body || "Open this help page for more details.",
+        source: "page" as const,
+        page,
+      })),
+    ].slice(0, 6)
+    : quickSupportSolutions.slice(0, 4).map((solution) => ({ ...solution, source: "quick" as const }));
+  const submitSupportTicket = async () => {
+    if (supportSubmitting) return;
+    setSupportNotice("");
+    if (supportMessage.trim().length < 10) {
+      setSupportNotice("Please describe the issue with at least a little detail before creating a ticket.");
+      return;
+    }
+    setSupportSubmitting(true);
+    try {
+      const result = await createSupportTicket({
+        reason: supportReason,
+        message: supportMessage.trim(),
+        searchedFor: helpSearch.trim(),
+      });
+      setUserSupportTickets((current) => [
+        result.ticket,
+        ...current.filter((ticket) => ticket.id !== result.ticket.id),
+      ]);
+      setSupportNotice(`Support ticket ${result.ticket.ticketNumber} is open. You can follow it in Updates.`);
+      setSupportMessage("");
+      setSupportFormOpen(false);
+    } catch (caught) {
+      setSupportNotice(caught instanceof Error ? caught.message : "Support ticket could not be created. Please try again.");
+    } finally {
+      setSupportSubmitting(false);
+    }
+  };
+  const openSupportTicketCount = userSupportTickets.filter((ticket) => ticket.status !== "closed").length;
+  const submitTicketReply = async () => {
+    if (!selectedSupportTicket || ticketReplySubmitting) return;
+    const message = ticketReply.trim();
+    if (message.length < 2) {
+      setSupportNotice("Please write a message before sending.");
+      return;
+    }
+    setSupportNotice("");
+    setTicketReplySubmitting(true);
+    try {
+      const result = await replyToUserSupportTicket(selectedSupportTicket.id, message);
+      setSelectedSupportTicket(result.ticket);
+      setUserSupportTickets((current) =>
+        current.map((ticket) => ticket.id === result.ticket.id ? result.ticket : ticket),
+      );
+      setTicketReply("");
+      setSupportNotice("Reply added to your support ticket.");
+    } catch (caught) {
+      setSupportNotice(caught instanceof Error ? caught.message : "Your reply could not be sent. Please try again.");
+    } finally {
+      setTicketReplySubmitting(false);
+    }
+  };
+  const submitCloseSupportTicket = async () => {
+    if (!selectedSupportTicket || closingTicket) return;
+    setSupportNotice("");
+    setClosingTicket(true);
+    try {
+      const result = await closeSupportTicket(selectedSupportTicket.id, {
+        reason: closeTicketReason,
+        details: closeTicketDetails.trim(),
+      });
+      if (!result.ticket) {
+        setSupportNotice("This ticket could not be closed. Please try again.");
+        return;
+      }
+      setSelectedSupportTicket(result.ticket);
+      setUserSupportTickets((current) =>
+        current.map((ticket) => (ticket.id === result.ticket?.id ? result.ticket : ticket)),
+      );
+      setCloseTicketOpen(false);
+      setCloseTicketDetails("");
+      setSupportNotice(`Ticket ${result.ticket.ticketNumber} was closed.`);
+    } catch (caught) {
+      setSupportNotice(caught instanceof Error ? caught.message : "This ticket could not be closed. Please try again.");
+    } finally {
+      setClosingTicket(false);
+    }
+  };
   if (deleteOpen && onDeleteAccount) {
     return (
       <DeleteAccountScreen
         onBack={() => setDeleteOpen(false)}
         onDeleteAccount={onDeleteAccount}
       />
+    );
+  }
+  if (supportFormOpen) {
+    return (
+      <View
+        style={{ flex: 1, backgroundColor: C.cream }}
+        onTouchStart={(event) => {
+          touchStart.current = {
+            x: event.nativeEvent.pageX,
+            y: event.nativeEvent.pageY,
+          };
+        }}
+        onTouchEnd={(event) => {
+          if (!touchStart.current) return;
+          const dx = event.nativeEvent.pageX - touchStart.current.x;
+          const dy = event.nativeEvent.pageY - touchStart.current.y;
+          touchStart.current = null;
+          if (dx > 75 && Math.abs(dx) > Math.abs(dy) * 1.25) setSupportFormOpen(false);
+        }}
+      >
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 36, gap: 15 }}
+        >
+          <Logo size="compact" />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to Help Hub"
+            onPress={() => setSupportFormOpen(false)}
+            style={{ alignSelf: "flex-start", minHeight: 42, flexDirection: "row", alignItems: "center", gap: 7 }}
+          >
+            <ChevronLeft width={23} height={23} color={C.ink} />
+            <Text style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>Back to Help Hub</Text>
+          </Pressable>
+          <View style={{ borderRadius: 28, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 18, gap: 14 }}>
+            <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 30, fontWeight: "900" }}>
+              Contact Support
+            </Text>
+            <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19, fontWeight: "700" }}>
+              Tell us what happened. We’ll create a ticket and send it directly to the admin support queue.
+            </Text>
+            {supportNotice ? (
+              <View accessibilityRole="alert" style={{ borderRadius: 16, backgroundColor: "#EAF7EE", borderWidth: 1, borderColor: "#B9E3C5", padding: 12 }}>
+                <Text selectable style={{ color: "#315C3B", fontSize: 12, lineHeight: 17, fontWeight: "900" }}>{supportNotice}</Text>
+              </View>
+            ) : null}
+            <Text selectable style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>Reason</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
+              {supportReasonOptions.map((reason) => {
+                const selected = supportReason === reason;
+                return (
+                  <Pressable
+                    key={reason}
+                    accessibilityRole="button"
+                    onPress={() => setSupportReason(reason)}
+                    style={{
+                      borderRadius: 16,
+                      backgroundColor: selected ? C.pink : "#F3EFE8",
+                      paddingHorizontal: 10,
+                      paddingVertical: 7,
+                    }}
+                  >
+                    <Text style={{ color: selected ? C.paper : C.ink, fontSize: 11, fontWeight: "900" }}>{reason}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <TextInput
+              multiline
+              value={supportMessage}
+              onChangeText={setSupportMessage}
+              placeholder="Tell support what happened..."
+              placeholderTextColor="#948A7F"
+              textAlignVertical="top"
+              style={{
+                minHeight: 170,
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: C.line,
+                backgroundColor: "#F8F3EA",
+                color: C.ink,
+                padding: 14,
+                fontSize: 14,
+                lineHeight: 20,
+                fontWeight: "700",
+              }}
+            />
+            <Button compact label={supportSubmitting ? "Creating ticket..." : "Create ticket"} onPress={submitSupportTicket} />
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+  if (closeTicketOpen && selectedSupportTicket) {
+    return (
+      <View
+        style={{ flex: 1, backgroundColor: C.cream }}
+        onTouchStart={(event) => {
+          touchStart.current = {
+            x: event.nativeEvent.pageX,
+            y: event.nativeEvent.pageY,
+          };
+        }}
+        onTouchEnd={(event) => {
+          if (!touchStart.current) return;
+          const dx = event.nativeEvent.pageX - touchStart.current.x;
+          const dy = event.nativeEvent.pageY - touchStart.current.y;
+          touchStart.current = null;
+          if (dx > 75 && Math.abs(dx) > Math.abs(dy) * 1.25) setCloseTicketOpen(false);
+        }}
+      >
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 36, gap: 15 }}
+        >
+          <Logo size="compact" />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to support ticket"
+            onPress={() => setCloseTicketOpen(false)}
+            style={{ alignSelf: "flex-start", minHeight: 42, flexDirection: "row", alignItems: "center", gap: 7 }}
+          >
+            <ChevronLeft width={23} height={23} color={C.ink} />
+            <Text style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>Back to Ticket</Text>
+          </Pressable>
+          <View style={{ borderRadius: 28, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 18, gap: 14 }}>
+            <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 30, fontWeight: "900" }}>
+              Close Ticket
+            </Text>
+            <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19, fontWeight: "700" }}>
+              Tell us why you are closing {selectedSupportTicket.ticketNumber}. This reason stays saved on the ticket.
+            </Text>
+            {supportNotice ? (
+              <View accessibilityRole="alert" style={{ borderRadius: 16, backgroundColor: "#FFF7DF", borderWidth: 1, borderColor: "#E8D7AA", padding: 12 }}>
+                <Text selectable style={{ color: C.ink, fontSize: 12, lineHeight: 17, fontWeight: "900" }}>{supportNotice}</Text>
+              </View>
+            ) : null}
+            <Text selectable style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>Reason</Text>
+            <View style={{ gap: 8 }}>
+              {supportCloseReasonOptions.map((reason) => {
+                const selected = closeTicketReason === reason;
+                return (
+                  <Pressable
+                    key={reason}
+                    accessibilityRole="button"
+                    onPress={() => setCloseTicketReason(reason)}
+                    style={{
+                      minHeight: 44,
+                      borderRadius: 18,
+                      backgroundColor: selected ? C.ink : "#F3EFE8",
+                      borderWidth: 1,
+                      borderColor: selected ? C.ink : C.line,
+                      justifyContent: "center",
+                      paddingHorizontal: 14,
+                    }}
+                  >
+                    <Text style={{ color: selected ? C.paper : C.ink, fontSize: 13, fontWeight: "900" }}>{reason}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <TextInput
+              multiline
+              value={closeTicketDetails}
+              onChangeText={setCloseTicketDetails}
+              placeholder="Add optional details..."
+              placeholderTextColor="#948A7F"
+              textAlignVertical="top"
+              style={{
+                minHeight: 120,
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: C.line,
+                backgroundColor: "#F8F3EA",
+                color: C.ink,
+                padding: 14,
+                fontSize: 14,
+                lineHeight: 20,
+                fontWeight: "700",
+              }}
+            />
+            <Button compact label={closingTicket ? "Closing ticket..." : "Close ticket"} onPress={submitCloseSupportTicket} />
+          </View>
+        </ScrollView>
+      </View>
     );
   }
   return (
@@ -7224,13 +8395,171 @@ function HelpHubPage({
         >
           <ChevronLeft width={23} height={23} color={C.ink} />
           <Text style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>
-            {selectedPage ? `Back to ${helpCategoryLabels[selectedPage.category].title}` : selectedCategory ? "Back to Help Hub" : "Back to Profile"}
+            {selectedSupportTicket ? "Back to Updates" : updatesOpen ? "Back to Help Hub" : selectedPage ? `Back to ${helpCategoryLabels[selectedPage.category].title}` : selectedCategory ? "Back to Help Hub" : "Back to Profile"}
           </Text>
         </Pressable>
         <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 34, fontWeight: "900" }}>
-          {selectedPage?.title || (selectedCategory ? helpCategoryLabels[selectedCategory].title : "Help Hub")}
+          {selectedSupportTicket ? "Support Ticket" : updatesOpen ? "Updates" : selectedPage?.title || (selectedCategory ? helpCategoryLabels[selectedCategory].title : "Help Hub")}
         </Text>
-        {selectedPage ? (
+        {selectedSupportTicket ? (
+          <View style={{ borderRadius: 24, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 17, gap: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text selectable style={{ color: C.ink, fontSize: 19, fontWeight: "900" }}>
+                  {selectedSupportTicket.ticketNumber}
+                </Text>
+                <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17, fontWeight: "800" }}>
+                  {selectedSupportTicket.reason}
+                </Text>
+              </View>
+              <View style={{ borderRadius: 999, backgroundColor: "#EAF7EE", borderWidth: 1, borderColor: "#B9E3C5", paddingHorizontal: 10, paddingVertical: 6 }}>
+                <Text style={{ color: "#315C3B", fontSize: 11, fontWeight: "900", textTransform: "capitalize" }}>
+                  {selectedSupportTicket.status.replace("_", " ")}
+                </Text>
+              </View>
+            </View>
+            <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+              Created {new Date(selectedSupportTicket.createdAt).toLocaleString()}
+            </Text>
+            <View style={{ gap: 9 }}>
+              {(selectedSupportTicket.messages?.length ? selectedSupportTicket.messages : [{ id: `${selectedSupportTicket.id}-initial`, senderType: "user", body: selectedSupportTicket.message, createdAt: selectedSupportTicket.createdAt } as const]).map((message) => (
+                <View
+                  key={message.id}
+                  style={{
+                    alignSelf: message.senderType === "admin" ? "flex-start" : "flex-end",
+                    maxWidth: "88%",
+                    borderRadius: 18,
+                    backgroundColor: message.senderType === "admin" ? "#EAF0FF" : "#F8F3EA",
+                    borderWidth: 1,
+                    borderColor: C.line,
+                    padding: 13,
+                    gap: 4,
+                  }}
+                >
+                  <Text selectable style={{ color: C.ink, fontSize: 12, lineHeight: 17, fontWeight: "900" }}>
+                    {message.senderType === "admin" ? "KindredCube Support" : message.senderType === "email" ? "You replied by email" : "You"}
+                  </Text>
+                  <Text selectable style={{ color: C.ink, fontSize: 14, lineHeight: 21, fontWeight: "700" }}>
+                    {message.body}
+                  </Text>
+                  <Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 14, fontWeight: "800" }}>
+                    {message.createdAt ? new Date(message.createdAt).toLocaleString() : ""}
+                  </Text>
+                </View>
+              ))}
+            </View>
+            {selectedSupportTicket.closeReason ? (
+              <View style={{ borderRadius: 18, backgroundColor: "#EAF7EE", borderWidth: 1, borderColor: "#B9E3C5", padding: 14, gap: 4 }}>
+                <Text selectable style={{ color: "#315C3B", fontSize: 12, lineHeight: 17, fontWeight: "900" }}>
+                  Close reason
+                </Text>
+                <Text selectable style={{ color: "#315C3B", fontSize: 13, lineHeight: 19, fontWeight: "800" }}>
+                  {selectedSupportTicket.closeReason}
+                </Text>
+                {selectedSupportTicket.closedAt ? (
+                  <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>
+                    Closed {new Date(selectedSupportTicket.closedAt).toLocaleString()}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+            {supportNotice ? (
+              <View accessibilityRole="alert" style={{ borderRadius: 16, backgroundColor: "#EAF7EE", borderWidth: 1, borderColor: "#B9E3C5", padding: 12 }}>
+                <Text selectable style={{ color: "#315C3B", fontSize: 12, lineHeight: 17, fontWeight: "900" }}>{supportNotice}</Text>
+              </View>
+            ) : null}
+            <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+              Support updates for this ticket will appear here. You can reply here or by email.
+            </Text>
+            {selectedSupportTicket.status !== "closed" ? (
+              <View style={{ gap: 9 }}>
+                <TextInput
+                  multiline
+                  value={ticketReply}
+                  onChangeText={setTicketReply}
+                  placeholder="Reply to support..."
+                  placeholderTextColor={C.muted}
+                  style={{
+                    minHeight: 82,
+                    borderRadius: 18,
+                    backgroundColor: "#F8F3EA",
+                    borderWidth: 1,
+                    borderColor: C.line,
+                    padding: 13,
+                    color: C.ink,
+                    fontSize: 14,
+                    textAlignVertical: "top",
+                  }}
+                />
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Button compact label={ticketReplySubmitting ? "Sending..." : "Send reply"} onPress={submitTicketReply} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Button compact label="Close ticket" onPress={() => setCloseTicketOpen(true)} />
+                  </View>
+                </View>
+              </View>
+            ) : null}
+          </View>
+        ) : updatesOpen ? (
+          <View style={{ borderRadius: 24, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 17, gap: 12 }}>
+            <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Support Updates</Text>
+            <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>
+              Your support tickets stay here. Tap a ticket to view details or close it when the issue is handled.
+            </Text>
+            {userSupportTickets.length ? (
+              <View style={{ gap: 10 }}>
+                {userSupportTickets.map((ticket) => (
+                  <Pressable
+                    key={ticket.id}
+                    accessibilityRole="button"
+                    onPress={() => setSelectedSupportTicket(ticket)}
+                    style={{
+                      borderRadius: 18,
+                      backgroundColor: "#F8F3EA",
+                      borderWidth: 1,
+                      borderColor: C.line,
+                      padding: 14,
+                      gap: 6,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <Text selectable style={{ flex: 1, color: C.ink, fontSize: 15, fontWeight: "900" }}>
+                        {ticket.ticketNumber}
+                      </Text>
+                      <View style={{ borderRadius: 999, backgroundColor: ticket.status === "closed" ? "#ECE7DD" : "#EAF7EE", paddingHorizontal: 9, paddingVertical: 5 }}>
+                        <Text style={{ color: ticket.status === "closed" ? C.muted : "#315C3B", fontSize: 10, fontWeight: "900", textTransform: "capitalize" }}>
+                          {ticket.status.replace("_", " ")}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text selectable style={{ color: C.clay, fontSize: 12, lineHeight: 17, fontWeight: "900" }}>
+                      {ticket.reason}
+                    </Text>
+                    <Text selectable numberOfLines={2} style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>
+                      {ticket.message}
+                    </Text>
+                    {ticket.closeReason ? (
+                      <Text selectable numberOfLines={2} style={{ color: "#315C3B", fontSize: 12, lineHeight: 17, fontWeight: "800" }}>
+                        Closed: {ticket.closeReason}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <View style={{ borderRadius: 18, backgroundColor: "#F8F3EA", borderWidth: 1, borderColor: C.line, padding: 14, gap: 5 }}>
+                <Text selectable style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>
+                  No support updates yet
+                </Text>
+                <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+                  When you create a ticket, it will appear here with its status.
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : selectedPage ? (
           <View style={{ borderRadius: 24, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 17, gap: 12 }}>
             {selectedPage.summary ? <Text selectable style={{ color: C.clay, fontSize: 14, lineHeight: 20, fontWeight: "900" }}>{selectedPage.summary}</Text> : null}
             {selectedPage.imageUrls.map((url, index) => (
@@ -7281,26 +8610,108 @@ function HelpHubPage({
           </>
         ) : (
           <>
-            <View style={{ borderRadius: 24, backgroundColor: "#F8F0F6", borderWidth: 1, borderColor: "#E8CFE0", padding: 17, gap: 9 }}>
-              <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Updates</Text>
-              <Text selectable style={{ color: C.ink, fontSize: 14, lineHeight: 20, fontWeight: "800" }}>
-                Your Support Updates will show here.
-              </Text>
-              <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
-                All chat to support and report updates will show here.
-              </Text>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setUpdatesOpen(true)}
+              style={{ borderRadius: 24, backgroundColor: "#F8F0F6", borderWidth: 1, borderColor: "#E8CFE0", padding: 17, gap: 9 }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <View style={{ flex: 1, gap: 5 }}>
+                  <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Updates</Text>
+                  <Text selectable style={{ color: C.ink, fontSize: 14, lineHeight: 20, fontWeight: "800" }}>
+                    {openSupportTicketCount
+                      ? `${openSupportTicketCount} open support ${openSupportTicketCount === 1 ? "ticket" : "tickets"}`
+                      : userSupportTickets.length
+                        ? "No open support tickets"
+                        : "Your support tickets will show here"}
+                  </Text>
+                  <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+                    Tap to view support updates and ticket history.
+                  </Text>
+                </View>
+                <ChevronRight width={24} height={24} color={C.muted} />
+              </View>
+            </Pressable>
             <View style={{ borderRadius: 24, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 17, gap: 12 }}>
-              <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Get Help</Text>
-              {(Object.keys(helpCategoryLabels) as HelpContentPage["category"][]).map((category) => (
-                <Pressable key={category} accessibilityRole="button" onPress={() => setSelectedCategory(category)} style={{ borderRadius: 18, backgroundColor: "#F3EFE8", padding: 14, gap: 4, flexDirection: "row", alignItems: "center" }}>
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <Text selectable style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>{helpCategoryLabels[category].title}</Text>
-                    <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>{helpCategoryLabels[category].description}</Text>
-                  </View>
-                  <ChevronRight width={20} height={20} color={C.muted} />
-                </Pressable>
-              ))}
+              <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Ask KindredCube Help</Text>
+              <TextInput
+                value={helpSearch}
+                onChangeText={setHelpSearch}
+                placeholder="Search or ask a question..."
+                placeholderTextColor="#948A7F"
+                returnKeyType="search"
+                style={{
+                  minHeight: 48,
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: C.line,
+                  backgroundColor: "#F8F3EA",
+                  color: C.ink,
+                  paddingHorizontal: 14,
+                  fontSize: 14,
+                  fontWeight: "800",
+                }}
+              />
+              {normalizedSearch ? (
+                <View style={{ gap: 9 }}>
+                {suggestedSolutions.map((solution, index) => (
+                  <Pressable
+                    key={`${solution.title}-${index}`}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      if ("page" in solution && solution.page) setSelectedPage(solution.page);
+                    }}
+                    style={{ borderRadius: 18, backgroundColor: "#F3EFE8", padding: 13, gap: 5 }}
+                  >
+                    <Text selectable style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>{solution.title}</Text>
+                    <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>{solution.body}</Text>
+                  </Pressable>
+                ))}
+                </View>
+              ) : null}
+              {supportNotice ? (
+                <View accessibilityRole="alert" style={{ borderRadius: 16, backgroundColor: "#EAF7EE", borderWidth: 1, borderColor: "#B9E3C5", padding: 12 }}>
+                  <Text selectable style={{ color: "#315C3B", fontSize: 12, lineHeight: 17, fontWeight: "900" }}>{supportNotice}</Text>
+                </View>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setFaqsOpen((current) => !current)}
+                style={{ minHeight: 44, borderRadius: 22, backgroundColor: "#F3EFE8", borderWidth: 1, borderColor: C.line, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 15 }}
+              >
+                <Text style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>
+                  Frequently Asked Questions
+                </Text>
+                {faqsOpen ? <ChevronDown width={18} height={18} color={C.muted} /> : <ChevronRight width={18} height={18} color={C.muted} />}
+              </Pressable>
+              {faqsOpen ? (
+                <View style={{ gap: 9 }}>
+                  {quickSupportSolutions.map((solution, index) => (
+                    <View key={`${solution.title}-${index}`} style={{ borderRadius: 18, backgroundColor: "#F3EFE8", padding: 13, gap: 5 }}>
+                      <Text selectable style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>{solution.title}</Text>
+                      <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>{solution.body}</Text>
+                    </View>
+                  ))}
+                  {(Object.keys(helpCategoryLabels) as HelpContentPage["category"][]).map((category) => (
+                    <Pressable key={category} accessibilityRole="button" onPress={() => setSelectedCategory(category)} style={{ borderRadius: 18, backgroundColor: "#F8F3EA", padding: 14, gap: 4, flexDirection: "row", alignItems: "center" }}>
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <Text selectable style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>{helpCategoryLabels[category].title}</Text>
+                        <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>{helpCategoryLabels[category].description}</Text>
+                      </View>
+                      <ChevronRight width={20} height={20} color={C.muted} />
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setSupportFormOpen(true)}
+                style={{ minHeight: 44, borderRadius: 22, backgroundColor: C.ink, alignItems: "center", justifyContent: "center" }}
+              >
+                <Text style={{ color: C.paper, fontSize: 13, fontWeight: "900" }}>
+                  Still need help? Contact Support
+                </Text>
+              </Pressable>
             </View>
           </>
         )}
@@ -7596,7 +9007,7 @@ function ProfileHubScreen({
               Wallet
             </Text>
           <Text selectable style={{ color: "#CEC8BE", fontSize: 11 }}>
-            Balance <Text style={{ color: balance > 0 ? TECTAVIS_GREEN : "#CEC8BE" }}>{formatMoney(balance)}</Text> ? top up from $10
+            Balance <Text style={{ color: balance > 0 ? TECTAVIS_GREEN : "#CEC8BE" }}>{formatMoney(balance)}</Text> · top up from $10
           </Text>
           </View>
           <Pressable
@@ -7669,7 +9080,7 @@ function ProfileHubScreen({
               Premium
             </Text>
             <Text selectable style={{ color: C.muted, fontSize: 11 }}>
-              $49.99 ? the complete KindredCube experience
+              $49.99/month · the complete KindredCube experience
             </Text>
           </View>
           <Star width={30} height={30} color="#B78100" fill="#E7B51E" />
@@ -7718,7 +9129,7 @@ function ProfileHubScreen({
               KindredPass
             </Text>
             <Text selectable style={{ color: C.muted, fontSize: 11 }}>
-              $19.99 ? Premium access for one day
+              $19.99 · Premium access for one day
             </Text>
           </View>
           <View
@@ -7765,7 +9176,6 @@ function EditableProfileScreen({
   onInterestsChange,
   onBioChange,
   onSearchingForChange,
-  onProfileDataChange,
   onSaveProfile,
   verificationStatus,
   verificationMethod,
@@ -7782,7 +9192,6 @@ function EditableProfileScreen({
   onInterestsChange: (interests: string[]) => void;
   onBioChange: (bio: string) => void;
   onSearchingForChange: (goals: string[]) => void;
-  onProfileDataChange: (profile: Record<string, unknown>) => void;
   onSaveProfile: (patch: Record<string, unknown>) => Promise<void>;
   verificationStatus?: IdentityVerificationStatus;
   verificationMethod?: IdentityVerificationMethod;
@@ -7813,6 +9222,10 @@ function EditableProfileScreen({
   const [verificationNotice, setVerificationNotice] = useState("");
   const [verificationBusy, setVerificationBusy] = useState(false);
   const [selfieVerificationOpen, setSelfieVerificationOpen] = useState(false);
+  const [instagramPickerOpen, setInstagramPickerOpen] = useState(false);
+  const [instagramBusy, setInstagramBusy] = useState(false);
+  const [instagramMedia, setInstagramMedia] = useState<InstagramMediaItem[]>([]);
+  const [selectedInstagramMediaIds, setSelectedInstagramMediaIds] = useState<string[]>([]);
   const stripeIdentityVerified = verificationStatus === "verified" && verificationMethod !== "video_selfie";
   const selfieOnlyVerified = verificationStatus === "verified" && verificationMethod === "video_selfie";
   const [personality, setPersonality] = useState(
@@ -7843,6 +9256,9 @@ function EditableProfileScreen({
   );
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaveError, setProfileSaveError] = useState("");
+  const profileSaveInFlightRef = useRef(false);
+  const photoUploadInFlightRef = useRef(false);
+  const [photoUploadBusy, setPhotoUploadBusy] = useState(false);
   const [work, setWork] = useState(
     typeof initialProfile.work === "string" ? initialProfile.work : "",
   );
@@ -7971,69 +9387,146 @@ function EditableProfileScreen({
     );
   };
   const uploadPhoto = async () => {
+    if (photoUploadInFlightRef.current) return;
     const remainingSlots = Math.max(0, 9 - photos.length);
     if (!remainingSlots) return;
+    photoUploadInFlightRef.current = true;
+    setPhotoUploadBusy(true);
     setVerificationNotice("");
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setVerificationNotice("Photo library permission is required to upload profile pictures.");
-      return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setVerificationNotice("Photo library permission is required to upload profile pictures.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: "images",
+        allowsMultipleSelection: true,
+        selectionLimit: remainingSlots,
+        quality: 0.8,
+        base64: true,
+      });
+      if (result.canceled || !result.assets.length) return;
+      const selectedPhotos: MemberPhoto[] = [];
+      for (const [index, asset] of result.assets.slice(0, remainingSlots).entries()) {
+        const imageBase64 = await getPickerAssetBase64(asset);
+        if (!imageBase64) {
+          setVerificationNotice("One or more photos could not be read. Please try a different photo.");
+          continue;
+        }
+        const sizeBytes = getPickerAssetSize(asset) || estimateBase64SizeBytes(imageBase64);
+        if (sizeBytes <= 0 || sizeBytes > 8 * 1024 * 1024) {
+          setVerificationNotice("One or more photos were skipped. Profile photos must be 8 MB or less.");
+          continue;
+        }
+        const mimeType =
+          asset.mimeType === "image/png" || asset.mimeType === "image/webp" || asset.mimeType === "image/jpeg" ?
+            asset.mimeType
+            : "image/jpeg";
+        try {
+          const uploaded = await uploadProfilePhoto({
+            imageBase64,
+            mimeType,
+            sizeBytes,
+          });
+          selectedPhotos.push({
+            id: uploaded.id || `photo-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+            uri: resolveServerMediaUri(uploaded.path || uploaded.uri),
+          });
+        } catch (caught) {
+          setVerificationNotice(caught instanceof Error ? caught.message : "Photo upload failed. Please check your connection and try again.");
+        }
+      }
+      if (!selectedPhotos.length) {
+        setVerificationNotice("No photos were uploaded. Please check your connection and try again.");
+        return;
+      }
+      setPhotos((current) => {
+        const next = [...current, ...selectedPhotos];
+        if (!current.length && next[0]) {
+          setBestPhotoId(next[0].id);
+        }
+        return next;
+      });
+    } finally {
+      photoUploadInFlightRef.current = false;
+      setPhotoUploadBusy(false);
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: "images",
-      allowsMultipleSelection: true,
-      selectionLimit: remainingSlots,
-      quality: 0.8,
-      base64: true,
-    });
-    if (result.canceled || !result.assets.length) return;
-    const selectedPhotos: MemberPhoto[] = [];
-    for (const [index, asset] of result.assets.slice(0, remainingSlots).entries()) {
-      const imageBase64 = await getPickerAssetBase64(asset);
-      if (!imageBase64) {
-        setVerificationNotice("One or more photos could not be read. Please try a different photo.");
-        continue;
-      }
-      const sizeBytes = getPickerAssetSize(asset) || estimateBase64SizeBytes(imageBase64);
-      if (sizeBytes <= 0 || sizeBytes > 8 * 1024 * 1024) {
-        setVerificationNotice("One or more photos were skipped. Profile photos must be 8 MB or less.");
-        continue;
-      }
-      const mimeType =
-        asset.mimeType === "image/png" || asset.mimeType === "image/webp" || asset.mimeType === "image/jpeg" ?
-          asset.mimeType
-          : "image/jpeg";
+  };
+  const loadInstagramPhotos = async () => {
+    const result = await getInstagramPhotos();
+    setInstagramMedia(result.media || []);
+    setSelectedInstagramMediaIds([]);
+    setInstagramPickerOpen(true);
+    if (!result.media?.length) {
+      setVerificationNotice("Instagram connected, but no photos were available to import.");
+    }
+  };
+  const importInstagramPhotos = async () => {
+    if (instagramBusy) return;
+    setVerificationNotice("");
+    setInstagramBusy(true);
+    try {
       try {
-        const uploaded = await uploadProfilePhoto({
-          imageBase64,
-          mimeType,
-          sizeBytes,
-        });
-        selectedPhotos.push({
-          id: uploaded.id || `photo-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
-          uri: resolveServerMediaUri(uploaded.path || uploaded.uri),
-        });
-      } catch (caught) {
-        setVerificationNotice(caught instanceof Error ? caught.message : "Photo upload failed. Please check your connection and try again.");
+        await loadInstagramPhotos();
+        return;
+      } catch {
+        // Not connected yet. Continue through Instagram authorization.
       }
-    }
-    if (!selectedPhotos.length) {
-      setVerificationNotice("No photos were uploaded. Please check your connection and try again.");
-      return;
-    }
-    setPhotos((current) => {
-      const next = [...current, ...selectedPhotos];
-      if (!current.length && next[0]) {
-        setBestPhotoId(next[0].id);
-        onProfilePhotoChange(next[0].uri);
+      const session = await startInstagramPhotoImport();
+      const result = await openKindredInAppSession(session.authUrl, session.returnUrl || "kindredcube://instagram-connected");
+      if (result.type === "cancel" || result.type === "dismiss") {
+        setVerificationNotice("Instagram connection was cancelled.");
+        return;
       }
-      return next;
-    });
+      await loadInstagramPhotos();
+    } catch (caught) {
+      setVerificationNotice(caught instanceof Error ? caught.message : "Instagram photos could not be loaded. Please try again.");
+    } finally {
+      setInstagramBusy(false);
+    }
+  };
+  const toggleInstagramMedia = (id: string) => {
+    setSelectedInstagramMediaIds((current) =>
+      current.includes(id) ?
+        current.filter((value) => value !== id)
+        : current.length < Math.max(0, 9 - photos.length) ?
+          [...current, id]
+          : current,
+    );
+  };
+  const importSelectedInstagramPhotos = async () => {
+    if (instagramBusy || !selectedInstagramMediaIds.length) return;
+    setInstagramBusy(true);
+    setVerificationNotice("");
+    try {
+      const result = await importInstagramProfilePhotos(selectedInstagramMediaIds);
+      const importedPhotos: MemberPhoto[] = (result.photos || []).map((photo) => ({
+        id: photo.id,
+        uri: resolveServerMediaUri(photo.path || photo.uri),
+        source: "instagram",
+      }));
+      if (!importedPhotos.length) {
+        setVerificationNotice("No Instagram photos were imported. Please choose different photos.");
+        return;
+      }
+      setPhotos((current) => {
+        const next = [...current, ...importedPhotos].slice(0, 9);
+        if (!current.length && next[0]) setBestPhotoId(next[0].id);
+        return next;
+      });
+      setInstagramPickerOpen(false);
+      setSelectedInstagramMediaIds([]);
+      setVerificationNotice(`${importedPhotos.length} Instagram photo${importedPhotos.length === 1 ? "" : "s"} added. Remember to save your profile.`);
+    } catch (caught) {
+      setVerificationNotice(caught instanceof Error ? caught.message : "Instagram photos could not be imported. Please try again.");
+    } finally {
+      setInstagramBusy(false);
+    }
   };
   const chooseBest = (photo: MemberPhoto) => {
     setPhotos((current) => [photo, ...current.filter((item) => item.id !== photo.id)]);
     setBestPhotoId(photo.id);
-    onProfilePhotoChange(photo.uri);
   };
   const movePhoto = (index: number, direction: -1 | 1) => {
     const destination = index + direction;
@@ -8043,7 +9536,6 @@ function EditableProfileScreen({
     const first = reordered[0];
     setPhotos(reordered);
     setBestPhotoId(first?.id || "");
-    onProfilePhotoChange(first?.uri);
   };
   const deletePhoto = (photo: MemberPhoto) => {
     const remaining = photos.filter((item) => item.id !== photo.id);
@@ -8051,15 +9543,13 @@ function EditableProfileScreen({
     if (bestPhotoId === photo.id) {
       const next = remaining[0];
       setBestPhotoId(next?.id || "");
-      onProfilePhotoChange(next?.uri);
     }
   };
   useEffect(() => {
     const first = photos[0];
     if (!first || bestPhotoId === first.id) return;
     setBestPhotoId(first.id);
-    onProfilePhotoChange(first?.uri);
-  }, [photos, bestPhotoId, onProfilePhotoChange]);
+  }, [photos, bestPhotoId]);
   const startVideoSelfieVerificationFromProfile = () => {
     setVerificationNotice("");
     setSelfieVerificationOpen(true);
@@ -8082,9 +9572,9 @@ function EditableProfileScreen({
         faceImageBase64: input.faceImageBase64,
         faceImageMimeType: input.faceImageMimeType,
       });
-      onVerificationStatusChange(saved.status);
-      onVerificationMethodChange(saved.verificationMethod);
-      setVerificationNotice(selfieVerificationNotice(saved.status, saved.reasonCode));
+      onVerificationStatusChange?.(saved.status);
+      onVerificationMethodChange?.(saved.verificationMethod || "video_selfie");
+      setVerificationNotice(selfieVerificationNotice(saved.status, saved.reasonCode || ""));
       if (saved.status === "verified") setSelfieVerificationOpen(false);
     } catch (caught) {
       setVerificationNotice(caught instanceof Error ? caught.message : "Video selfie verification could not be completed.");
@@ -8111,8 +9601,17 @@ function EditableProfileScreen({
       prompt: entry.prompt.trim() || "",
       answer: entry.answer.trim() || "",
     }));
+  const orderedPhotoEntries = photos
+    .map((photo, originalIndex) => ({ photo, originalIndex }))
+    .sort((left, right) => {
+      const leftBest = left.photo.id === bestPhotoId;
+      const rightBest = right.photo.id === bestPhotoId;
+      if (leftBest && !rightBest) return -1;
+      if (!leftBest && rightBest) return 1;
+      return left.originalIndex - right.originalIndex;
+    });
   const kindredTypeAnswerCount = kindredTypeQuestions.filter((question) =>
-    typeof compatibilityResponses[question.key].value === "number",
+    typeof compatibilityResponses[question.key]?.value === "number",
   ).length;
   const completionItems = [
     Boolean(personality),
@@ -8128,47 +9627,8 @@ function EditableProfileScreen({
     Object.keys(details).length >= 4,
     languages.length > 0,
   ];
-  const verificationBonus = verificationStrengthBonus(verificationStatus, verificationMethod);
-  const maximumProfileStrength = verificationStrengthCap(verificationStatus, verificationMethod);
-  const baseCompletionScore = Math.round(
-    (completionItems.filter(Boolean).length / completionItems.length) * 54,
-  );
-  const promptCompletionScore = Math.min(12, validPromptCount * 4);
-  const photoCompletionScore = Math.min(24, photos.length * 8);
-  const profileStrength = Math.min(
-    maximumProfileStrength,
-    Math.min(90, photoCompletionScore + promptCompletionScore + baseCompletionScore) +
-      verificationBonus,
-  );
-  useEffect(() => {
-    onProfileStrengthChange(profileStrength);
-  }, [profileStrength, onProfileStrengthChange]);
-  useEffect(() => {
-    const bestPhoto = photos[0] || photos.find((photo) => photo.id === bestPhotoId);
-    onProfileDataChange({
-      photos,
-      bestPhotoId,
-      bestPhotoUri: bestPhoto?.uri || "",
-      personality,
-      relationshipGoals,
-      interests,
-      causes,
-      values,
-      bio,
-      work,
-      occupation,
-      hometown,
-      currentLocation,
-      matchingLocation,
-      details,
-      languages,
-      promptAnswers,
-      compatibilityResponses,
-      profileStrength,
-    });
-  }, [
+  const profileStrength = calculateProfileStrengthValue({
     photos,
-    bestPhotoId,
     personality,
     relationshipGoals,
     interests,
@@ -8178,15 +9638,11 @@ function EditableProfileScreen({
     work,
     occupation,
     hometown,
-    currentLocation,
-    matchingLocation,
     details,
     languages,
     promptAnswers,
     compatibilityResponses,
-    profileStrength,
-    onProfileDataChange,
-  ]);
+  }, verificationStatus || "not_started", verificationMethod || "");
   const tagList = (items: string[], empty: string) =>
     items.length ? (
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
@@ -8415,7 +9871,7 @@ function EditableProfileScreen({
 
   if (kindredTypeOpen) {
     const currentQuestion = kindredTypeQuestions[Math.min(kindredTypeStep, kindredTypeQuestions.length - 1)]!;
-    const selectedValue = compatibilityResponses[currentQuestion.key].value;
+    const selectedValue = compatibilityResponses[currentQuestion.key]?.value;
     const isLastKindredTypeStep = kindredTypeStep >= kindredTypeQuestions.length - 1;
     const goBackKindredStep = () => {
       if (kindredTypeStep > 0) setKindredTypeStep((step) => Math.max(0, step - 1));
@@ -8532,7 +9988,7 @@ function EditableProfileScreen({
         </View>
         <Button
           label={isLastKindredTypeStep ? "Save Kindred Type" : "Next"}
-          disabled={!selectedValue}
+                  disabled={typeof selectedValue !== "number"}
           onPress={() => {
             if (isLastKindredTypeStep) setKindredTypeOpen(false);
             else setKindredTypeStep((step) => Math.min(kindredTypeQuestions.length - 1, step + 1));
@@ -8748,10 +10204,6 @@ function EditableProfileScreen({
                     },
                   };
                   setPromptAnswers(nextPromptAnswers);
-                  onProfileDataChange({
-                    promptAnswers: nextPromptAnswers,
-                  });
-                  onSaveProfile({ promptAnswers: nextPromptAnswers }).catch(() => undefined);
                   setPromptEditor("");
                   setSelectedPrompt("");
                   setPromptAnswer("");
@@ -8794,6 +10246,85 @@ function EditableProfileScreen({
             showStripe={false}
           />
         ) : null}
+      </Modal>
+      <Modal
+        visible={instagramPickerOpen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setInstagramPickerOpen(false)}
+      >
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 34, gap: 16 }}
+          style={{ flex: 1, backgroundColor: C.cream }}
+        >
+          <Logo size="compact" />
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setInstagramPickerOpen(false)}
+            style={{ alignSelf: "flex-start", paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}
+          >
+            <ChevronLeft width={18} height={18} color={C.ink} strokeWidth={3} />
+            <Text style={{ color: C.ink, fontWeight: "900" }}>Profile</Text>
+          </Pressable>
+          <View style={{ borderRadius: 26, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 18, gap: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Image source={INSTAGRAM_ICON} resizeMode="contain" style={{ width: 38, height: 38 }} />
+              <View style={{ flex: 1 }}>
+                <Text selectable style={{ color: C.ink, fontSize: 24, fontWeight: "900" }}>
+                  Add photos from Instagram
+                </Text>
+                <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>
+                  Choose photos you want to show on KindredCube. Selected photos are copied securely so they show on every device.
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 9 }}>
+              {instagramMedia.map((item) => {
+                const selected = selectedInstagramMediaIds.includes(item.id);
+                return (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: selected }}
+                    onPress={() => toggleInstagramMedia(item.id)}
+                    style={{
+                      width: "31%",
+                      aspectRatio: 0.82,
+                      borderRadius: 15,
+                      overflow: "hidden",
+                      borderWidth: selected ? 3 : 1,
+                      borderColor: selected ? C.pink : C.line,
+                      backgroundColor: "#F3EFE8",
+                    }}
+                  >
+                    <Image source={{ uri: item.thumbnailUrl || item.mediaUrl }} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
+                    <View style={{ position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: 12, backgroundColor: selected ? C.pink : "rgba(255,255,255,0.86)", alignItems: "center", justifyContent: "center" }}>
+                      {selected ? <Check width={15} height={15} color={C.paper} strokeWidth={3} /> : <Image source={INSTAGRAM_ICON} resizeMode="contain" style={{ width: 16, height: 16 }} />}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {!instagramMedia.length ? (
+              <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19, textAlign: "center", paddingVertical: 18 }}>
+                No Instagram photos are available yet. Make sure Instagram access was approved, then try again.
+              </Text>
+            ) : null}
+            <Button
+              label={instagramBusy ? "Importing..." : `Import ${selectedInstagramMediaIds.length || ""} photo${selectedInstagramMediaIds.length === 1 ? "" : "s"}`.trim()}
+              disabled={instagramBusy || !selectedInstagramMediaIds.length}
+              onPress={importSelectedInstagramPhotos}
+            />
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setInstagramPickerOpen(false)}
+              style={{ minHeight: 42, alignItems: "center", justifyContent: "center" }}
+            >
+              <Text style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       </Modal>
       <ScrollView
       contentInsetAdjustmentBehavior="automatic"
@@ -9143,15 +10674,40 @@ function EditableProfileScreen({
 
       <ProfileSection
         title="Photos"
-        subtitle="Minimum 3. Add more for a stronger profile."
-        onAdd={uploadPhoto}
+        subtitle="Add more photos for a stronger, more trusted profile."
+        onAdd={photoUploadBusy ? undefined : uploadPhoto}
       >
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 9 }}>
-          {photos.map((photo, photoIndex) => {
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Upload photos"
+            disabled={photoUploadBusy}
+            onPress={uploadPhoto}
+            style={{
+              width: "31%",
+              aspectRatio: 0.82,
+              marginBottom: 8,
+              borderRadius: 15,
+              borderWidth: 1,
+              borderColor: "#E7D4EE",
+              backgroundColor: photoUploadBusy ? "#F3EDF9" : "#FFF7FF",
+              opacity: photoUploadBusy ? 0.72 : 1,
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              paddingHorizontal: 8,
+            }}
+          >
+            <Image source={PROFILE_UPLOAD_CAMERA_ICON} resizeMode="contain" style={{ width: 46, height: 46 }} />
+            <Text style={{ color: "#7E2B8F", fontSize: 10.5, fontWeight: "900", textAlign: "center" }}>
+              {photoUploadBusy ? "Uploading..." : "Upload photos"}
+            </Text>
+          </Pressable>
+          {orderedPhotoEntries.map(({ photo, originalIndex }, displayIndex) => {
             const best = photo.id === bestPhotoId;
             const canDelete = true;
             const savedPrompt = !best && savedPhotoPrompts.length ?
-               savedPhotoPrompts[photoIndex % savedPhotoPrompts.length]
+               savedPhotoPrompts[Math.max(0, displayIndex - 1)]
               : null;
             return (
               <View
@@ -9278,38 +10834,16 @@ function EditableProfileScreen({
                   </Text>
                 ) : null}
                 <View style={{ position: "absolute", right: 6, bottom: 6, flexDirection: "row", gap: 5 }}>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Move photo earlier" disabled={photoIndex === 0} onPress={() => movePhoto(photoIndex, -1)} style={{ width: 27, height: 27, borderRadius: 14, backgroundColor: photoIndex === 0 ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.94)", alignItems: "center", justifyContent: "center" }}>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Move photo earlier" disabled={originalIndex === 0} onPress={() => movePhoto(originalIndex, -1)} style={{ width: 27, height: 27, borderRadius: 14, backgroundColor: originalIndex === 0 ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.94)", alignItems: "center", justifyContent: "center" }}>
                     <ChevronLeft width={16} height={16} color={C.ink} />
                   </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Move photo later" disabled={photoIndex === photos.length - 1} onPress={() => movePhoto(photoIndex, 1)} style={{ width: 27, height: 27, borderRadius: 14, backgroundColor: photoIndex === photos.length - 1 ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.94)", alignItems: "center", justifyContent: "center" }}>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Move photo later" disabled={originalIndex === photos.length - 1} onPress={() => movePhoto(originalIndex, 1)} style={{ width: 27, height: 27, borderRadius: 14, backgroundColor: originalIndex === photos.length - 1 ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.94)", alignItems: "center", justifyContent: "center" }}>
                     <ChevronRight width={16} height={16} color={C.ink} />
                   </Pressable>
                 </View>
               </View>
             );
           })}
-          <Pressable
-            accessibilityRole="button"
-            onPress={uploadPhoto}
-            style={{
-              width: "31%",
-              aspectRatio: 0.82,
-              marginBottom: 8,
-              borderRadius: 15,
-              borderWidth: 1.5,
-              borderStyle: "dashed",
-              borderColor: C.pink,
-              backgroundColor: "#FFF7FA",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-            }}
-          >
-            <Camera width={25} height={25} color={C.pink} />
-            <Text style={{ color: C.pink, fontSize: 11, fontWeight: "900" }}>
-              Add photos
-            </Text>
-          </Pressable>
         </View>
         <Text
           selectable
@@ -9349,11 +10883,10 @@ function EditableProfileScreen({
           label="Save bio"
           disabled={!bioDraft.trim()}
           onPress={() => {
-            const saved = bioDraft.trim();
-            setBio(saved);
-            onBioChange(saved);
-            setBioEditing(false);
-          }}
+          const saved = bioDraft.trim();
+          setBio(saved);
+          setBioEditing(false);
+        }}
         />
         {bio ? <Pressable accessibilityRole="button" onPress={() => { setBioDraft(bio); setBioEditing(false); }} style={{ alignItems: "center", padding: 5 }}><Text style={{ color: C.muted, fontWeight: "800" }}>Cancel</Text></Pressable> : null}</> : bio ? (
           <View
@@ -9399,7 +10932,7 @@ function EditableProfileScreen({
               accessibilityRole="button"
               onPress={() => {
                 const firstUnanswered = kindredTypeQuestions.findIndex(
-                  (question) => typeof compatibilityResponses[question.key].value !== "number",
+                  (question) => typeof compatibilityResponses[question.key]?.value !== "number",
                 );
                 setKindredTypeStep(firstUnanswered >= 0 ? firstUnanswered : 0);
                 setKindredTypeOpen(true);
@@ -9475,7 +11008,6 @@ function EditableProfileScreen({
             2,
             (items) => {
               setRelationshipGoals(items);
-              onSearchingForChange(items);
             },
           )
         }
@@ -9491,7 +11023,6 @@ function EditableProfileScreen({
         onAdd={() =>
           openSelection("Interests", interestOptions, interests, 5, (items) => {
             setInterests(items);
-            onInterestsChange(items);
           })
         }
       >
@@ -9797,11 +11328,13 @@ function EditableProfileScreen({
         label={profileSaving ? "Saving profile..." : "Save Profile"}
         disabled={profileSaving}
         onPress={async () => {
+          if (profileSaveInFlightRef.current) return;
+          profileSaveInFlightRef.current = true;
           setProfileSaving(true);
           setProfileSaveError("");
           try {
             const firstPhoto = photos[0];
-            onProfileDataChange({
+            const draftProfile = {
               photos,
               bestPhotoId: firstPhoto?.id || "",
               bestPhotoUri: firstPhoto?.uri || "",
@@ -9819,13 +11352,20 @@ function EditableProfileScreen({
               details,
               languages,
               promptAnswers,
+              compatibilityResponses,
               profileStrength,
-            });
-            await onSaveProfile();
+            };
+            await onSaveProfile(draftProfile);
+            onProfilePhotoChange(firstPhoto?.uri || "");
+            onProfileStrengthChange(profileStrength);
+            onInterestsChange(interests);
+            onBioChange(bio);
+            onSearchingForChange(relationshipGoals);
             onConnect();
           } catch (caught) {
             setProfileSaveError(caught instanceof Error ? caught.message : "Your profile could not be saved. Check your connection and try again.");
           } finally {
+            profileSaveInFlightRef.current = false;
             setProfileSaving(false);
           }
         }}
@@ -9988,6 +11528,51 @@ function taggedSharedRecommendations(
       return { profile, tag: `${label}: ${viewerLookup.get(normalizeRecommendationValue(shared)) || shared.trim()}` };
     })
     .filter((item): item is TaggedRecommendation => Boolean(item));
+}
+
+function recommendationOverlap(
+  viewerItems: readonly string[] | undefined,
+  candidateItems: readonly string[] | undefined,
+) {
+  const viewerLookup = new Set(
+    (viewerItems || [])
+      .filter((item) => typeof item === "string" && item.trim().length > 0)
+      .map(normalizeRecommendationValue),
+  );
+  if (!viewerLookup.size) return { count: 0, first: "" };
+  const shared = (candidateItems || [])
+    .filter((item) => typeof item === "string" && item.trim().length > 0)
+    .filter((item) => viewerLookup.has(normalizeRecommendationValue(item)));
+  return { count: shared.length, first: shared[0]?.trim() || "" };
+}
+
+function categorizedExploreRecommendations(
+  people: readonly Profile[],
+  viewerSignals: MatchingSignals,
+) {
+  const buckets = {
+    interests: [] as TaggedRecommendation[],
+    datingGoals: [] as TaggedRecommendation[],
+    communities: [] as TaggedRecommendation[],
+  };
+  people.forEach((profile) => {
+    const signals = profileMatchingSignals(profile);
+    const interest = recommendationOverlap(viewerSignals.interests, signals.interests);
+    const datingGoal = recommendationOverlap(viewerSignals.relationshipGoals, signals.relationshipGoals);
+    const community = recommendationOverlap(viewerSignals.communities, signals.communities);
+    const options = [
+      { key: "interests" as const, label: "Similar interest", ...interest },
+      { key: "datingGoals" as const, label: "Similar dating goal", ...datingGoal },
+      { key: "communities" as const, label: "Community in common", ...community },
+    ].filter((option) => option.count > 0);
+    if (!options.length) return;
+    const best = options.sort((a, b) => b.count - a.count)[0];
+    buckets[best.key].push({
+      profile,
+      tag: `${best.label}: ${best.first}`,
+    });
+  });
+  return buckets;
 }
 
 function RecommendationCarousel({
@@ -10665,7 +12250,7 @@ function LegacyReadyMeetChat({
             selectable
             style={{ color: C.sage, fontSize: 11, fontWeight: "800" }}
           >
-            Ready nearby ? online
+            Ready nearby · online
           </Text>
         </View>
         <Pressable
@@ -11220,6 +12805,8 @@ function ReadyMeetChat({
   onVerificationStatusChange,
   onVerificationMethodChange,
   onCurrentUserMeetupVerified,
+  completedPostMeetCheckKeys = [],
+  onPostMeetCheckCompleted,
 }: {
   currentUserId?: string;
   profile: Profile;
@@ -11235,6 +12822,8 @@ function ReadyMeetChat({
   onVerificationStatusChange?: (status: IdentityVerificationStatus) => void;
   onVerificationMethodChange?: (method: IdentityVerificationMethod) => void;
   onCurrentUserMeetupVerified?: () => void;
+  completedPostMeetCheckKeys?: string[];
+  onPostMeetCheckCompleted?: (key: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
@@ -11303,22 +12892,26 @@ function ReadyMeetChat({
   const [proposal, setProposal] = useState<MeetProposal | null>(null);
   const [proposalError, setProposalError] = useState("");
   const [proposalSaving, setProposalSaving] = useState(false);
-  const [safetyOpen, setSafetyOpen] = useState(false);
-  const [checkedIn, setCheckedIn] = useState(false);
-  const [checkInMethod, setCheckInMethod] = useState<"automatic" | "manual" | "">("");
   const [postMeetOpen, setPostMeetOpen] = useState(false);
+  const [postMeetOutcomeOpen, setPostMeetOutcomeOpen] = useState(false);
+  const [postMeetMissedReasonOpen, setPostMeetMissedReasonOpen] = useState(false);
+  const [postMeetMissedReason, setPostMeetMissedReason] = useState("");
+  const [postMeetMissedSaving, setPostMeetMissedSaving] = useState(false);
+  const [postMeetMissedError, setPostMeetMissedError] = useState("");
   const [postMeetSubmitted, setPostMeetSubmitted] = useState(false);
   const [postMeetStatusChecking, setPostMeetStatusChecking] = useState(false);
   const [postMeetStatusCheckedKey, setPostMeetStatusCheckedKey] = useState("");
-  const [completedPostMeetKeys, setCompletedPostMeetKeys] = useState<string[]>([]);
+  const [completedPostMeetKeys, setCompletedPostMeetKeys] = useState<string[]>(completedPostMeetCheckKeys);
   const [postMeetThanksVisible, setPostMeetThanksVisible] = useState(false);
   const [proposalDetailsExpanded, setProposalDetailsExpanded] = useState(true);
+  const [declinedMeetingNoticeVisible, setDeclinedMeetingNoticeVisible] = useState(false);
+  const [postMeetPromptPreviewVisible, setPostMeetPromptPreviewVisible] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const postMeetPulse = useRef(new Animated.Value(0)).current;
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [meetVerificationGate, setMeetVerificationGate] = useState<"" | "send" | "accept">("");
   const [meetVerificationBusy, setMeetVerificationBusy] = useState<"" | "stripe" | "selfie">("");
   const [meetVerificationNotice, setMeetVerificationNotice] = useState("");
-  const safetyPulse = useRef(new Animated.Value(1)).current;
   const chatSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const photoSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const currentUserMeetVerified = verificationStatus === "verified";
@@ -11326,7 +12919,16 @@ function ReadyMeetChat({
     if (!profile.id || !candidate?.scheduledAt) return "";
     return `${profile.id}:${Math.round(candidate.scheduledAt / 60_000)}`;
   }, [profile.id]);
+  useEffect(() => {
+    setCompletedPostMeetKeys(completedPostMeetCheckKeys);
+  }, [completedPostMeetCheckKeys.join("|")]);
+  const markPostMeetCheckCompleted = useCallback((key: string) => {
+    if (!key) return;
+    setCompletedPostMeetKeys((current) => current.includes(key) ? current : [...current, key]);
+    onPostMeetCheckCompleted?.(key);
+  }, [onPostMeetCheckCompleted]);
   const accepted = proposal?.status === "accepted";
+  const declined = proposal?.status === "declined";
   const currentPostMeetKey = postMeetCheckKey(proposal);
   const meetingEnd = accepted ?
     proposal.scheduledAt + proposal.durationMinutes * 60_000
@@ -11339,7 +12941,10 @@ function ReadyMeetChat({
     !postMeetStatusChecking &&
     Boolean(currentPostMeetKey) &&
     postMeetStatusCheckedKey === currentPostMeetKey;
-  const activeAccepted = accepted && !postMeetSubmitted;
+  const needsPostMeetAcknowledgement = accepted && meetingEnded && !postMeetSubmitted;
+  const activeAccepted = accepted && !meetingEnded && !postMeetSubmitted;
+  const activeAcceptedBeforeDue = activeAccepted;
+  const postMeetNeedsAction = postMeetDue || needsPostMeetAcknowledgement;
   const typingMode = keyboardVisible && !proposalOpen && !gifOpen;
   const hasPriorChat = chatMessages.some((item) =>
     ["text", "gif", "image", "audio", "video"].includes(item.kind) &&
@@ -11349,20 +12954,26 @@ function ReadyMeetChat({
     item.kind === "meeting_response" &&
     item.meetingResponse?.status === "accepted",
   );
-  const topMeetingActionLabel = postMeetDue ?
-    "Complete Post-Meet Up"
-    : activeAccepted ?
-      "Safety"
+  const topMeetingActionLabel = postMeetNeedsAction ?
+    "Post-meet check"
+    : declined && declinedMeetingNoticeVisible ?
+      "Meeting declined"
+    : activeAcceptedBeforeDue ?
+      "Meeting Set"
       : "Propose Meeting";
   const openTopMeetingAction = () => {
     Keyboard.dismiss();
     setMediaMenuOpen(false);
-    if (postMeetDue) {
-      setPostMeetOpen(true);
+    if (postMeetNeedsAction) {
+      setMeetingPromptNotice("You had a meeting last time. To activate a new meeting, please tell us about the last meeting.");
+      setPostMeetOutcomeOpen(true);
+      setPostMeetMissedReasonOpen(false);
+      setPostMeetMissedReason("");
+      setProposalDetailsExpanded(true);
       return;
     }
-    if (activeAccepted) {
-      setSafetyOpen((value) => !value);
+    if (activeAcceptedBeforeDue) {
+      setProposalDetailsExpanded((value) => !value);
       return;
     }
     if (!hasPriorChat) {
@@ -11450,6 +13061,42 @@ function ReadyMeetChat({
     return () => clearTimeout(timer);
   }, [postMeetThanksVisible]);
   useEffect(() => {
+    if (!activeAcceptedBeforeDue || !proposalDetailsExpanded) return;
+    const timer = setTimeout(() => setProposalDetailsExpanded(false), 5_000);
+    return () => clearTimeout(timer);
+  }, [activeAcceptedBeforeDue, proposalDetailsExpanded, proposal?.scheduledAt]);
+  useEffect(() => {
+    if (!declined || !declinedMeetingNoticeVisible) return;
+    const timer = setTimeout(() => {
+      setDeclinedMeetingNoticeVisible(false);
+      setProposal(null);
+    }, 8_000);
+    return () => clearTimeout(timer);
+  }, [declined, declinedMeetingNoticeVisible]);
+  useEffect(() => {
+    if (!postMeetNeedsAction || postMeetOutcomeOpen || postMeetOpen) return;
+    setPostMeetMissedReasonOpen(false);
+    setPostMeetMissedReason("");
+    setPostMeetPromptPreviewVisible(true);
+    const timer = setTimeout(() => setPostMeetPromptPreviewVisible(false), 7_000);
+    return () => clearTimeout(timer);
+  }, [postMeetNeedsAction, postMeetOutcomeOpen, postMeetOpen, currentPostMeetKey]);
+  useEffect(() => {
+    if (!postMeetNeedsAction) {
+      postMeetPulse.stopAnimation();
+      postMeetPulse.setValue(0);
+      return;
+    }
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(postMeetPulse, { toValue: 1, duration: 650, useNativeDriver: true }),
+        Animated.timing(postMeetPulse, { toValue: 0, duration: 650, useNativeDriver: true }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [postMeetNeedsAction, postMeetPulse]);
+  useEffect(() => {
     const showEvent = process.env.EXPO_OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = process.env.EXPO_OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const showSubscription = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
@@ -11508,7 +13155,10 @@ function ReadyMeetChat({
       setProposal(nextProposal);
       setPostMeetStatusCheckedKey("");
       setProposalOpen(false);
-      setProposalDetailsExpanded(latest.meetingResponse.status === "accepted");
+      setProposalDetailsExpanded(latest.meetingResponse.status === "accepted" || latest.meetingResponse.status === "declined");
+      if (latest.meetingResponse.status === "declined") {
+        setDeclinedMeetingNoticeVisible(true);
+      }
     }
   }, [chatMessages, completedPostMeetKeys, postMeetCheckKey, postMeetSubmitted]);
   useEffect(() => {
@@ -11518,7 +13168,7 @@ function ReadyMeetChat({
     const proposalMeetingEnd = proposal.scheduledAt + proposal.durationMinutes * 60_000;
     if (proposal.status === "accepted" && proposalMeetingEnd < Date.now() - 7 * 24 * 60 * 60 * 1000) {
       if (key) {
-        setCompletedPostMeetKeys((current) => current.includes(key) ? current : [...current, key]);
+        markPostMeetCheckCompleted(key);
       }
       setPostMeetSubmitted(true);
       setPostMeetOpen(false);
@@ -11548,7 +13198,7 @@ function ReadyMeetChat({
           return;
         }
         if (key) {
-          setCompletedPostMeetKeys((current) => current.includes(key) ? current : [...current, key]);
+          markPostMeetCheckCompleted(key);
         }
         setPostMeetSubmitted(true);
         setPostMeetOpen(false);
@@ -11567,44 +13217,7 @@ function ReadyMeetChat({
     return () => {
       active = false;
     };
-  }, [completedPostMeetKeys, postMeetCheckKey, profile.id, proposal]);
-  useEffect(() => {
-    if (!activeAccepted) {
-      safetyPulse.setValue(1);
-      return;
-    }
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(safetyPulse, { toValue: 0.3, duration: 520, useNativeDriver: true }),
-        Animated.timing(safetyPulse, { toValue: 1, duration: 520, useNativeDriver: true }),
-      ]),
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [activeAccepted, safetyPulse]);
-  useEffect(() => {
-    if (!accepted || checkedIn || !proposal) return;
-    let active = true;
-    (async () => {
-      try {
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (permission.status !== "granted") return;
-        const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-        const distance = meetingDistanceMeters(
-          { latitude: current.coords.latitude, longitude: current.coords.longitude },
-          { latitude: proposal.latitude, longitude: proposal.longitude },
-        );
-        if (active && distance <= 250) {
-          setCheckedIn(true);
-          setCheckInMethod("automatic");
-        }
-      } catch {
-        // Manual check-in remains available when foreground location is unavailable.
-      }
-    })();
-    return () => { active = false; };
-  }, [accepted, checkedIn, proposal]);
-
+  }, [completedPostMeetKeys, markPostMeetCheckCompleted, postMeetCheckKey, profile.id, proposal]);
   useEffect(() => {
     if (!proposalOpen) {
       setVenueSuggestions([]);
@@ -11694,10 +13307,6 @@ function ReadyMeetChat({
       setProposalSaving(false);
     }
   };
-  const openDirections = () => {
-    if (!proposal) return;
-    openProposalLink(proposalDirectionsLink(proposal));
-  };
   const scheduled = proposal ? new Date(proposal.scheduledAt) : null;
   const latestProposalMessage = [...chatMessages].reverse().find((item) => item.kind === "meeting_proposal" && item.meetingProposal);
   const proposalSentByMe = latestProposalMessage?.sender === "me";
@@ -11781,6 +13390,50 @@ function ReadyMeetChat({
       meetingResponse: { status, proposal: responseProposal },
     });
     if (delivered) setProposal({ ...proposal, status });
+  };
+  const closeCompletedMeeting = useCallback(() => {
+    if (!proposal) return;
+    const key = postMeetCheckKey(proposal);
+    if (key) {
+      markPostMeetCheckCompleted(key);
+    }
+    setPostMeetOpen(false);
+    setPostMeetOutcomeOpen(false);
+    setPostMeetMissedReasonOpen(false);
+    setPostMeetMissedReason("");
+    setPostMeetMissedError("");
+    setPostMeetSubmitted(true);
+    setPostMeetThanksVisible(true);
+    setProposal(null);
+    setProposalDetailsExpanded(true);
+  }, [markPostMeetCheckCompleted, postMeetCheckKey, proposal]);
+  const submitMissedMeeting = async (reason: string) => {
+    if (!proposal || !profile.id || postMeetMissedSaving) return;
+    setPostMeetMissedSaving(true);
+    setPostMeetMissedError("");
+    try {
+      await submitPostMeetCheck({
+        otherUserId: profile.id,
+        meetingStartedAt: new Date(proposal.scheduledAt).toISOString(),
+        meetingEndedAt: new Date(proposal.scheduledAt + proposal.durationMinutes * 60_000).toISOString(),
+        venue: proposal.venue,
+        latitude: proposal.latitude,
+        longitude: proposal.longitude,
+        met: false,
+        missedReason: reason,
+        showedUp: "No",
+        profileMatched: "Mostly",
+        feltSafe: "Yes",
+        respectful: "Mostly",
+        wouldMeetAgain: "Maybe",
+        notes: `Meetup did not happen: ${reason}`,
+      });
+      closeCompletedMeeting();
+    } catch (caught) {
+      setPostMeetMissedError(caught instanceof Error ? caught.message : "We could not save this yet. Please try again.");
+    } finally {
+      setPostMeetMissedSaving(false);
+    }
   };
   const openMessageActions = (item: (typeof chatMessages)[number]) => {
     setMessageActionTarget(item);
@@ -12221,40 +13874,8 @@ function ReadyMeetChat({
             onClose={() => setMeetVerificationGate("")}
             onStripe={startStripeMeetVerification}
             onSubmitSelfie={submitVideoSelfieMeetVerification}
+            showStripe
           />
-        ) : null}
-      </Modal>
-
-      <Modal
-        visible={Boolean(safetyOpen && proposal)}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setSafetyOpen(false)}
-      >
-        {proposal ? (
-          <KeyboardAvoidingView
-            behavior={process.env.EXPO_OS === "ios" ? "padding" : "height"}
-            style={{ flex: 1, backgroundColor: C.cream }}
-          >
-            <ScrollView
-              contentInsetAdjustmentBehavior="automatic"
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{
-                flexGrow: 1,
-                justifyContent: "center",
-                paddingTop: insets.top + 24,
-                paddingHorizontal: 20,
-                paddingBottom: insets.bottom + 28,
-              }}
-            >
-              <MeetingSafetyShare
-                profile={profile}
-                proposal={proposal}
-                onClose={() => setSafetyOpen(false)}
-              />
-            </ScrollView>
-          </KeyboardAvoidingView>
         ) : null}
       </Modal>
 
@@ -12375,84 +13996,110 @@ function ReadyMeetChat({
         </KeyboardAvoidingView>
       ) : null}
 
-      {proposal && scheduled && !typingMode ? (
+      {proposal && scheduled && !typingMode && (
+        proposal.status === "pending" ||
+        (proposal.status === "declined" && declinedMeetingNoticeVisible) ||
+        (proposal.status === "accepted" && (proposalDetailsExpanded || postMeetPromptPreviewVisible || postMeetOutcomeOpen))
+      ) ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={postMeetDue ? "Complete post-meet check" : proposal.status === "accepted" ? "Toggle accepted meeting details" : "Meeting proposal details"}
+          accessibilityLabel={needsPostMeetAcknowledgement ? "Post-meet outcome" : proposal.status === "accepted" ? "Toggle accepted meeting details" : "Meeting proposal details"}
           onPress={() => {
-            if (proposal.status === "accepted" && !postMeetDue) setProposalDetailsExpanded((value) => !value);
+            if (proposal.status === "accepted" && !postMeetDue) setProposalDetailsExpanded(false);
           }}
           style={{ borderRadius: 20, borderWidth: 1.5, borderColor: proposal.status === "accepted" ? C.sage : proposal.status === "declined" ? "#C84534" : "#D5B853", backgroundColor: proposal.status === "accepted" ? "#F1F8F3" : C.paper, padding: proposal.status === "accepted" && !postMeetDue ? 10 : 14, gap: proposal.status === "accepted" && !postMeetDue ? 6 : 9, boxShadow: proposal.status === "accepted" ? "0 18px 40px rgba(39,148,71,0.22)" : "0 14px 32px rgba(0,29,48,0.16)" }}
         >
-          <Text selectable style={{ color: C.ink, fontSize: proposal.status === "accepted" && !postMeetDue ? 14 : 16, fontWeight: "900" }}>{postMeetDue ? "Complete post-meet check" : proposal.status === "accepted" ? "Meeting accepted" : proposal.status === "declined" ? "Meeting declined" : proposalSentByMe ? "Meeting proposal sent" : "Meeting proposal received"}</Text>
+          <Text selectable style={{ color: C.ink, fontSize: proposal.status === "accepted" && !needsPostMeetAcknowledgement ? 14 : 16, fontWeight: "900" }}>{needsPostMeetAcknowledgement ? "Did you meet?" : proposal.status === "accepted" ? "Meeting accepted" : proposal.status === "declined" ? "Meeting declined" : proposalSentByMe ? "Meeting proposal sent" : "Meeting proposal received"}</Text>
           <Text selectable numberOfLines={proposal.status === "accepted" && !postMeetDue ? 1 : undefined} style={{ color: C.ink, fontSize: proposal.status === "accepted" && !postMeetDue ? 11 : 13, lineHeight: proposal.status === "accepted" && !postMeetDue ? 14 : undefined, fontWeight: "900" }}>{proposal.venue}</Text>
           <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>{scheduled.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at {scheduled.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · about {proposal.durationMinutes} minutes</Text>
           {proposal.status === "pending" && !proposalSentByMe ? <View style={{ flexDirection: "row", gap: 8 }}><View style={{ flex: 1 }}><Button compact label="Accept" onPress={() => respondToMeetingProposal("accepted")} /></View><Pressable onPress={() => respondToMeetingProposal("declined")} style={{ flex: 1, minHeight: 44, borderRadius: 22, borderWidth: 1, borderColor: "#C84534", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#B52E20", fontWeight: "900" }}>Decline</Text></Pressable></View> : null}
           {proposal.status === "pending" && proposalSentByMe ? <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16, textAlign: "center", fontWeight: "800" }}>Waiting for {profile.name} to accept or decline.</Text> : null}
           {proposal.status === "declined" ? <Button compact label="Create another proposal" onPress={() => { setProposal(null); setProposalOpen(true); }} /> : null}
-          {postMeetDue ? (
+          {needsPostMeetAcknowledgement ? (
             <View style={{ gap: 9 }}>
               <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>
-                Your scheduled meeting time has passed. Complete a quick private post-meet check before continuing.
+                Your scheduled meeting window has passed. Did you meet?
               </Text>
-              <Button compact label="Open private post-meet check" onPress={() => setPostMeetOpen(true)} />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Button compact label="Yes, we met" onPress={() => setPostMeetOpen(true)} />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setPostMeetMissedReasonOpen(true)}
+                  style={{
+                    flex: 1,
+                    minHeight: 44,
+                    borderRadius: 22,
+                    borderWidth: 1,
+                    borderColor: C.line,
+                    backgroundColor: C.paper,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingHorizontal: 8,
+                  }}
+                >
+                  <Text style={{ color: C.ink, fontSize: 11, fontWeight: "900", textAlign: "center" }}>No, we didn't</Text>
+                </Pressable>
+              </View>
+              {postMeetMissedReasonOpen ? (
+                <View style={{ gap: 8 }}>
+                  <Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>What happened?</Text>
+                  {["They didn't show up", "I couldn't make it", "We rescheduled", "We changed our minds", "Other"].map((reason) => (
+                    <Pressable
+                      key={reason}
+                      accessibilityRole="button"
+                      disabled={postMeetMissedSaving}
+                      onPress={() => {
+                        setPostMeetMissedReason(reason);
+                        submitMissedMeeting(reason);
+                      }}
+                      style={{
+                        minHeight: 38,
+                        borderRadius: 19,
+                        borderWidth: 1,
+                        borderColor: postMeetMissedReason === reason ? C.sage : C.line,
+                        backgroundColor: postMeetMissedReason === reason ? "#E7F2EA" : C.paper,
+                        paddingHorizontal: 12,
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ color: postMeetMissedReason === reason ? C.sage : C.ink, fontSize: 11, fontWeight: "900" }}>
+                        {reason}
+                      </Text>
+                    </Pressable>
+                  ))}
+                  {postMeetMissedError ? (
+                    <Text accessibilityRole="alert" selectable style={{ color: "#9C3225", fontSize: 11, fontWeight: "800" }}>
+                      {postMeetMissedError}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           ) : null}
-          {proposal.status === "accepted" && !postMeetDue && !proposalDetailsExpanded ? (
-            <Text selectable style={{ color: C.sage, fontSize: 11, fontWeight: "900" }}>Tap to view meeting details</Text>
-          ) : null}
-          {proposal.status === "accepted" && !postMeetDue && proposalDetailsExpanded ? (
+          {proposal.status === "accepted" && !postMeetNeedsAction && proposalDetailsExpanded ? (
             <View style={{ gap: 5 }}>
-              <View style={{ height: 82, borderRadius: 14, overflow: "hidden" }}>
-                <MapView
-                  style={{ width: "100%", height: "100%" }}
-                  region={{ latitude: proposal.latitude, longitude: proposal.longitude, latitudeDelta: 0.012, longitudeDelta: 0.012 }}
-                >
-                  <Marker coordinate={{ latitude: proposal.latitude, longitude: proposal.longitude }} title={proposal.venue} description="Agreed public meeting place" />
-                </MapView>
-              </View>
-              <View style={{ flexDirection: "row", gap: 7 }}>
-                <View style={{ flex: 1 }}>
-                  <Button compact label="Directions" onPress={openDirections} />
-                </View>
-                {checkedIn ? (
-                  <View style={{ flex: 1, minHeight: 42, borderRadius: 21, backgroundColor: "#E7F2EA", alignItems: "center", justifyContent: "center", paddingHorizontal: 8 }}>
-                    <Text selectable numberOfLines={1} style={{ color: C.sage, fontSize: 10, fontWeight: "900", textAlign: "center" }}>Checked in</Text>
-                  </View>
-                ) : (
-                  <View style={{ flex: 1 }}>
-                    <Button compact label="Check in" onPress={() => { setCheckedIn(true); setCheckInMethod("manual"); }} />
-                  </View>
-                )}
-              </View>
-              <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 8, lineHeight: 11, textAlign: "center" }}>
-                Manual check-in is always available at the agreed public place.
+              <Text selectable style={{ color: C.sage, fontSize: 11, lineHeight: 16, fontWeight: "900" }}>
+                Meet in a public place and keep the agreed details in chat.
+              </Text>
+              <Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 15 }}>
+                After this meeting window ends, KindredCube will privately ask both of you whether you met.
               </Text>
             </View>
           ) : null}
         </Pressable>
       ) : null}
 
-      {proposal && postMeetDue ? (
+      {proposal && needsPostMeetAcknowledgement ? (
         <PostMeetCheckModal
           visible={postMeetOpen}
           profile={profile}
           proposal={proposal}
           onCancel={() => setPostMeetOpen(false)}
           onDone={(result) => {
-            const key = postMeetCheckKey(proposal);
-            if (key) {
-              setCompletedPostMeetKeys((current) => current.includes(key) ? current : [...current, key]);
-            }
             if (result?.meetupVerified) onCurrentUserMeetupVerified?.();
-            setPostMeetOpen(false);
-            setPostMeetSubmitted(true);
-            setPostMeetThanksVisible(true);
-            setSafetyOpen(false);
-            setCheckedIn(false);
-            setCheckInMethod("");
-            setProposal(null);
-            setProposalDetailsExpanded(true);
+            closeCompletedMeeting();
           }}
         />
       ) : null}
@@ -12460,7 +14107,7 @@ function ReadyMeetChat({
       {typingMode && proposal && scheduled ? (
         <View style={{ borderRadius: 16, borderWidth: 1, borderColor: proposal.status === "accepted" ? C.sage : C.line, backgroundColor: proposal.status === "accepted" ? "#F1F8F3" : "#F7F3ED", paddingHorizontal: 12, paddingVertical: 8 }}>
           <Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>
-            {postMeetDue ? "Post-meet check available" : proposal.status === "accepted" ? "Meeting accepted" : proposal.status === "declined" ? "Meeting declined" : "Meeting proposal"}
+            {needsPostMeetAcknowledgement ? "Tell us about your last meeting" : proposal.status === "accepted" ? "Meeting accepted" : proposal.status === "declined" ? "Meeting declined" : "Meeting proposal"}
           </Text>
           <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 10, fontWeight: "800" }}>
             {proposal.venue}
@@ -12650,32 +14297,50 @@ function ReadyMeetChat({
         </View>
       ) : null}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 29, backgroundColor: "rgba(255,253,249,0.88)", paddingHorizontal: 4, paddingTop: 4, paddingBottom: Math.max(4, typingMode ? 5 : 4), boxShadow: "0 -5px 14px rgba(0,29,48,0.08)" }}>
-        <Animated.View style={{ opacity: safetyPulse, transform: [{ scale: activeAccepted ? safetyPulse : 1 }] }}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={topMeetingActionLabel}
-            onPress={openTopMeetingAction}
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 21,
-              backgroundColor: postMeetDue ? "#1F7A3B" : activeAccepted ? "#E7F7EA" : "#E6E3DC",
-              borderWidth: 1,
-              borderColor: activeAccepted ? "#279447" : "#D2CCC2",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: "0 4px 10px rgba(0,29,48,0.10)",
-            }}
-          >
-            {activeAccepted ? (
-              <Text style={{ color: "#1F7A3B", fontSize: 18, fontWeight: "900" }}>+</Text>
-            ) : postMeetDue ? (
-              <Check width={20} height={20} color={C.paper} />
-            ) : (
-              <CalendarHeart width={22} height={22} color="#1685E5" strokeWidth={2.6} />
-            )}
-          </Pressable>
-        </Animated.View>
+        {(() => {
+          const actionIsDeclined = declined && declinedMeetingNoticeVisible;
+          const actionIsAccepted = activeAcceptedBeforeDue;
+          const actionIsDue = postMeetNeedsAction;
+          const pulseScale = postMeetPulse.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 1.12],
+          });
+          const pulseOpacity = postMeetPulse.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 0.58],
+          });
+          const actionButton = (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={topMeetingActionLabel}
+          onPress={openTopMeetingAction}
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: 21,
+            backgroundColor: actionIsDue || actionIsAccepted ? "#E7F7EA" : actionIsDeclined ? "#F8EAE7" : "#E6E3DC",
+            borderWidth: 1,
+            borderColor: actionIsDue || actionIsAccepted ? "#279447" : actionIsDeclined ? "#C84534" : "#D2CCC2",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 4px 10px rgba(0,29,48,0.10)",
+          }}
+        >
+          {actionIsAccepted || actionIsDue ? (
+            <Check width={20} height={20} color="#1F7A3B" />
+          ) : actionIsDeclined ? (
+            <MinusCircle width={22} height={22} color="#C84534" strokeWidth={2.5} />
+          ) : (
+            <CalendarHeart width={22} height={22} color="#1685E5" strokeWidth={2.6} />
+          )}
+        </Pressable>
+          );
+          return actionIsDue ? (
+            <Animated.View style={{ transform: [{ scale: pulseScale }], opacity: pulseOpacity }}>
+              {actionButton}
+            </Animated.View>
+          ) : actionButton;
+        })()}
         <View style={{ flex: 1, minHeight: 48, borderWidth: 1, borderColor: C.line, borderRadius: 24, backgroundColor: C.paper, justifyContent: "center", boxShadow: "0 8px 22px rgba(0,29,48,0.16)" }}>
           <TextInput value={message} onChangeText={setMessage} onSubmitEditing={sendTextMessage} returnKeyType="send" placeholder={`Message ${profile.name}...`} placeholderTextColor="#948A7F" style={{ minHeight: 46, paddingLeft: 14, paddingRight: 48, color: C.ink }} />
           <Pressable accessibilityRole="button" accessibilityLabel="Choose GIF" onPress={() => setGifOpen((value) => !value)} style={{ position: "absolute", right: 4, width: 42, height: 40, borderRadius: 20, backgroundColor: gifOpen ? "#FCE5EE" : "transparent", alignItems: "center", justifyContent: "center" }}>
@@ -13205,17 +14870,6 @@ function ReadyToMeetFeature({
             onOpenChat(selected);
           }}
           readyMeetMode
-          onSwipeLeft={() => setSelected(null)}
-          onSwipeRight={() => {
-            onLike(selected);
-            setSelected(null);
-          }}
-          onLike={() => {
-            onLike(selected);
-            setSelected(null);
-          }}
-          onPass={() => setSelected(null)}
-          liked={Boolean(likedProfileKeys?.includes(selected.id || selected.name))}
           onBlock={onBlock}
           onReport={onReport}
         />
@@ -13511,7 +15165,7 @@ function ReadyToMeetFeature({
                         }}
                         style={{ position: "absolute", right: 8, top: 8, width: 31, height: 31, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.28)", alignItems: "center", justifyContent: "center" }}
                       >
-                        <Heart width={18} height={18} color={C.paper} />
+                        <MessageCircle width={18} height={18} color={C.paper} strokeWidth={2.8} />
                       </Pressable>
                       <View style={{ position: "absolute", right: 8, bottom: 8, borderRadius: 10, backgroundColor: "#2DA85E", paddingHorizontal: 8, paddingVertical: 3, flexDirection: "row", alignItems: "center", gap: 4 }}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.paper }} />
@@ -13604,7 +15258,7 @@ function ReadyToMeetFeature({
               </Text>
               <Button
                 compact
-                label={walletBalance >= 9.99 ? (unlockingChat ? "Unlocking access..." : `Use Wallet ? ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
+                label={walletBalance >= 9.99 ? (unlockingChat ? "Unlocking access..." : `Use Wallet · ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
                 disabled={unlockingChat}
                 onPress={async () => {
                   if (!selectedProfileRef.current) return;
@@ -13687,7 +15341,7 @@ function ReadyToMeetFeature({
           >
             {expanded ?
               "Hide nearby people"
-              : "Live now ? click to view those ready to meet"}
+              : "Live now · click to view those ready to meet"}
           </Text>
         </View>
         <Text style={{ color: C.paper, fontSize: 23, fontWeight: "900" }}>
@@ -13852,7 +15506,7 @@ function ReadyToMeetFeature({
               style={{ borderRadius: 15, backgroundColor: "#E7F2EA", paddingHorizontal: 13, paddingVertical: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}
             >
               <Text selectable style={{ flex: 1, color: C.sage, fontSize: 11, lineHeight: 16, fontWeight: "900" }}>
-                {readyMeetDateTime.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} {readyMeetDateTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} ? {readyMeetEndDateTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                {readyMeetDateTime.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} {readyMeetDateTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · {readyMeetEndDateTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
               </Text>
               <Text style={{ color: C.sage, fontSize: 11, fontWeight: "900" }}>Edit</Text>
             </Pressable>
@@ -14099,7 +15753,7 @@ function ReadyToMeetFeature({
                   selectable
                   style={{ color: C.sage, fontSize: 11, fontWeight: "800" }}
                 >
-                  Ready nearby ? approximate area
+                  Ready nearby · approximate area
                 </Text>
               </View>
               <Pressable
@@ -14184,7 +15838,7 @@ function ReadyToMeetFeature({
           </Text>
           <Button
             compact
-            label={walletBalance >= 9.99 ? (unlockingChat ? "Unlocking chat..." : `Use Wallet ? ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
+            label={walletBalance >= 9.99 ? (unlockingChat ? "Unlocking chat..." : `Use Wallet · ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
             disabled={unlockingChat}
             onPress={async () => {
               if (!selectedProfileRef.current) return;
@@ -14785,7 +16439,7 @@ function MembershipOptionsModal({
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                 <View style={{ flex: 1 }}>
                   <Text selectable style={{ color: "#59359C", fontSize: 22, fontWeight: "900" }}>KindredPass</Text>
-                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>$19.99 ? Premium access for 24 hours</Text>
+                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>$19.99 · Premium access for 24 hours</Text>
                 </View>
                 <BadgeCheck width={29} height={29} color="#59359C" />
               </View>
@@ -14866,6 +16520,15 @@ function profileBioForCard(profile: Profile) {
 
 function extractProfilePromptEntries(profile: Profile) {
   const matching = profile.discovery?.matching || {};
+  const profileRecord = profile as unknown as Record<string, unknown>;
+  const discoveryRecord =
+    profile.discovery && typeof profile.discovery === "object" && !Array.isArray(profile.discovery)
+      ? profile.discovery as unknown as Record<string, unknown>
+      : {};
+  const discoveryMatching =
+    discoveryRecord.matching && typeof discoveryRecord.matching === "object" && !Array.isArray(discoveryRecord.matching)
+      ? discoveryRecord.matching as Record<string, unknown>
+      : {};
   const matchingProfile =
     matching && typeof matching === "object" && !Array.isArray(matching) &&
     (matching as Record<string, unknown>).profile &&
@@ -14875,9 +16538,15 @@ function extractProfilePromptEntries(profile: Profile) {
       : {};
   const containers: unknown[] = [
     profile.promptAnswers,
+    profileRecord.prompts,
+    discoveryRecord.promptAnswers,
+    discoveryRecord.prompts,
+    discoveryMatching.promptAnswers,
+    discoveryMatching.prompts,
     (matching as Record<string, unknown>).promptAnswers,
     (matching as Record<string, unknown>).prompts,
     matchingProfile.promptAnswers,
+    matchingProfile.prompts,
   ];
   const entries: Array<{ prompt: string; answer: string }> = [];
   const addEntries = (value: unknown) => {
@@ -15034,6 +16703,22 @@ function languageFlagEmoji(language: string) {
   return "\u{1F3F3}\u{FE0F}";
 }
 
+function isInstagramPhotoRecord(photo: unknown) {
+  if (!photo || typeof photo !== "object" || Array.isArray(photo)) return false;
+  const record = photo as Record<string, unknown>;
+  return [record.source, record.provider, record.origin, record.importedFrom]
+    .some((value) => typeof value === "string" && value.toLowerCase().includes("instagram"));
+}
+
+function instagramPhotoUrisFromRecords(photos: unknown) {
+  if (!Array.isArray(photos)) return [];
+  return photos
+    .filter(isInstagramPhotoRecord)
+    .map((photo) => photo && typeof photo === "object" && "uri" in photo ? (photo as { uri?: unknown }).uri : undefined)
+    .map(cleanMediaUri)
+    .filter((uri): uri is string => uri.length > 0);
+}
+
 function profilePhotoUris(profile: Profile) {
   const matching = profile.discovery?.matching || {};
   const matchingPhotos = Array.isArray(matching.photos)
@@ -15059,9 +16744,23 @@ function profilePhotoUris(profile: Profile) {
   ];
 }
 
-function profileGalleryItems(profile: Profile): Array<{ kind: "uri" | "portrait"; value: string | number }> {
+type ProfileGalleryItem = { kind: "uri" | "portrait"; value: string | number; source?: "instagram" };
+
+function profileGalleryItems(profile: Profile): ProfileGalleryItem[] {
   const uris = profilePhotoUris(profile);
-  if (uris.length) return uris.map((uri) => ({ kind: "uri", value: uri }));
+  if (uris.length) {
+    const matching = profile.discovery?.matching || {};
+    const instagramUris = new Set([
+      ...(profile.instagramPhotoUris || []).map(cleanMediaUri),
+      ...instagramPhotoUrisFromRecords(Array.isArray(matching.photos) ? matching.photos : []),
+      ...instagramPhotoUrisFromRecords((profile.discovery as unknown as Record<string, unknown> | undefined)?.photos),
+    ].filter((uri): uri is string => uri.length > 0));
+    return uris.map((uri) => ({
+      kind: "uri",
+      value: uri,
+      source: instagramUris.has(uri) ? "instagram" : undefined,
+    }));
+  }
   const portrait = Math.abs(profile.portrait || 0);
   if (portrait >= 16) {
     const first = portrait - 16;
@@ -15074,6 +16773,33 @@ function profileGalleryPortraits(profile: Profile) {
   return profileGalleryItems(profile)
     .filter((item): item is { kind: "portrait"; value: number } => item.kind === "portrait")
     .map((item) => item.value);
+}
+
+function InstagramPhotoBadge({ compact = false }: { compact?: boolean }) {
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        top: compact ? 6 : 14,
+        right: compact ? 6 : 14,
+        borderRadius: compact ? 12 : 16,
+        backgroundColor: "rgba(255,255,255,0.88)",
+        borderWidth: 1,
+        borderColor: "rgba(126,43,143,0.32)",
+        paddingHorizontal: compact ? 7 : 10,
+        paddingVertical: compact ? 4 : 6,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: compact ? 3 : 5,
+      }}
+    >
+      <Image source={INSTAGRAM_ICON} resizeMode="contain" style={{ width: compact ? 12 : 16, height: compact ? 12 : 16 }} />
+      <Text style={{ color: C.ink, fontSize: compact ? 7 : 9, fontWeight: "900" }}>
+        From Instagram
+      </Text>
+    </View>
+  );
 }
 
 function ProfilePhotoGallery({
@@ -15162,7 +16888,8 @@ function ProfilePhotoGallery({
                 ) : (
                   <Portrait index={Number(photo.value)} size={width} />
                 )}
-                {index > 0 && photoPrompts.length ? (
+                {photo.source === "instagram" ? <InstagramPhotoBadge /> : null}
+                {index > 0 && photoPrompts[index - 1] ? (
                   <View
                     pointerEvents="none"
                     style={{
@@ -15193,7 +16920,7 @@ function ProfilePhotoGallery({
                         textShadowRadius: 2,
                       }}
                     >
-                      {photoPrompts[(index - 1) % photoPrompts.length]?.prompt || ""}
+                      {photoPrompts[index - 1]?.prompt || ""}
                     </Text>
                     <Text
                       selectable
@@ -15208,7 +16935,7 @@ function ProfilePhotoGallery({
                         textShadowRadius: 2,
                       }}
                     >
-                      {photoPrompts[(index - 1) % photoPrompts.length]?.answer || ""}
+                      {photoPrompts[index - 1]?.answer || ""}
                     </Text>
                   </View>
                 ) : null}
@@ -15373,7 +17100,7 @@ function ProfilePhotoGallery({
               Your profile and comment will show up in Liked You.
             </Text>
             <Text selectable style={{ color: C.clay, fontSize: 11, fontWeight: "900", textAlign: "center" }}>
-              Photo comment ? {formatMoney(-2.5, { signed: true })}
+              Photo comment · {formatMoney(-2.5, { signed: true })}
             </Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
               <Pressable
@@ -15408,7 +17135,7 @@ function ProfilePhotoGallery({
                 style={{ flex: 1, minHeight: 40, borderRadius: 20, backgroundColor: C.ink, alignItems: "center", justifyContent: "center" }}
               >
                 <Text style={{ color: C.paper, fontSize: 12, fontWeight: "900" }}>
-                  {walletBalance >= 2.5 ? `Wallet ? ${formatMoney(-2.5, { signed: true })}` : "Load Wallet"}
+                  {walletBalance >= 2.5 ? `Wallet · ${formatMoney(-2.5, { signed: true })}` : "Load Wallet"}
                 </Text>
               </Pressable>
             </View>
@@ -15613,12 +17340,14 @@ function ConnectExperienceDeck({
               <ProfileImage profile={current} size={cardWidth} />
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Share ${current.name}'s profile`}
+                accessibilityLabel="Share KindredCube"
                 onPress={(event) => {
                   event.stopPropagation();
                   Share.share({
-                    title: `Meet ${current.name} on KindredCube`,
-                    message: `I found ${current.name}, ${current.age}, on KindredCube. This could be a meaningful match for someone you know.`,
+                    title: "KindredCube",
+                    message:
+                      "I found somebody on KindredCube who I think might match your values.\n\nJoin KindredCube: https://kindredcube.com",
+                    url: "https://kindredcube.com",
                   }).catch(() => undefined);
                 }}
                 style={{
@@ -15633,7 +17362,7 @@ function ConnectExperienceDeck({
                   justifyContent: "center",
                 }}
               >
-                <Text style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>?</Text>
+                <Send width={22} height={22} color={C.ink} strokeWidth={2.7} />
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -15975,9 +17704,7 @@ function ConnectExperienceDeck({
           </View>
           <View style={{ flexDirection: "row", gap: 9 }}>
             {profileGalleryItems(current).slice(1).map((photo, photoIndex) => {
-              const savedPrompt = currentPhotoPrompts.length ?
-                 currentPhotoPrompts[photoIndex % currentPhotoPrompts.length]
-                : null;
+              const savedPrompt = currentPhotoPrompts[photoIndex] || null;
               return (
                 <Pressable
                   key={`${photo.kind}-${photo.value}-${photoIndex}`}
@@ -15996,6 +17723,7 @@ function ConnectExperienceDeck({
                   ) : (
                     <Portrait index={Number(photo.value) % 18} size={210} />
                   )}
+                  {photo.source === "instagram" ? <InstagramPhotoBadge compact /> : null}
                   {savedPrompt ? (
                     <View
                       pointerEvents="none"
@@ -17807,6 +19535,7 @@ function SignedInHome({
   const [dismissedRecommendationIds, setDismissedRecommendationIds] = useState<Record<string, string>>({});
   const [incomingLikes, setIncomingLikes] = useState<IncomingLike[]>([]);
   const [revealedIncomingLikeIds, setRevealedIncomingLikeIds] = useState<string[]>([]);
+  const [completedPostMeetCheckKeys, setCompletedPostMeetCheckKeys] = useState<string[]>([]);
   const [realDiscoveryPeople, setRealDiscoveryPeople] = useState<Profile[]>([]);
   const [realReadyToMeetPeople, setRealReadyToMeetPeople] = useState<Profile[]>([]);
   const readyMeetSeenAtRef = useRef<Record<string, number>>({});
@@ -18157,6 +19886,11 @@ function SignedInHome({
         setBlockedProfileIds(Array.isArray(settings.blockedProfileIds) ? settings.blockedProfileIds as string[] : []);
         setPaidReadyMeetChatIds(Array.isArray(settings.paidReadyMeetChatIds) ? settings.paidReadyMeetChatIds as string[] : []);
         setReadyMeetPassExpiresAt(typeof settings.readyMeetPassExpiresAt === "string" ? settings.readyMeetPassExpiresAt : "");
+        setCompletedPostMeetCheckKeys(
+          Array.isArray(settings.completedPostMeetCheckKeys) ?
+            (settings.completedPostMeetCheckKeys as unknown[]).filter((item): item is string => typeof item === "string")
+            : [],
+        );
         setLikedProfiles(Array.isArray(settings.likedProfileIds) ? settings.likedProfileIds as string[] : []);
         setRevealedIncomingLikeIds(
           Array.isArray(settings.revealedIncomingLikeIds) ?
@@ -18182,12 +19916,13 @@ function SignedInHome({
             resolveServerMediaUri(normalizedProfile.bestPhotoUri)
             : firstSavedPhotoUri,
         );
-        setProfileStrength(
-          typeof normalizedProfile.profileStrength === "number" ?
-            normalizedProfile.profileStrength
-            : 0,
+        const recalculatedProfileStrength = calculateProfileStrengthValue(
+          normalizedProfile,
+          identityVerificationStatus,
+          identityVerificationMethod,
         );
-        if (typeof normalizedProfile.profileStrength === "number" && normalizedProfile.profileStrength >= 100) {
+        setProfileStrength(recalculatedProfileStrength);
+        if (recalculatedProfileStrength >= 100) {
           setShowRecommendation(false);
         }
         setProfileInterests(
@@ -18298,33 +20033,26 @@ function SignedInHome({
     },
     [saveSettingsPatch],
   );
-  useEffect(() => {
-    if (
-      !privateSpaceLoaded ||
-      identityVerificationStatus !== "verified"
-    ) return;
-    const currentStrength = typeof privateProfileRef.current.profileStrength === "number" ?
-      privateProfileRef.current.profileStrength
-      : 0;
-    const nextCap = verificationStrengthCap(identityVerificationStatus, identityVerificationMethod);
-    const nextStrength = Math.min(nextCap, Math.max(currentStrength, Math.min(90, currentStrength) + verificationStrengthBonus(identityVerificationStatus, identityVerificationMethod)));
-    if (currentStrength === nextStrength) return;
-    setProfileStrength(nextStrength);
-    persistProfileData({
-      profileStrength: nextStrength,
-      verificationStrengthBonusApplied: true,
+  const rememberCompletedPostMeetCheck = useCallback((key: string) => {
+    if (!key) return;
+    setCompletedPostMeetCheckKeys((current) => {
+      if (current.includes(key)) return current;
+      const next = [...current, key].slice(-250);
+      persistSettingsData({ completedPostMeetCheckKeys: next });
+      return next;
     });
-  }, [identityVerificationMethod, identityVerificationStatus, persistProfileData, privateSpaceLoaded]);
+  }, [persistSettingsData]);
   useEffect(() => {
     if (!privateSpaceLoaded) return;
-    const currentStrength = typeof privateProfileRef.current.profileStrength === "number" ?
-      privateProfileRef.current.profileStrength
-      : 0;
-    const nextCap = verificationStrengthCap(identityVerificationStatus, identityVerificationMethod);
-    if (currentStrength <= nextCap) return;
-    setProfileStrength(nextCap);
+    const nextStrength = calculateProfileStrengthValue(
+      privateProfileRef.current,
+      identityVerificationStatus,
+      identityVerificationMethod,
+    );
+    setProfileStrength(nextStrength);
+    if (privateProfileRef.current.profileStrength === nextStrength) return;
     persistProfileData({
-      profileStrength: nextCap,
+      profileStrength: nextStrength,
       verificationStrengthBonusApplied: identityVerificationStatus === "verified",
     });
   }, [identityVerificationMethod, identityVerificationStatus, persistProfileData, privateSpaceLoaded]);
@@ -18374,9 +20102,14 @@ function SignedInHome({
     privateSettingsRef.current = saved.settings;
     setPrivateProfile(saved.profile);
     setPrivateSettings(saved.settings);
+    setProfileStrength(calculateProfileStrengthValue(
+      saved.profile,
+      identityVerificationStatus,
+      identityVerificationMethod,
+    ));
     await refreshDiscoveryPeople();
     await refreshReadyToMeetPeople();
-  }, [initialUser.identity, initialUser.seeking, refreshDiscoveryPeople, refreshReadyToMeetPeople]);
+  }, [identityVerificationMethod, identityVerificationStatus, initialUser.identity, initialUser.seeking, refreshDiscoveryPeople, refreshReadyToMeetPeople]);
   const flushAndLogout = useCallback(async () => {
     if (savePrivateSpaceTimer.current) {
       clearTimeout(savePrivateSpaceTimer.current);
@@ -18479,24 +20212,13 @@ function SignedInHome({
   const explorePeople = rankedRecommendations
     .filter(({ result }) => result.placement === "explore")
     .map(({ candidate }) => candidate);
-  const similarInterestRecommendations = taggedSharedRecommendations(
+  const categorizedRecommendations = categorizedExploreRecommendations(
     explorePeople,
-    viewerSignals.interests,
-    (signals) => signals.interests,
-    "Similar interest",
+    viewerSignals,
   );
-  const similarDatingGoalRecommendations = taggedSharedRecommendations(
-    explorePeople,
-    viewerSignals.relationshipGoals,
-    (signals) => signals.relationshipGoals,
-    "Similar dating goal",
-  );
-  const communityInCommonRecommendations = taggedSharedRecommendations(
-    explorePeople,
-    viewerSignals.communities,
-    (signals) => signals.communities,
-    "Community in common",
-  );
+  const similarInterestRecommendations = categorizedRecommendations.interests;
+  const similarDatingGoalRecommendations = categorizedRecommendations.datingGoals;
+  const communityInCommonRecommendations = categorizedRecommendations.communities;
   const readyToMeetPeople = (() => {
     const merged = new Map<string, Profile>();
     const addReadyProfile = (profile: Profile) => {
@@ -18695,6 +20417,8 @@ function SignedInHome({
       verificationMethod={identityVerificationMethod}
       onVerificationStatusChange={setIdentityVerificationStatus}
       onVerificationMethodChange={setIdentityVerificationMethod}
+      completedPostMeetCheckKeys={completedPostMeetCheckKeys}
+      onPostMeetCheckCompleted={rememberCompletedPostMeetCheck}
       onCurrentUserMeetupVerified={() => {
         setPrivateProfile((current) => ({ ...current, meetupVerified: true }));
         privateProfileRef.current = { ...privateProfileRef.current, meetupVerified: true };
@@ -18805,6 +20529,7 @@ function SignedInHome({
               }}
               onLogout={flushAndLogout}
               onDeleteAccount={handleDeleteAccount}
+              userEmail={initialUser?.email || ""}
               startInWallet={startSettingsInWallet}
             />
           </View>
@@ -18842,7 +20567,6 @@ function SignedInHome({
               }}
               onProfilePhotoChange={(uri) => setProfilePhotoUri(uri || "")}
               onProfileStrengthChange={setProfileStrength}
-              onProfileDataChange={persistProfileData}
               onSaveProfile={saveProfileNow}
               verificationStatus={identityVerificationStatus}
               verificationMethod={identityVerificationMethod}
@@ -19005,7 +20729,7 @@ function SignedInHome({
             </Text>
             <Button
               compact
-              label={walletBalance >= 9.99 ? (chatUnlocking ? "Unlocking chat..." : `Pay with Wallet ? ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
+              label={walletBalance >= 9.99 ? (chatUnlocking ? "Unlocking chat..." : `Pay with Wallet · ${formatMoney(-9.99, { signed: true })}`) : "Load Wallet"}
               disabled={chatUnlocking}
               onPress={async () => {
                 const profile = chatPaywallProfile;

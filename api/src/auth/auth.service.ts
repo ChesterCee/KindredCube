@@ -639,11 +639,12 @@ export class AuthService {
 
     await this.database.transaction(async (client) => {
       await client.query("SELECT set_config('app.user_id', $1, true)", [userId]);
-      const account = await client.query<{ id: string }>(
-        "SELECT id FROM users WHERE id = $1 AND status <> 'deleted'",
+      const account = await client.query<{ id: string; email: string; public_username: string }>(
+        "SELECT id, email::text, public_username::text FROM users WHERE id = $1 AND status <> 'deleted'",
         [userId],
       );
-      if (!account.rowCount) throw new UnauthorizedException();
+      const deletedAccount = account.rows[0];
+      if (!deletedAccount) throw new UnauthorizedException();
 
       await client.query("DELETE FROM discovery_profiles WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM user_private_spaces WHERE user_id = $1", [userId]);
@@ -657,6 +658,18 @@ export class AuthService {
                 revoke_reason = COALESCE(revoke_reason, 'account_deleted')
           WHERE user_id = $1`,
         [userId],
+      );
+      await client.query(
+        `INSERT INTO deleted_account_identifiers
+            (user_id, email_hash, username_hash, reason_codes, details_present)
+         VALUES ($1, $2, $3, $4::text[], $5)`,
+        [
+          userId,
+          sha256(deletedAccount.email.trim().toLowerCase()),
+          sha256(deletedAccount.public_username.trim().toLowerCase()),
+          reasons,
+          Boolean(details),
+        ],
       );
       await client.query(
         `UPDATE users

@@ -15,6 +15,10 @@ export class EmailService {
     return process.env.RESEND_NO_REPLY_FROM || "KindredCube <no-reply@kindredcube.com>";
   }
 
+  private supportSender() {
+    return process.env.RESEND_SUPPORT_FROM || "KindredCube Support <support@kindredcube.com>";
+  }
+
   async sendVerification(email: string, firstName: string, token: string) {
     const apiUrl = process.env.PUBLIC_API_URL;
     const from = this.verificationSender();
@@ -99,6 +103,54 @@ export class EmailService {
     if (deliveryError) {
       if (process.env.NODE_ENV === "production") throw new Error(deliveryError);
       return { sent: false, developmentCode: code, deliveryError };
+    }
+    return { sent: true as const };
+  }
+
+  async sendSupportTicketReply(input: {
+    to: string;
+    ticketNumber: string;
+    replyToken?: string | null;
+    message: string;
+  }) {
+    const from = this.supportSender();
+    const ticketNumber = input.ticketNumber.trim();
+    const replyToken = input.replyToken?.trim();
+    const replyToAddress = replyToken
+      ? `support+${ticketNumber.toLowerCase()}.${replyToken}@kindredcube.com`
+      : "support@kindredcube.com";
+    const subject = `Re: KindredCube Support ${ticketNumber}`;
+    const text = [
+      input.message.trim(),
+      "",
+      `Ticket: ${ticketNumber}`,
+      "Reply to this email to add a message to the same support ticket.",
+    ].join("\n");
+
+    if (!this.resend || !from) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("RESEND_API_KEY and RESEND_SUPPORT_FROM are required in production");
+      }
+      return { sent: false, developmentSubject: subject, developmentText: text };
+    }
+
+    const result = await this.resend.emails.send({
+      from,
+      to: input.to,
+      replyTo: replyToAddress,
+      subject,
+      text,
+      html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#221f1b">
+        <p>${escapeHtml(input.message.trim()).replace(/\n/g, "<br>")}</p>
+        <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+        <p style="color:#666;font-size:13px">Ticket: <strong>${escapeHtml(ticketNumber)}</strong></p>
+        <p style="color:#666;font-size:13px">Reply to this email to add a message to the same support ticket.</p>
+      </div>`,
+    });
+    const deliveryError = getResendError(result);
+    if (deliveryError) {
+      if (process.env.NODE_ENV === "production") throw new Error(deliveryError);
+      return { sent: false, developmentSubject: subject, developmentText: text, deliveryError };
     }
     return { sent: true as const };
   }

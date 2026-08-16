@@ -5,6 +5,7 @@ import { Response } from "express";
 import { DatabaseService } from "./database.service";
 import { AccessTokenGuard, AuthenticatedRequest } from "./auth/auth.guard";
 import { syncDiscoveryProfile } from "./discovery-profile";
+import { Throttle } from "@nestjs/throttler";
 
 class UpdatePrivateSpaceDto {
   @IsObject()
@@ -70,6 +71,7 @@ export class PrivateSpaceController {
   }
 
   @Put()
+  @Throttle({ default: { limit: 240, ttl: 60_000 } })
   @UseGuards(AccessTokenGuard)
   update(@Req() request: AuthenticatedRequest, @Body() input: UpdatePrivateSpaceDto) {
     validatePrivatePayload(input);
@@ -111,6 +113,7 @@ export class PrivateSpaceController {
   }
 
   @Post("media/profile-photo")
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
   @UseGuards(AccessTokenGuard)
   uploadProfilePhoto(@Req() request: AuthenticatedRequest, @Body() input: ProfilePhotoUploadDto) {
     if (typeof input.imageBase64 !== "string" || !/^[A-Za-z0-9+/=]+$/.test(input.imageBase64)) {
@@ -172,6 +175,7 @@ export class PrivateSpaceController {
   }
 
   @Post("media/chat")
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
   @UseGuards(AccessTokenGuard)
   uploadChatMedia(@Req() request: AuthenticatedRequest, @Body() input: ChatMediaUploadDto) {
     if (typeof input.fileBase64 !== "string" || !/^[A-Za-z0-9+/=]+$/.test(input.fileBase64)) {

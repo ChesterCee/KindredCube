@@ -33,15 +33,19 @@ async function bootstrap() {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  if (process.env.NODE_ENV === "production" && !configuredOrigins.length) {
-    throw new Error("ALLOWED_ORIGINS must contain the production web origins");
-  }
+  const productionOrigins = [
+    ...configuredOrigins,
+    "https://kindredcube.com",
+    "https://www.kindredcube.com",
+  ].filter((value, index, list) => list.indexOf(value) === index);
   const origins = process.env.NODE_ENV === "production"
-    ? configuredOrigins
+    ? productionOrigins
     : [
         ...configuredOrigins,
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
         "http://localhost:8081",
         "http://127.0.0.1:8081",
       ];

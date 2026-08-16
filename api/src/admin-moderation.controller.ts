@@ -1,8 +1,9 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Body, Controller, ForbiddenException, Get, Headers, Inject, Param, Post, Put, Req, UseGuards } from "@nestjs/common";
-import { IsArray, IsIn, IsOptional, IsString, Length, MaxLength } from "class-validator";
+import { IsArray, IsIn, IsOptional, IsString, Length, MaxLength, MinLength } from "class-validator";
 import { AccessTokenGuard, AuthenticatedRequest } from "./auth/auth.guard";
 import { DatabaseService } from "./database.service";
+import { EmailService } from "./email.service";
 
 class ModerationActionDto {
   @IsIn(["suspend", "reinstate", "close_reports", "ban"])
@@ -42,12 +43,26 @@ class HelpContentUpdateDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(20_000)
+  @MaxLength(50_000)
   body = "";
 
   @IsOptional()
   @IsArray()
   imageUrls: unknown[] = [];
+}
+
+class SupportTicketReplyDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(5000)
+  message!: string;
+}
+
+class SupportTicketCloseDto {
+  @IsString()
+  @MinLength(3)
+  @MaxLength(1000)
+  reason!: string;
 }
 
 const HELP_CONTENT_SLUGS = new Set([
@@ -86,13 +101,18 @@ const HELP_CONTENT_CATEGORY_BY_SLUG = new Map<string, "profile_setup" | "account
   ["saved-profile-data", "data_management"],
 ]);
 
+const LEGAL_CONTENT_SLUGS = new Set(["privacy", "terms", "community-guidelines"]);
+
 const SOLE_MODERATION_OWNER_EMAIL =
   (process.env.ADMIN_OWNER_EMAIL || "chester.chirenje@tectavis.com").trim().toLowerCase();
 
 @Controller("v1/admin/moderation")
 @UseGuards(AccessTokenGuard)
 export class AdminModerationController {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(EmailService) private readonly email: EmailService,
+  ) {}
 
   @Post("mfa/challenge")
   async requestMfa(@Req() request: AuthenticatedRequest) {
@@ -194,7 +214,145 @@ export class AdminModerationController {
           ORDER BY created_at DESC
           LIMIT 50`,
       );
-      return { stats: userStats.rows[0], purchaseStats: purchaseStats.rows, purchases: purchases.rows, queue: reports.rows, appeals: appeals.rows };
+      const supportTickets = await client.query(
+        `SELECT st.id, st.ticket_number AS "ticketNumber", st.user_id AS "userId",
+                COALESCE(u.email::text, st.contact_email) AS email,
+                COALESCE(u.public_username::text, st.contact_email, 'Email support') AS username,
+                st.reason, st.message, st.status, st.email_reply_token AS "emailReplyToken",
+                st.close_reason AS "closeReason", st.closed_at AS "closedAt",
+                st.created_at AS "createdAt",
+                st.updated_at AS "updatedAt"
+           FROM support_tickets st
+           LEFT JOIN users u ON u.id = st.user_id
+          ORDER BY st.created_at DESC
+          LIMIT 100`,
+      );
+      return {
+        stats: userStats.rows[0],
+        purchaseStats: purchaseStats.rows,
+        purchases: purchases.rows,
+        queue: reports.rows,
+        appeals: appeals.rows,
+        supportTickets: await hydrateSupportTicketMessages(client, supportTickets.rows),
+      };
+    });
+  }
+
+  @Post("support-tickets/:ticketId/reply")
+  async replyToSupportTicket(
+    @Req() request: AuthenticatedRequest,
+    @Headers("x-admin-mfa") adminMfaToken: string | undefined,
+    @Param("ticketId") ticketId: string,
+    @Body() input: SupportTicketReplyDto,
+  ) {
+    const message = input.message.trim();
+    return this.withAdmin(request.user.id, request.user.sessionId, adminMfaToken, async (client) => {
+      const ticketResult = await client.query<{
+        id: string;
+        ticketNumber: string;
+        email: string;
+        emailReplyToken: string | null;
+        status: string;
+      }>(
+        `SELECT st.id, st.ticket_number AS "ticketNumber",
+                COALESCE(u.email::text, st.contact_email) AS email,
+                st.email_reply_token AS "emailReplyToken",
+                st.status
+           FROM support_tickets st
+           LEFT JOIN users u ON u.id = st.user_id
+          WHERE st.id = $1
+          LIMIT 1`,
+        [ticketId],
+      );
+      const ticket = ticketResult.rows[0];
+      if (!ticket) throw new ForbiddenException("Support ticket not found.");
+      if (ticket.status === "closed" || ticket.status === "resolved") {
+        throw new ForbiddenException("This support ticket is closed.");
+      }
+      await client.query(
+        `INSERT INTO support_ticket_messages (ticket_id, sender_type, sender_user_id, body, source)
+         VALUES ($1, 'admin', $2, $3, 'admin')`,
+        [ticket.id, request.user.id, message],
+      );
+      const updated = await client.query(
+        `UPDATE support_tickets
+            SET status = 'in_review',
+                updated_at = now()
+          WHERE id = $1
+          RETURNING id, ticket_number AS "ticketNumber", user_id AS "userId",
+                    reason, message, status, email_reply_token AS "emailReplyToken",
+                    close_reason AS "closeReason", closed_at AS "closedAt",
+                    created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [ticket.id],
+      );
+      await this.email.sendSupportTicketReply({
+        to: ticket.email,
+        ticketNumber: ticket.ticketNumber,
+        replyToken: ticket.emailReplyToken,
+        message,
+      });
+      const hydrated = await hydrateSupportTicketMessages(client, [{ ...updated.rows[0], email: ticket.email }]);
+      return { ticket: hydrated[0], sent: true };
+    });
+  }
+
+  @Post("support-tickets/:ticketId/close")
+  async closeSupportTicket(
+    @Req() request: AuthenticatedRequest,
+    @Headers("x-admin-mfa") adminMfaToken: string | undefined,
+    @Param("ticketId") ticketId: string,
+    @Body() input: SupportTicketCloseDto,
+  ) {
+    const reason = input.reason.trim();
+    return this.withAdmin(request.user.id, request.user.sessionId, adminMfaToken, async (client) => {
+      const ticketResult = await client.query<{
+        id: string;
+        ticketNumber: string;
+        email: string;
+        emailReplyToken: string | null;
+        status: string;
+      }>(
+        `SELECT st.id, st.ticket_number AS "ticketNumber",
+                COALESCE(u.email::text, st.contact_email) AS email,
+                st.email_reply_token AS "emailReplyToken",
+                st.status
+           FROM support_tickets st
+           LEFT JOIN users u ON u.id = st.user_id
+          WHERE st.id = $1
+          LIMIT 1`,
+        [ticketId],
+      );
+      const ticket = ticketResult.rows[0];
+      if (!ticket) throw new ForbiddenException("Support ticket not found.");
+      if (ticket.status === "closed" || ticket.status === "resolved") {
+        throw new ForbiddenException("This support ticket is already closed.");
+      }
+      await client.query(
+        `INSERT INTO support_ticket_messages (ticket_id, sender_type, sender_user_id, body, source)
+         VALUES ($1, 'admin', $2, $3, 'admin')`,
+        [ticket.id, request.user.id, `Ticket closed: ${reason}`],
+      );
+      const updated = await client.query(
+        `UPDATE support_tickets
+            SET status = 'closed',
+                close_reason = $2,
+                closed_at = now(),
+                updated_at = now()
+          WHERE id = $1
+          RETURNING id, ticket_number AS "ticketNumber", user_id AS "userId",
+                    reason, message, status, email_reply_token AS "emailReplyToken",
+                    close_reason AS "closeReason", closed_at AS "closedAt",
+                    created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [ticket.id, reason],
+      );
+      await this.email.sendSupportTicketReply({
+        to: ticket.email,
+        ticketNumber: ticket.ticketNumber,
+        replyToken: ticket.emailReplyToken,
+        message: `Your KindredCube support ticket has been closed.\n\nReason: ${reason}`,
+      });
+      const hydrated = await hydrateSupportTicketMessages(client, [{ ...updated.rows[0], email: ticket.email }]);
+      return { ticket: hydrated[0], closed: true };
     });
   }
 
@@ -241,6 +399,61 @@ export class AdminModerationController {
           input.title.trim().slice(0, 120),
           input.summary.trim().slice(0, 400),
           input.body.trim().slice(0, 20_000),
+          JSON.stringify(imageUrls),
+          request.user.id,
+        ],
+      );
+      return { page: result.rows[0], saved: true };
+    });
+  }
+
+  @Get("legal-content")
+  async legalContent(@Req() request: AuthenticatedRequest, @Headers("x-admin-mfa") adminMfaToken?: string) {
+    return this.withAdmin(request.user.id, request.user.sessionId, adminMfaToken, async (client) => {
+      const result = await client.query(
+        `SELECT slug, title, summary, body, image_urls AS "imageUrls", updated_at AS "updatedAt"
+           FROM legal_content_pages
+          ORDER BY CASE slug
+            WHEN 'privacy' THEN 1
+            WHEN 'terms' THEN 2
+            WHEN 'community-guidelines' THEN 3
+            ELSE 9
+          END`,
+      );
+      return { pages: result.rows };
+    });
+  }
+
+  @Put("legal-content/:slug")
+  async updateLegalContent(
+    @Req() request: AuthenticatedRequest,
+    @Headers("x-admin-mfa") adminMfaToken: string | undefined,
+    @Param("slug") slug: string,
+    @Body() input: HelpContentUpdateDto,
+  ) {
+    if (!LEGAL_CONTENT_SLUGS.has(slug)) throw new ForbiddenException("Unknown legal page.");
+    return this.withAdmin(request.user.id, request.user.sessionId, adminMfaToken, async (client) => {
+      const imageUrls = input.imageUrls
+        .filter((url): url is string => typeof url === "string")
+        .map((url) => url.trim())
+        .filter((url) => /^https?:\/\//i.test(url))
+        .slice(0, 24);
+      const result = await client.query(
+        `INSERT INTO legal_content_pages (slug, title, summary, body, image_urls, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, now())
+         ON CONFLICT (slug) DO UPDATE
+            SET title = EXCLUDED.title,
+                summary = EXCLUDED.summary,
+                body = EXCLUDED.body,
+                image_urls = EXCLUDED.image_urls,
+                updated_by = EXCLUDED.updated_by,
+                updated_at = now()
+          RETURNING slug, title, summary, body, image_urls AS "imageUrls", updated_at AS "updatedAt"`,
+        [
+          slug,
+          input.title.trim().slice(0, 120),
+          input.summary.trim().slice(0, 400),
+          input.body.trim().slice(0, 50_000),
           JSON.stringify(imageUrls),
           request.user.id,
         ],
@@ -376,6 +589,27 @@ export class AdminModerationController {
       return work(client);
     });
   }
+}
+
+async function hydrateSupportTicketMessages(client: import("pg").PoolClient, tickets: any[]) {
+  if (!tickets.length) return tickets;
+  const ids = tickets.map((ticket) => ticket.id);
+  const messages = await client.query(
+    `SELECT id, ticket_id AS "ticketId", sender_type AS "senderType",
+            sender_user_id AS "senderUserId", sender_email AS "senderEmail",
+            body, source, created_at AS "createdAt"
+       FROM support_ticket_messages
+      WHERE ticket_id = ANY($1::uuid[])
+      ORDER BY created_at ASC`,
+    [ids],
+  );
+  const byTicket = new Map<string, any[]>();
+  for (const message of messages.rows) {
+    const list = byTicket.get(message.ticketId) || [];
+    list.push(message);
+    byTicket.set(message.ticketId, list);
+  }
+  return tickets.map((ticket) => ({ ...ticket, messages: byTicket.get(ticket.id) || [] }));
 }
 
 function sha256(value: string) {

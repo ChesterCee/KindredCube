@@ -36,7 +36,23 @@ export class PushNotificationsService {
   }
 
   async sendMessageNotification(recipientId: string, senderId: string, messageId: string) {
-    await this.database.withUser(senderId, async (client) => {
+    await this.database.withUser(recipientId, async (client) => {
+      const preferences = await client.query<{ settings_data: Record<string, unknown> }>(
+        `SELECT settings_data
+           FROM user_private_spaces
+          WHERE user_id = $1
+          LIMIT 1`,
+        [recipientId],
+      );
+      const notificationPreferences = preferences.rows[0]?.settings_data?.notificationPreferences;
+      if (
+        notificationPreferences &&
+        typeof notificationPreferences === "object" &&
+        !Array.isArray(notificationPreferences) &&
+        (notificationPreferences as Record<string, unknown>).newMessages === false
+      ) {
+        return;
+      }
       const tokens = await client.query<{ token: string }>(
         `SELECT token
            FROM user_push_tokens

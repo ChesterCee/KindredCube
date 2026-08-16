@@ -49,6 +49,11 @@ coverage/
 /ios
 /android
 
+# generated release artifacts
+public/downloads/*.apk
+public/downloads/*.aab
+public/downloads/*.ipa
+
 # local Codex workspace state
 .codex/
 

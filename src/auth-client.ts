@@ -1,19 +1,31 @@
 import * as SecureStore from "expo-secure-store";
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
-const browserHost =
-  typeof globalThis !== "undefined" && "location" in globalThis
-    ? (globalThis as { location?: { hostname?: string } }).location?.hostname
+const runtimeWebApiUrl =
+  typeof globalThis !== "undefined" &&
+  typeof (globalThis as unknown as { KINDREDCUBE_API_URL?: unknown }).KINDREDCUBE_API_URL === "string"
+    ? ((globalThis as unknown as { KINDREDCUBE_API_URL: string }).KINDREDCUBE_API_URL || "").replace(/\/$/, "")
     : "";
-const API_URL =
-  process.env.EXPO_OS === "web" && (browserHost === "localhost" || browserHost === "127.0.0.1")
-    ? "http://localhost:3001"
-    : configuredApiUrl;
+const configuredWebApiUrl =
+  runtimeWebApiUrl ||
+  process.env.EXPO_PUBLIC_WEB_API_URL?.replace(/\/$/, "") ||
+  "https://api.kindredcube.com";
+const API_URL = (process.env.EXPO_OS === "web" ? configuredWebApiUrl : configuredApiUrl) || "";
 export const PUBLIC_API_URL = API_URL || "";
-const API_URL_IS_SECURE = !API_URL || API_URL.startsWith("https://") || (
-  process.env.NODE_ENV !== "production" &&
-  /^http:\/\/(localhost|127\.0\.0\.1|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(API_URL)
-);
+const runtimeHostname =
+  typeof window !== "undefined" &&
+  typeof (window as unknown as { location?: { hostname?: unknown } }).location?.hostname === "string"
+    ? (window as unknown as { location: { hostname: string } }).location.hostname
+    : "";
+const runningOnLocalWeb =
+  ["localhost", "127.0.0.1", "0.0.0.0"].includes(runtimeHostname);
+const API_URL_IS_LOCAL_OR_PRIVATE =
+  /^http:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(API_URL);
+const API_URL_IS_SECURE =
+  !API_URL ||
+  API_URL.startsWith("https://") ||
+  (process.env.NODE_ENV !== "production" && API_URL_IS_LOCAL_OR_PRIVATE) ||
+  (process.env.EXPO_OS === "web" && runningOnLocalWeb && API_URL_IS_LOCAL_OR_PRIVATE);
 const ACCESS_TOKEN_KEY = "kindredcube.access-token";
 const REFRESH_TOKEN_KEY = "kindredcube.refresh-token";
 
@@ -257,8 +269,8 @@ export function updateAccountUsername(username: string) {
   );
 }
 
-export function deleteAccount(input: { reasons: string[]; details?: string }) {
-  return request<{ deleted: true }>(
+export async function deleteAccount(input: { reasons: string[]; details?: string }) {
+  const result = await request<{ deleted: true }>(
     "/v1/auth/delete-account",
     {
       method: "POST",
@@ -266,6 +278,8 @@ export function deleteAccount(input: { reasons: string[]; details?: string }) {
     },
     true,
   );
+  await clearTokens();
+  return result;
 }
 
 export function getPrivateSpace() {
@@ -396,9 +410,43 @@ export type AdminPurchase = {
   paid_at: string | null;
 };
 
+export type SupportTicket = {
+  id: string;
+  ticketNumber: string;
+  userId?: string;
+  email?: string;
+  username?: string;
+  reason: string;
+  message: string;
+  status: "open" | "in_review" | "resolved" | "closed";
+  closeReason?: string | null;
+  closedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  messages?: Array<{
+    id: string;
+    ticketId: string;
+    senderType: "user" | "admin" | "email";
+    senderUserId?: string | null;
+    senderEmail?: string | null;
+    body: string;
+    source: "app" | "admin" | "email";
+    createdAt: string;
+  }>;
+};
+
 export type HelpContentPage = {
   slug: string;
   category: "profile_setup" | "account_management" | "data_management";
+  title: string;
+  summary: string;
+  body: string;
+  imageUrls: string[];
+  updatedAt: string;
+};
+
+export type LegalContentPage = {
+  slug: "privacy" | "terms" | "community-guidelines";
   title: string;
   summary: string;
   body: string;
@@ -414,9 +462,33 @@ export function getHelpContent() {
   );
 }
 
+export function getLegalContent() {
+  return request<{ pages: LegalContentPage[] }>(
+    "/v1/legal-content",
+    { method: "GET" },
+    false,
+  );
+}
+
+export function getLegalContentPage(slug: LegalContentPage["slug"]) {
+  return request<{ page: LegalContentPage | null }>(
+    `/v1/legal-content/${encodeURIComponent(slug)}`,
+    { method: "GET" },
+    false,
+  );
+}
+
 export function getAdminHelpContent(adminMfaToken: string) {
   return request<{ pages: HelpContentPage[] }>(
     "/v1/admin/moderation/help-content",
+    { method: "GET", headers: { "X-Admin-MFA": adminMfaToken } },
+    true,
+  );
+}
+
+export function getAdminLegalContent(adminMfaToken: string) {
+  return request<{ pages: LegalContentPage[] }>(
+    "/v1/admin/moderation/legal-content",
     { method: "GET", headers: { "X-Admin-MFA": adminMfaToken } },
     true,
   );
@@ -429,6 +501,18 @@ export function saveAdminHelpContent(
 ) {
   return request<{ page: HelpContentPage; saved: true }>(
     `/v1/admin/moderation/help-content/${encodeURIComponent(slug)}`,
+    { method: "PUT", headers: { "X-Admin-MFA": adminMfaToken }, body: JSON.stringify(page) },
+    true,
+  );
+}
+
+export function saveAdminLegalContent(
+  slug: LegalContentPage["slug"],
+  page: Pick<LegalContentPage, "title" | "summary" | "body" | "imageUrls">,
+  adminMfaToken: string,
+) {
+  return request<{ page: LegalContentPage; saved: true }>(
+    `/v1/admin/moderation/legal-content/${encodeURIComponent(slug)}`,
     { method: "PUT", headers: { "X-Admin-MFA": adminMfaToken }, body: JSON.stringify(page) },
     true,
   );
@@ -457,9 +541,65 @@ export function getModerationQueue(adminMfaToken: string) {
     purchases: AdminPurchase[];
     queue: ModerationQueueItem[];
     appeals: ModerationAppeal[];
+    supportTickets: SupportTicket[];
   }>(
     "/v1/admin/moderation/queue",
     { method: "GET", headers: { "X-Admin-MFA": adminMfaToken } },
+    true,
+  );
+}
+
+export function replyToSupportTicket(ticketId: string, message: string, adminMfaToken: string) {
+  return request<{ ticket: SupportTicket; sent: true }>(
+    `/v1/admin/moderation/support-tickets/${encodeURIComponent(ticketId)}/reply`,
+    { method: "POST", headers: { "X-Admin-MFA": adminMfaToken }, body: JSON.stringify({ message }) },
+    true,
+  );
+}
+
+export function closeAdminSupportTicket(ticketId: string, reason: string, adminMfaToken: string) {
+  return request<{ ticket: SupportTicket; closed: true }>(
+    `/v1/admin/moderation/support-tickets/${encodeURIComponent(ticketId)}/close`,
+    { method: "POST", headers: { "X-Admin-MFA": adminMfaToken }, body: JSON.stringify({ reason }) },
+    true,
+  );
+}
+
+export function createSupportTicket(input: {
+  reason: string;
+  message: string;
+  searchedFor?: string;
+}) {
+  return request<{ ticket: SupportTicket; created: true }>(
+    "/v1/support/tickets",
+    { method: "POST", body: JSON.stringify(input) },
+    true,
+  );
+}
+
+export function getSupportTickets() {
+  return request<{ tickets: SupportTicket[] }>(
+    "/v1/support/tickets",
+    { method: "GET" },
+    true,
+  );
+}
+
+export function closeSupportTicket(ticketId: string, input: {
+  reason: string;
+  details?: string;
+}) {
+  return request<{ ticket: SupportTicket | null; closed: boolean }>(
+    `/v1/support/tickets/${encodeURIComponent(ticketId)}/close`,
+    { method: "POST", body: JSON.stringify(input) },
+    true,
+  );
+}
+
+export function replyToUserSupportTicket(ticketId: string, message: string) {
+  return request<{ ticket: SupportTicket; sent: true }>(
+    `/v1/support/tickets/${encodeURIComponent(ticketId)}/messages`,
+    { method: "POST", body: JSON.stringify({ message }) },
     true,
   );
 }
@@ -529,11 +669,27 @@ export function uploadProfilePhoto(input: {
   mimeType: "image/jpeg" | "image/png" | "image/webp";
   sizeBytes: number;
 }) {
-  return request<{ id: string; uri: string; path?: string; mimeType: string; sizeBytes: number }>(
-    "/v1/me/private-space/media/profile-photo",
-    { method: "POST", body: JSON.stringify(input) },
-    true,
+  return requestWithThrottleRetry<{ id: string; uri: string; path?: string; mimeType: string; sizeBytes: number }>(
+    () => request(
+      "/v1/me/private-space/media/profile-photo",
+      { method: "POST", body: JSON.stringify(input) },
+      true,
+    ),
   );
+}
+
+async function requestWithThrottleRetry<T>(operation: () => Promise<T>, retries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await operation();
+    } catch (caught) {
+      if (!(caught instanceof ApiError) || caught.status !== 429 || attempt >= retries) {
+        throw caught;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 900 + attempt * 800));
+    }
+  }
+  return operation();
 }
 
 export function uploadChatMedia(input: {
@@ -544,6 +700,40 @@ export function uploadChatMedia(input: {
   return request<{ id: string; uri: string; path?: string; mimeType: string; sizeBytes: number }>(
     "/v1/me/private-space/media/chat",
     { method: "POST", body: JSON.stringify(input) },
+    true,
+  );
+}
+
+export type InstagramMediaItem = {
+  id: string;
+  mediaType: string;
+  mediaUrl: string;
+  thumbnailUrl: string;
+  permalink: string;
+  caption: string;
+  timestamp: string;
+};
+
+export function startInstagramPhotoImport() {
+  return request<{ authUrl: string; returnUrl: string }>(
+    "/v1/instagram/connect",
+    { method: "GET" },
+    true,
+  );
+}
+
+export function getInstagramPhotos() {
+  return request<{ media: InstagramMediaItem[] }>(
+    "/v1/instagram/media",
+    { method: "GET" },
+    true,
+  );
+}
+
+export function importInstagramProfilePhotos(mediaIds: string[]) {
+  return request<{ photos: Array<{ id: string; uri: string; path?: string; mimeType: string; sizeBytes: number; source: "instagram" }> }>(
+    "/v1/instagram/import",
+    { method: "POST", body: JSON.stringify({ mediaIds }) },
     true,
   );
 }
@@ -846,6 +1036,8 @@ export function submitPostMeetCheck(input: {
   venue: string;
   latitude?: number;
   longitude?: number;
+  met?: boolean;
+  missedReason?: string;
   plansRespected?: string;
   showedUp?: string;
   profileMatched: string;

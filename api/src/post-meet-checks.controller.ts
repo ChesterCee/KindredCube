@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Inject, Post, Query, Req, UseGuards } from "@nestjs/common";
-import { IsIn, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
+import { IsBoolean, IsIn, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
 import { PoolClient } from "pg";
 import { AccessTokenGuard, AuthenticatedRequest } from "./auth/auth.guard";
 import { DatabaseService } from "./database.service";
@@ -25,6 +25,15 @@ class SubmitPostMeetCheckDto {
   @IsOptional()
   @IsNumber()
   longitude?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  met?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  missedReason?: string;
 
   @IsOptional()
   @IsIn(["Yes", "No"])
@@ -155,13 +164,28 @@ export class PostMeetChecksController {
         throw new BadRequestException("The other member is not available.");
       }
 
-      const scored = scorePostMeetCheck({
-        showedUp: input.showedUp || input.plansRespected || "",
-        profileMatched: input.profileMatched,
-        feltSafe: input.feltSafe || (input.feltUnsafe === "Yes" ? "No" : input.feltUnsafe === "No" ? "Yes" : ""),
-        respectful: input.respectful || (input.boundariesRespected === "Yes" ? "Yes" : input.boundariesRespected === "No" ? "No" : ""),
-        wouldMeetAgain: input.wouldMeetAgain === "Not sure" ? "Maybe" : input.wouldMeetAgain,
-      });
+      const met = input.met !== false;
+      const scored = met
+        ? scorePostMeetCheck({
+            showedUp: input.showedUp || input.plansRespected || "",
+            profileMatched: input.profileMatched,
+            feltSafe: input.feltSafe || (input.feltUnsafe === "Yes" ? "No" : input.feltUnsafe === "No" ? "Yes" : ""),
+            respectful: input.respectful || (input.boundariesRespected === "Yes" ? "Yes" : input.boundariesRespected === "No" ? "No" : ""),
+            wouldMeetAgain: input.wouldMeetAgain === "Not sure" ? "Maybe" : input.wouldMeetAgain,
+          })
+        : {
+            answers: {
+              showedUp: "No",
+              profileMatched: "Mostly",
+              feltSafe: "Yes",
+              respectful: "Mostly",
+              wouldMeetAgain: "Maybe",
+              met: false,
+              missedReason: input.missedReason?.trim() || "Not specified",
+            },
+            score: null,
+            safetyConcern: false,
+          };
 
       const saved = await client.query<{ id: string; created_at: Date }>(
         `
@@ -184,9 +208,11 @@ export class PostMeetChecksController {
             notes,
             trust_score,
             safety_concern,
-            answers_private
+            answers_private,
+            met,
+            missed_reason
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
           ON CONFLICT (user_id, other_user_id, meeting_started_at)
           DO UPDATE SET
             meeting_ended_at = EXCLUDED.meeting_ended_at,
@@ -205,6 +231,8 @@ export class PostMeetChecksController {
             trust_score = EXCLUDED.trust_score,
             safety_concern = EXCLUDED.safety_concern,
             answers_private = EXCLUDED.answers_private,
+            met = EXCLUDED.met,
+            missed_reason = EXCLUDED.missed_reason,
             counted_for_trust_at = NULL,
             updated_at = now()
           RETURNING id, created_at
@@ -219,16 +247,18 @@ export class PostMeetChecksController {
           input.longitude ?? null,
           input.plansRespected,
           scored.answers.showedUp,
-          input.profileMatched,
+          scored.answers.profileMatched,
           input.boundariesRespected,
           scored.answers.feltSafe,
           input.feltUnsafe,
           scored.answers.respectful,
-          input.wouldMeetAgain,
+          scored.answers.wouldMeetAgain,
           input.notes?.trim() || null,
           scored.score,
           scored.safetyConcern,
           JSON.stringify(scored.answers),
+          met,
+          input.missedReason?.trim() || null,
         ],
       );
 
@@ -301,8 +331,10 @@ async function activateTrustScoreIfBothSubmitted(
     safety_concern: boolean;
   }>(
     `SELECT id, user_id, other_user_id, trust_score::text, safety_concern
-       FROM post_meet_checks
+      FROM post_meet_checks
       WHERE ((user_id = $1 AND other_user_id = $2) OR (user_id = $2 AND other_user_id = $1))
+        AND met = true
+        AND trust_score IS NOT NULL
         AND meeting_started_at BETWEEN $3::timestamptz - interval '36 hours'
                                    AND $3::timestamptz + interval '36 hours'
       ORDER BY ABS(EXTRACT(EPOCH FROM (meeting_started_at - $3::timestamptz))) ASC`,

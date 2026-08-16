@@ -23,6 +23,7 @@ import { DiscoveryController } from "./discovery.controller";
 import { MemberLikesController } from "./member-likes.controller";
 import { AdminModerationController } from "./admin-moderation.controller";
 import { HelpContentController } from "./help-content.controller";
+import { LegalContentController } from "./legal-content.controller";
 import { PendingAccountCleanupService } from "./pending-account-cleanup.service";
 import { HealthController } from "./health.controller";
 import { ChatController } from "./chat.controller";
@@ -32,6 +33,8 @@ import { ChatService } from "./chat.service";
 import { PushNotificationsController } from "./push-notifications.controller";
 import { PushNotificationsService } from "./push-notifications.service";
 import { PostMeetChecksController } from "./post-meet-checks.controller";
+import { SupportController, SupportEmailRepliesController } from "./support.controller";
+import { InstagramController } from "./instagram.controller";
 
 @Module({
   imports: [
@@ -59,9 +62,13 @@ import { PostMeetChecksController } from "./post-meet-checks.controller";
     MemberLikesController,
     AdminModerationController,
     HelpContentController,
+    LegalContentController,
     ChatController,
     PushNotificationsController,
     PostMeetChecksController,
+    SupportController,
+    SupportEmailRepliesController,
+    InstagramController,
     HealthController,
   ],
   providers: [
