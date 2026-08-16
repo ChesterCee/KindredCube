@@ -449,14 +449,15 @@ function AdminPortal() {
         getModerationQueue(mfaToken),
         getAdminLegalContent(mfaToken),
       ]);
-      setStats(moderation.stats);
-      setPurchaseStats(moderation.purchaseStats || []);
-      setPurchases(moderation.purchases);
-      setQueue(moderation.queue);
-      setAppeals(moderation.appeals);
-      setTickets(moderation.supportTickets || []);
-      setLegalPages(legal.pages);
-      setSelectedSlug((current) => current || legal.pages[0]?.slug || "");
+      const pages = Array.isArray(legal.pages) ? legal.pages : [];
+      setStats(moderation.stats || null);
+      setPurchaseStats(Array.isArray(moderation.purchaseStats) ? moderation.purchaseStats : []);
+      setPurchases(Array.isArray(moderation.purchases) ? moderation.purchases : []);
+      setQueue(Array.isArray(moderation.queue) ? moderation.queue : []);
+      setAppeals(Array.isArray(moderation.appeals) ? moderation.appeals : []);
+      setTickets(Array.isArray(moderation.supportTickets) ? moderation.supportTickets : []);
+      setLegalPages(pages);
+      setSelectedSlug((current) => current || pages[0]?.slug || "");
     } catch (error) {
       handleAdminError(error, "The admin dashboard could not be refreshed.");
     } finally {
@@ -685,7 +686,10 @@ function AdminPortal() {
     });
     const indexByDay = new Map(days.map((day, index) => [day.key, index]));
     purchases.forEach((purchase) => {
-      const key = new Date(purchase.created_at).toISOString().slice(0, 10);
+      if (!purchase?.created_at || !(purchase.purchase_type in purchaseLabels)) return;
+      const parsedDate = new Date(purchase.created_at);
+      if (Number.isNaN(parsedDate.getTime())) return;
+      const key = parsedDate.toISOString().slice(0, 10);
       const index = indexByDay.get(key);
       if (index === undefined) return;
       days[index][purchase.purchase_type] += 1;
@@ -693,11 +697,6 @@ function AdminPortal() {
     return days;
   }, [purchases]);
   const maxPurchaseTrendValue = Math.max(1, ...purchaseTrend.flatMap((day) => [day.premium, day.kindred_pass, day.wallet]));
-  const pointsForPurchaseType = (type: "premium" | "kindred_pass" | "wallet") => purchaseTrend.map((day, index) => {
-    const x = 36 + index * (328 / Math.max(1, purchaseTrend.length - 1));
-    const y = 188 - (day[type] / maxPurchaseTrendValue) * 146;
-    return `${x},${y}`;
-  }).join(" ");
   const recentPurchaseTotal = (type: "premium" | "kindred_pass" | "wallet") => purchases.filter((purchase) => purchase.purchase_type === type).length;
   return (
     <View style={{ flex: 1, minHeight: "100vh", flexDirection: compact ? "column" : "row", backgroundColor: "#F4F6FB" } as any}>
@@ -775,20 +774,35 @@ function AdminPortal() {
                 </View>
               ))}
             </View>
-            <View style={{ height: 250, borderRadius: 20, backgroundColor: "#F8FAFF", borderWidth: 1, borderColor: C.line, overflow: "hidden" }}>
-              {React.createElement("svg", { viewBox: "0 0 400 220", style: { width: "100%", height: "100%" }, preserveAspectRatio: "none" },
-                React.createElement("defs", null,
-                  React.createElement("linearGradient", { id: "adminGraphGlow", x1: "0", x2: "0", y1: "0", y2: "1" },
-                    React.createElement("stop", { offset: "0%", stopColor: "#3457D5", stopOpacity: "0.16" }),
-                    React.createElement("stop", { offset: "100%", stopColor: "#3457D5", stopOpacity: "0" }),
-                  ),
-                ),
-                [42, 78, 115, 151, 188].map((y) => React.createElement("line", { key: `grid-${y}`, x1: 28, y1: y, x2: 374, y2: y, stroke: "rgba(17,27,61,.08)", strokeWidth: 1 })),
-                React.createElement("polyline", { points: pointsForPurchaseType("premium"), fill: "none", stroke: purchaseColors.premium, strokeWidth: 5, strokeLinecap: "round", strokeLinejoin: "round" }),
-                React.createElement("polyline", { points: pointsForPurchaseType("kindred_pass"), fill: "none", stroke: purchaseColors.kindred_pass, strokeWidth: 5, strokeLinecap: "round", strokeLinejoin: "round" }),
-                React.createElement("polyline", { points: pointsForPurchaseType("wallet"), fill: "none", stroke: purchaseColors.wallet, strokeWidth: 5, strokeLinecap: "round", strokeLinejoin: "round" }),
-                purchaseTrend.map((day, index) => React.createElement("text", { key: `label-${day.key}`, x: 36 + index * (328 / Math.max(1, purchaseTrend.length - 1)), y: 210, fill: "rgba(23,32,59,.52)", fontSize: "9", textAnchor: "middle" }, index % 2 === 0 || !compact ? day.label : "")),
-              )}
+            <View style={{ height: 250, borderRadius: 20, backgroundColor: "#F8FAFF", borderWidth: 1, borderColor: C.line, overflow: "hidden", padding: 16, justifyContent: "flex-end" }}>
+              <View style={{ position: "absolute", left: 16, right: 16, top: 20, bottom: 40, justifyContent: "space-between" }}>
+                {[0, 1, 2, 3].map((line) => (
+                  <View key={line} style={{ height: 1, backgroundColor: "rgba(17,27,61,.08)" }} />
+                ))}
+              </View>
+              <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-end", gap: compact ? 5 : 9, paddingBottom: 22 }}>
+                {purchaseTrend.map((day, index) => (
+                  <View key={day.key} style={{ flex: 1, alignItems: "center", justifyContent: "flex-end", gap: 5 }}>
+                    {(["premium", "kindred_pass", "wallet"] as const).map((type) => (
+                      <View
+                        key={type}
+                        title={`${purchaseLabels[type]}: ${day[type]}`}
+                        style={{
+                          width: compact ? 7 : 10,
+                          height: Math.max(6, (day[type] / maxPurchaseTrendValue) * 142),
+                          borderRadius: 999,
+                          backgroundColor: purchaseColors[type],
+                          opacity: day[type] ? 0.95 : 0.18,
+                          boxShadow: day[type] ? `0 8px 18px ${purchaseColors[type]}55` : "none",
+                        } as any}
+                      />
+                    ))}
+                    <Text style={{ position: "absolute", bottom: -21, color: "rgba(23,32,59,.52)", fontSize: 9, fontWeight: "800" }}>
+                      {index % 2 === 0 || !compact ? day.label : ""}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
             {purchaseStats.length ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{purchaseStats.map((stat) => <View key={`${stat.purchase_type}-${stat.status}`} style={{ borderRadius: 14, padding: 12, backgroundColor: "#FFF9ED", borderWidth: 1, borderColor: C.line }}><Text style={{ color: C.ink, fontWeight: "900" }}>{purchaseLabels[stat.purchase_type]} · {stat.status}</Text><Text style={{ color: C.muted, fontSize: 12 }}>{stat.count} purchases · ${(stat.amount_cents / 100).toFixed(2)}</Text></View>)}</View> : null}
           </View>
