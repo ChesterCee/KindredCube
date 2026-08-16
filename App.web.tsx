@@ -273,7 +273,21 @@ function Landing({ onStart }: { onStart: () => void }) {
     return () => window.clearInterval(timer);
   }, [swiping]);
   return (
-    <ScrollView scrollEnabled={false} contentInsetAdjustmentBehavior="automatic" style={{ flex: 1, backgroundColor: C.cream }} contentContainerStyle={{ minHeight: height, paddingHorizontal: compact ? 16 : 42, paddingTop: compact ? 10 : 18, paddingBottom: compact ? 18 : 18, gap: compact ? 10 : 18, overflow: "hidden" }}>
+    <ScrollView
+      scrollEnabled={false}
+      contentInsetAdjustmentBehavior="automatic"
+      style={{ flex: 1, minHeight: compact ? ("100dvh" as any) : undefined, height: compact ? ("100dvh" as any) : undefined, backgroundColor: C.cream }}
+      contentContainerStyle={{
+        minHeight: compact ? ("100dvh" as any) : height,
+        height: compact ? ("100dvh" as any) : undefined,
+        flexGrow: 1,
+        paddingHorizontal: compact ? 16 : 42,
+        paddingTop: compact ? 10 : 18,
+        paddingBottom: compact ? 18 : 18,
+        gap: compact ? 10 : 18,
+        overflow: "hidden",
+      }}
+    >
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", maxWidth: 1320, width: "100%", alignSelf: "center" }}>
         <Logo compact={compact} />
       </View>
@@ -602,6 +616,30 @@ function AdminPortal() {
     clearAdminState();
   });
 
+  const purchaseColors = { premium: C.yellow, kindred_pass: "#6A39B8", wallet: "#111111" } as const;
+  const purchaseLabels = { premium: "Premium", kindred_pass: "KindredPass", wallet: "Wallet" } as const;
+  const purchaseTrend = useMemo(() => {
+    const days = Array.from({ length: 14 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (13 - index));
+      const key = date.toISOString().slice(0, 10);
+      return { key, label: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }), premium: 0, kindred_pass: 0, wallet: 0 };
+    });
+    const indexByDay = new Map(days.map((day, index) => [day.key, index]));
+    purchases.forEach((purchase) => {
+      if (!purchase?.created_at || !(purchase.purchase_type in purchaseLabels)) return;
+      const parsedDate = new Date(purchase.created_at);
+      if (Number.isNaN(parsedDate.getTime())) return;
+      const key = parsedDate.toISOString().slice(0, 10);
+      const index = indexByDay.get(key);
+      if (index === undefined) return;
+      days[index][purchase.purchase_type] += 1;
+    });
+    return days;
+  }, [purchaseLabels, purchases]);
+  const maxPurchaseTrendValue = Math.max(1, ...purchaseTrend.flatMap((day) => [day.premium, day.kindred_pass, day.wallet]));
+  const recentPurchaseTotal = (type: "premium" | "kindred_pass" | "wallet") => purchases.filter((purchase) => purchase.purchase_type === type).length;
+
   if (!adminUser) return (
     <View style={{ flex: 1, minHeight: "100vh", backgroundColor: "#F7F9FE", alignItems: "center", justifyContent: "center", padding: 20 } as any}>
       <View style={{ width: "100%", maxWidth: 460, borderRadius: 30, backgroundColor: C.paper, padding: compact ? 22 : 34, gap: 16, borderWidth: 1, borderColor: C.line, boxShadow: "0 28px 70px rgba(17,27,61,.18)" } as any}>
@@ -675,29 +713,6 @@ function AdminPortal() {
     { label: "Deleted", value: stats?.deleted_users || 0, color: "#B73140" },
   ];
   const maxUserGraphValue = Math.max(1, ...userGraphRows.map((row) => row.value));
-  const purchaseColors = { premium: C.yellow, kindred_pass: "#6A39B8", wallet: "#111111" } as const;
-  const purchaseLabels = { premium: "Premium", kindred_pass: "KindredPass", wallet: "Wallet" } as const;
-  const purchaseTrend = useMemo(() => {
-    const days = Array.from({ length: 14 }, (_, index) => {
-      const date = new Date();
-      date.setDate(date.getDate() - (13 - index));
-      const key = date.toISOString().slice(0, 10);
-      return { key, label: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }), premium: 0, kindred_pass: 0, wallet: 0 };
-    });
-    const indexByDay = new Map(days.map((day, index) => [day.key, index]));
-    purchases.forEach((purchase) => {
-      if (!purchase?.created_at || !(purchase.purchase_type in purchaseLabels)) return;
-      const parsedDate = new Date(purchase.created_at);
-      if (Number.isNaN(parsedDate.getTime())) return;
-      const key = parsedDate.toISOString().slice(0, 10);
-      const index = indexByDay.get(key);
-      if (index === undefined) return;
-      days[index][purchase.purchase_type] += 1;
-    });
-    return days;
-  }, [purchases]);
-  const maxPurchaseTrendValue = Math.max(1, ...purchaseTrend.flatMap((day) => [day.premium, day.kindred_pass, day.wallet]));
-  const recentPurchaseTotal = (type: "premium" | "kindred_pass" | "wallet") => purchases.filter((purchase) => purchase.purchase_type === type).length;
   return (
     <View style={{ flex: 1, minHeight: "100vh", flexDirection: compact ? "column" : "row", backgroundColor: "#F4F6FB" } as any}>
       <View style={{ width: compact ? "100%" : 248, backgroundColor: C.navy, padding: compact ? 12 : 18, gap: 14 }}>
