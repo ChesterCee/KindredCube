@@ -49,6 +49,7 @@ import {
   saveModerationAction,
   verifyAdminMfaCode,
   type AdminPurchase,
+  type AdminPurchaseStat,
   type AdminUserStats,
   type LegalContentPage,
   type ModerationAppeal,
@@ -370,6 +371,7 @@ function AdminPortal() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [stats, setStats] = useState<AdminUserStats | null>(null);
+  const [purchaseStats, setPurchaseStats] = useState<AdminPurchaseStat[]>([]);
   const [purchases, setPurchases] = useState<AdminPurchase[]>([]);
   const [queue, setQueue] = useState<ModerationQueueItem[]>([]);
   const [appeals, setAppeals] = useState<ModerationAppeal[]>([]);
@@ -394,6 +396,7 @@ function AdminPortal() {
     setChallengeReady(false);
     setCode("");
     setStats(null);
+    setPurchaseStats([]);
     setPurchases([]);
     setQueue([]);
     setAppeals([]);
@@ -447,6 +450,7 @@ function AdminPortal() {
         getAdminLegalContent(mfaToken),
       ]);
       setStats(moderation.stats);
+      setPurchaseStats(moderation.purchaseStats || []);
       setPurchases(moderation.purchases);
       setQueue(moderation.queue);
       setAppeals(moderation.appeals);
@@ -662,6 +666,39 @@ function AdminPortal() {
     ["review", "In review", ticketCounts.review],
     ["closed", "Closed", ticketCounts.closed],
   ] as const;
+  const userGraphRows = [
+    { label: "Total users", value: stats?.total_users || 0, color: C.blue },
+    { label: "Active", value: stats?.active_users || 0, color: "#216B4B" },
+    { label: "Pending", value: stats?.pending_users || 0, color: C.yellow },
+    { label: "Suspended", value: stats?.suspended_users || 0, color: C.orange },
+    { label: "Deleted", value: stats?.deleted_users || 0, color: "#B73140" },
+  ];
+  const maxUserGraphValue = Math.max(1, ...userGraphRows.map((row) => row.value));
+  const purchaseColors = { premium: C.yellow, kindred_pass: "#6A39B8", wallet: "#111111" } as const;
+  const purchaseLabels = { premium: "Premium", kindred_pass: "KindredPass", wallet: "Wallet" } as const;
+  const purchaseTrend = useMemo(() => {
+    const days = Array.from({ length: 14 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (13 - index));
+      const key = date.toISOString().slice(0, 10);
+      return { key, label: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }), premium: 0, kindred_pass: 0, wallet: 0 };
+    });
+    const indexByDay = new Map(days.map((day, index) => [day.key, index]));
+    purchases.forEach((purchase) => {
+      const key = new Date(purchase.created_at).toISOString().slice(0, 10);
+      const index = indexByDay.get(key);
+      if (index === undefined) return;
+      days[index][purchase.purchase_type] += 1;
+    });
+    return days;
+  }, [purchases]);
+  const maxPurchaseTrendValue = Math.max(1, ...purchaseTrend.flatMap((day) => [day.premium, day.kindred_pass, day.wallet]));
+  const pointsForPurchaseType = (type: "premium" | "kindred_pass" | "wallet") => purchaseTrend.map((day, index) => {
+    const x = 36 + index * (328 / Math.max(1, purchaseTrend.length - 1));
+    const y = 188 - (day[type] / maxPurchaseTrendValue) * 146;
+    return `${x},${y}`;
+  }).join(" ");
+  const recentPurchaseTotal = (type: "premium" | "kindred_pass" | "wallet") => purchases.filter((purchase) => purchase.purchase_type === type).length;
   return (
     <View style={{ flex: 1, minHeight: "100vh", flexDirection: compact ? "column" : "row", backgroundColor: "#F4F6FB" } as any}>
       <View style={{ width: compact ? "100%" : 248, backgroundColor: C.navy, padding: compact ? 12 : 18, gap: 14 }}>
@@ -705,8 +742,59 @@ function AdminPortal() {
             ) : null}
           </View>
         ) : null}
-        {section === "users" ? <View style={{ gap: 14 }}><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>{[["Total users", stats?.total_users || 0], ["Active", stats?.active_users || 0], ["Pending", stats?.pending_users || 0], ["Suspended", stats?.suspended_users || 0], ["Deleted", stats?.deleted_users || 0]].map(([label, value]) => <View key={String(label)} style={{ minWidth: compact ? "46%" : 190, flex: 1, backgroundColor: C.paper, borderRadius: 20, padding: 18, borderWidth: 1, borderColor: C.line }}><Text style={{ color: C.muted, fontWeight: "800" }}>{label}</Text><Text style={{ color: C.ink, fontSize: 31, fontWeight: "900" }}>{String(value)}</Text></View>)}</View><Text style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>Reported and blocked profiles</Text>{queue.length ? queue.map((item) => <View key={item.profile_id} style={{ backgroundColor: C.paper, borderRadius: 20, padding: 16, gap: 8, borderWidth: 1, borderColor: C.line }}><Text style={{ color: C.ink, fontSize: 17, fontWeight: "900" }}>{item.username || item.profile_id}</Text><Text style={{ color: C.muted }}>Status: {item.account_status || "unknown"} · Reports: {item.report_count} · Blocks: {item.block_count}</Text><Text style={{ color: "#A13A37", fontWeight: "700" }}>Latest report: {item.latest_report_reason || "None"}</Text><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}><ActionButton label="Suspend" onPress={() => moderate(item.profile_id, "suspend")} /><ActionButton label="Reinstate" onPress={() => moderate(item.profile_id, "reinstate")} /><ActionButton danger label="Ban forever" onPress={() => moderate(item.profile_id, "ban")} /><ActionButton label="Close reports" onPress={() => moderate(item.profile_id, "close_reports")} /></View></View>) : <Text style={{ color: C.muted }}>No active moderation items.</Text>}</View> : null}
-        {section === "purchases" ? <View style={{ gap: 10 }}><Text style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Purchases</Text>{purchases.length ? purchases.map((purchase) => <View key={purchase.id} style={{ backgroundColor: C.paper, borderRadius: 17, padding: 14, borderWidth: 1, borderColor: C.line }}><Text style={{ color: C.ink, fontWeight: "900" }}>{purchase.username} · {purchase.purchase_type}</Text><Text style={{ color: C.muted }}>{purchase.status} · ${(purchase.amount_cents / 100).toFixed(2)} {purchase.currency.toUpperCase()} · {new Date(purchase.created_at).toLocaleString()}</Text></View>) : <Text style={{ color: C.muted }}>No purchases yet.</Text>}</View> : null}
+        {section === "users" ? <View style={{ gap: 16 }}>
+          <View style={{ backgroundColor: C.paper, borderRadius: 24, padding: compact ? 16 : 22, gap: 18, borderWidth: 1, borderColor: C.line, boxShadow: "0 18px 45px rgba(17,27,61,.08)" } as any}>
+            <View>
+              <Text style={{ color: C.ink, fontSize: 24, fontWeight: "900" }}>User activity graph</Text>
+              <Text style={{ color: C.muted, lineHeight: 20 }}>Total, active, pending, suspended, and deleted accounts at a glance.</Text>
+            </View>
+            <View style={{ height: compact ? 260 : 320, flexDirection: "row", alignItems: "flex-end", gap: compact ? 10 : 18, paddingTop: 18, borderBottomWidth: 1, borderBottomColor: C.line }}>
+              {userGraphRows.map((row) => (
+                <View key={row.label} style={{ flex: 1, alignItems: "center", gap: 9 }}>
+                  <View style={{ width: "100%", minHeight: 4, height: `${Math.max(4, (row.value / maxUserGraphValue) * 100)}%`, borderTopLeftRadius: 18, borderTopRightRadius: 18, backgroundColor: row.color, boxShadow: `0 12px 28px ${row.color}40` } as any} />
+                  <Text style={{ color: C.ink, fontSize: compact ? 20 : 26, fontWeight: "900" }}>{row.value}</Text>
+                  <Text style={{ color: C.muted, fontSize: compact ? 10 : 12, fontWeight: "900", textAlign: "center" }}>{row.label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+          <Text style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>Reported and blocked profiles</Text>
+          {queue.length ? queue.map((item) => <View key={item.profile_id} style={{ backgroundColor: C.paper, borderRadius: 20, padding: 16, gap: 8, borderWidth: 1, borderColor: C.line }}><Text style={{ color: C.ink, fontSize: 17, fontWeight: "900" }}>{item.username || item.profile_id}</Text><Text style={{ color: C.muted }}>Status: {item.account_status || "unknown"} · Reports: {item.report_count} · Blocks: {item.block_count}</Text><Text style={{ color: "#A13A37", fontWeight: "700" }}>Latest report: {item.latest_report_reason || "None"}</Text><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}><ActionButton label="Suspend" onPress={() => moderate(item.profile_id, "suspend")} /><ActionButton label="Reinstate" onPress={() => moderate(item.profile_id, "reinstate")} /><ActionButton danger label="Ban forever" onPress={() => moderate(item.profile_id, "ban")} /><ActionButton label="Close reports" onPress={() => moderate(item.profile_id, "close_reports")} /></View></View>) : <Text style={{ color: C.muted }}>No active moderation items.</Text>}
+        </View> : null}
+        {section === "purchases" ? <View style={{ gap: 14 }}>
+          <View style={{ backgroundColor: C.paper, borderRadius: 24, padding: compact ? 16 : 22, gap: 14, borderWidth: 1, borderColor: C.line, boxShadow: "0 18px 45px rgba(17,27,61,.08)" } as any}>
+            <View>
+              <Text style={{ color: C.ink, fontSize: 24, fontWeight: "900" }}>Purchases trend</Text>
+              <Text style={{ color: C.muted, lineHeight: 20 }}>Premium, KindredPass, and Wallet purchases over the last 14 days.</Text>
+            </View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              {(["premium", "kindred_pass", "wallet"] as const).map((type) => (
+                <View key={type} style={{ flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: C.sky }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: purchaseColors[type] }} />
+                  <Text style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>{purchaseLabels[type]} · {recentPurchaseTotal(type)}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={{ height: 250, borderRadius: 20, backgroundColor: "#F8FAFF", borderWidth: 1, borderColor: C.line, overflow: "hidden" }}>
+              {React.createElement("svg", { viewBox: "0 0 400 220", style: { width: "100%", height: "100%" }, preserveAspectRatio: "none" },
+                React.createElement("defs", null,
+                  React.createElement("linearGradient", { id: "adminGraphGlow", x1: "0", x2: "0", y1: "0", y2: "1" },
+                    React.createElement("stop", { offset: "0%", stopColor: "#3457D5", stopOpacity: "0.16" }),
+                    React.createElement("stop", { offset: "100%", stopColor: "#3457D5", stopOpacity: "0" }),
+                  ),
+                ),
+                [42, 78, 115, 151, 188].map((y) => React.createElement("line", { key: `grid-${y}`, x1: 28, y1: y, x2: 374, y2: y, stroke: "rgba(17,27,61,.08)", strokeWidth: 1 })),
+                React.createElement("polyline", { points: pointsForPurchaseType("premium"), fill: "none", stroke: purchaseColors.premium, strokeWidth: 5, strokeLinecap: "round", strokeLinejoin: "round" }),
+                React.createElement("polyline", { points: pointsForPurchaseType("kindred_pass"), fill: "none", stroke: purchaseColors.kindred_pass, strokeWidth: 5, strokeLinecap: "round", strokeLinejoin: "round" }),
+                React.createElement("polyline", { points: pointsForPurchaseType("wallet"), fill: "none", stroke: purchaseColors.wallet, strokeWidth: 5, strokeLinecap: "round", strokeLinejoin: "round" }),
+                purchaseTrend.map((day, index) => React.createElement("text", { key: `label-${day.key}`, x: 36 + index * (328 / Math.max(1, purchaseTrend.length - 1)), y: 210, fill: "rgba(23,32,59,.52)", fontSize: "9", textAnchor: "middle" }, index % 2 === 0 || !compact ? day.label : "")),
+              )}
+            </View>
+            {purchaseStats.length ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{purchaseStats.map((stat) => <View key={`${stat.purchase_type}-${stat.status}`} style={{ borderRadius: 14, padding: 12, backgroundColor: "#FFF9ED", borderWidth: 1, borderColor: C.line }}><Text style={{ color: C.ink, fontWeight: "900" }}>{purchaseLabels[stat.purchase_type]} · {stat.status}</Text><Text style={{ color: C.muted, fontSize: 12 }}>{stat.count} purchases · ${(stat.amount_cents / 100).toFixed(2)}</Text></View>)}</View> : null}
+          </View>
+          <Text style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>Recent purchases</Text>
+          {purchases.length ? purchases.map((purchase) => <View key={purchase.id} style={{ backgroundColor: C.paper, borderRadius: 17, padding: 14, borderWidth: 1, borderColor: C.line }}><Text style={{ color: C.ink, fontWeight: "900" }}>{purchase.username} · {purchase.purchase_type}</Text><Text style={{ color: C.muted }}>{purchase.status} · ${(purchase.amount_cents / 100).toFixed(2)} {purchase.currency.toUpperCase()} · {new Date(purchase.created_at).toLocaleString()}</Text></View>) : <Text style={{ color: C.muted }}>No purchases yet.</Text>}
+        </View> : null}
         {section === "support" ? (
           <View style={{ gap: 14 }}>
             <View style={{ backgroundColor: C.paper, borderRadius: 24, padding: compact ? 16 : 22, gap: 14, borderWidth: 1, borderColor: C.line }}>

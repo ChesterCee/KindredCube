@@ -48,7 +48,7 @@ export class PaymentsService {
       amount_cents: String(amountCents),
       wallet_top_up_non_refundable: purchaseType === "wallet" ? "true" : "false",
     };
-    const productName = purchaseType === "wallet" ? "KindredCube Wallet" : purchaseType === "premium" ? "KindredCube Premium" : "KindredPass (24 hours)";
+    const productName = purchaseType === "wallet" ? "KindredCube Wallet" : purchaseType === "premium" ? "KindredCube Premium" : "KindredPass (7 days)";
     const recurring = purchaseType === "premium" ? { interval: "month" as const } : undefined;
     const session = await this.client().checkout.sessions.create({
       mode: purchaseType === "premium" ? "subscription" : "payment",
@@ -226,7 +226,7 @@ export class PaymentsService {
           );
         }
       } else {
-        const expiresAt = purchaseType === "kindred_pass" ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null;
+        const expiresAt = purchaseType === "kindred_pass" ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) : null;
         await client.query(
           `INSERT INTO user_entitlements (user_id, entitlement, active, starts_at, expires_at, stripe_subscription_id)
            VALUES ($1, $2, true, now(), $3, $4)

@@ -9129,7 +9129,7 @@ function ProfileHubScreen({
               KindredPass
             </Text>
             <Text selectable style={{ color: C.muted, fontSize: 11 }}>
-              $19.99 · Premium access for one day
+              $19.99 · Premium access for one week
             </Text>
           </View>
           <View
@@ -9145,7 +9145,7 @@ function ProfileHubScreen({
             </Text>
           </View>
         </View>
-        <Benefit label="All Premium features for 24 hours" />
+        <Benefit label="All Premium features for 7 days" />
         <Benefit label="Ideal for travel, events, and trying Premium" />
         <Benefit label="Expires automatically with no ongoing subscription" />
         <Button compact disabled={kindredPassActive || Boolean(planBusy)} label={kindredPassActive ? "KindredPass active" : planBusy === "kindred_pass" ? "Opening secure checkout..." : "Get KindredPass"} onPress={async () => {
@@ -9153,7 +9153,7 @@ function ProfileHubScreen({
           setPlanNotices((current) => ({ ...current, kindred_pass: "" }));
           try {
             const confirmed = await onPurchasePlan("kindred_pass");
-            setPlanNotices((current) => ({ ...current, kindred_pass: confirmed ? "KindredPass is active for 24 hours." : "KindredPass checkout was not completed or is still awaiting Stripe confirmation." }));
+            setPlanNotices((current) => ({ ...current, kindred_pass: confirmed ? "KindredPass is active for 7 days." : "KindredPass checkout was not completed or is still awaiting Stripe confirmation." }));
           }
           catch (caught) { setPlanNotices((current) => ({ ...current, kindred_pass: caught instanceof Error ? caught.message : "Checkout could not be opened." })); }
           finally { setPlanBusy(""); }
@@ -16375,7 +16375,7 @@ function MembershipOptionsModal({
     try {
       const confirmed = await onPurchasePlan(plan);
       if (confirmed) {
-        setNotice(plan === "premium" ? "Premium is active." : "KindredPass is active for 24 hours.");
+        setNotice(plan === "premium" ? "Premium is active." : "KindredPass is active for 7 days.");
       } else {
         setNotice("Checkout was not completed or Stripe is still confirming it.");
       }
@@ -16439,7 +16439,7 @@ function MembershipOptionsModal({
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                 <View style={{ flex: 1 }}>
                   <Text selectable style={{ color: "#59359C", fontSize: 22, fontWeight: "900" }}>KindredPass</Text>
-                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>$19.99 · Premium access for 24 hours</Text>
+                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>$19.99 · Premium access for one week</Text>
                 </View>
                 <BadgeCheck width={29} height={29} color="#59359C" />
               </View>
@@ -21113,6 +21113,275 @@ function LifestylePicker({
   );
 }
 
+function FuturisticBirthDatePicker({
+  visible,
+  value,
+  onChange,
+  onClose,
+}: {
+  visible: boolean;
+  value: Date;
+  onChange: (date: Date) => void;
+  onClose: () => void;
+}) {
+  const { width } = useWindowDimensions();
+  const compact = width < 390;
+  const today = new Date();
+  const minimumYear = 1900;
+  const monthNames = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  const weekdays = ["S", "M", "T", "W", "T", "F", "S"];
+  const [visibleMonth, setVisibleMonth] = useState(value.getMonth());
+  const [visibleYear, setVisibleYear] = useState(value.getFullYear());
+  const [selectedDate, setSelectedDate] = useState(value);
+
+  useEffect(() => {
+    if (!visible) return;
+    setVisibleMonth(value.getMonth());
+    setVisibleYear(value.getFullYear());
+    setSelectedDate(value);
+  }, [value, visible]);
+
+  const daysInMonth = new Date(visibleYear, visibleMonth + 1, 0).getDate();
+  const firstDay = new Date(visibleYear, visibleMonth, 1).getDay();
+  const calendarSlots = [
+    ...Array.from({ length: firstDay }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
+  ];
+  while (calendarSlots.length % 7 !== 0) calendarSlots.push(null);
+
+  const clampYear = (year: number) =>
+    Math.max(minimumYear, Math.min(today.getFullYear(), year));
+  const updateYear = (year: number) => {
+    const nextYear = clampYear(year);
+    setVisibleYear(nextYear);
+    if (nextYear === today.getFullYear() && visibleMonth > today.getMonth()) {
+      setVisibleMonth(today.getMonth());
+    }
+  };
+  const isFutureDay = (day: number) => {
+    const date = new Date(visibleYear, visibleMonth, day);
+    return date > today;
+  };
+  const selectDay = (day: number) => {
+    if (isFutureDay(day)) return;
+    setSelectedDate(new Date(visibleYear, visibleMonth, day));
+  };
+  const confirm = () => {
+    onChange(selectedDate);
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(6,10,25,0.72)",
+          paddingHorizontal: 18,
+          justifyContent: "center",
+        }}
+      >
+        <View
+          style={{
+            borderRadius: 32,
+            borderCurve: "continuous",
+            overflow: "hidden",
+            backgroundColor: "#0D1535",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.18)",
+            boxShadow: "0 28px 80px rgba(0,0,0,0.45)",
+          }}
+        >
+          <View
+            style={{
+              padding: compact ? 16 : 20,
+              gap: 16,
+              backgroundColor: "rgba(255,255,255,0.06)",
+            }}
+          >
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#FFD234", fontSize: 11, fontWeight: "900", letterSpacing: 1.2 }}>
+                  BIRTH DATE
+                </Text>
+                <Text style={{ color: C.paper, fontFamily: BRAND_FONT, fontSize: compact ? 24 : 29, fontWeight: "700" }}>
+                  Choose your day
+                </Text>
+                <Text style={{ color: "rgba(255,255,255,0.66)", fontSize: 12, lineHeight: 17 }}>
+                  A clean private age check. Only your age is shown.
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close date picker"
+                onPress={onClose}
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 21,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "rgba(255,255,255,0.11)",
+                }}
+              >
+                <X size={20} color={C.paper} />
+              </Pressable>
+            </View>
+
+            <View
+              style={{
+                borderRadius: 24,
+                padding: 14,
+                backgroundColor: "rgba(255,255,255,0.09)",
+                borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.12)",
+                gap: 12,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous year"
+                  onPress={() => updateYear(visibleYear - 1)}
+                  style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.10)" }}
+                >
+                  <ChevronLeft size={19} color={C.paper} />
+                </Pressable>
+                <View style={{ alignItems: "center", gap: 2 }}>
+                  <Text style={{ color: C.paper, fontSize: 26, fontWeight: "900" }}>{visibleYear}</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.56)", fontSize: 10, fontWeight: "800" }}>tap arrows to adjust</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Next year"
+                  onPress={() => updateYear(visibleYear + 1)}
+                  style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.10)" }}
+                >
+                  <ChevronRight size={19} color={C.paper} />
+                </Pressable>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable onPress={() => updateYear(visibleYear - 10)} style={{ flex: 1, minHeight: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)" }}>
+                  <Text style={{ color: "rgba(255,255,255,0.78)", fontSize: 12, fontWeight: "900" }}>-10 years</Text>
+                </Pressable>
+                <Pressable onPress={() => updateYear(visibleYear + 10)} style={{ flex: 1, minHeight: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)" }}>
+                  <Text style={{ color: "rgba(255,255,255,0.78)", fontSize: 12, fontWeight: "900" }}>+10 years</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {monthNames.map((month, index) => {
+                const disabled = visibleYear === today.getFullYear() && index > today.getMonth();
+                const active = visibleMonth === index;
+                return (
+                  <Pressable
+                    key={month}
+                    accessibilityRole="button"
+                    disabled={disabled}
+                    onPress={() => setVisibleMonth(index)}
+                    style={{
+                      minWidth: 56,
+                      minHeight: 38,
+                      borderRadius: 19,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: active ? C.pink : "rgba(255,255,255,0.10)",
+                      opacity: disabled ? 0.35 : 1,
+                    }}
+                  >
+                    <Text style={{ color: C.paper, fontSize: 12, fontWeight: "900" }}>{month}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: C.paper, fontSize: 18, fontWeight: "900", textAlign: "center" }}>
+                {monthNames[visibleMonth]} {visibleYear}
+              </Text>
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                {weekdays.map((day, index) => (
+                  <Text key={`${day}-${index}`} style={{ flex: 1, color: "rgba(255,255,255,0.50)", fontSize: 11, fontWeight: "900", textAlign: "center" }}>
+                    {day}
+                  </Text>
+                ))}
+              </View>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                {calendarSlots.map((day, index) => {
+                  const calendarDay = typeof day === "number" ? day : 0;
+                  const active = calendarDay > 0 &&
+                    selectedDate.getFullYear() === visibleYear &&
+                    selectedDate.getMonth() === visibleMonth &&
+                    selectedDate.getDate() === calendarDay;
+                  const disabled = calendarDay > 0 && isFutureDay(calendarDay);
+                  return (
+                    <Pressable
+                      key={`${day || "blank"}-${index}`}
+                      accessibilityRole={calendarDay ? "button" : undefined}
+                      disabled={!calendarDay || disabled}
+                      onPress={() => calendarDay && selectDay(calendarDay)}
+                      style={{
+                        width: `${(100 / 7) - 1}%`,
+                        aspectRatio: 1,
+                        borderRadius: 18,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: active ? "#FFD234" : calendarDay ? "rgba(255,255,255,0.09)" : "transparent",
+                        borderWidth: active ? 0 : calendarDay ? 1 : 0,
+                        borderColor: "rgba(255,255,255,0.10)",
+                        opacity: disabled ? 0.28 : 1,
+                      }}
+                    >
+                      {calendarDay ? <Text style={{ color: active ? C.ink : C.paper, fontSize: 14, fontWeight: "900" }}>{calendarDay}</Text> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View
+              style={{
+                borderRadius: 22,
+                padding: 12,
+                backgroundColor: "rgba(255,255,255,0.09)",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "rgba(255,255,255,0.56)", fontSize: 10, fontWeight: "900", letterSpacing: 0.8 }}>SELECTED</Text>
+                <Text style={{ color: C.paper, fontSize: 15, fontWeight: "900" }}>
+                  {selectedDate.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={confirm}
+                style={{
+                  minHeight: 44,
+                  borderRadius: 22,
+                  paddingHorizontal: 18,
+                  backgroundColor: C.pink,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: C.paper, fontSize: 12, fontWeight: "900" }}>Use this date</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function Qualifier({
   onExit,
   onLogin,
@@ -21397,24 +21666,29 @@ function Qualifier({
               ) : (
                 <View
                   style={{
-                    backgroundColor: C.paper,
+                    backgroundColor: "#0D1535",
                     borderWidth: 1,
-                    borderColor: C.line,
-                    borderRadius: 16,
-                    padding: 12,
-                    gap: 8,
+                    borderColor: "rgba(255,255,255,0.18)",
+                    borderRadius: 24,
+                    borderCurve: "continuous",
+                    padding: compact ? 12 : 14,
+                    gap: 10,
                     alignItems: "center",
+                    boxShadow: "0 18px 42px rgba(13,21,53,0.28)",
                   }}
                 >
-                  <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "900", letterSpacing: 0.5 }}>
+                  <Text selectable style={{ color: "#FFD234", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>
                     DATE OF BIRTH
                   </Text>
-                  <Text selectable style={{ color: C.ink, fontSize: 19, fontWeight: "900" }}>
+                  <Text selectable style={{ color: C.paper, fontSize: compact ? 19 : 22, fontWeight: "900" }}>
                     {draftBirthDate.toLocaleDateString(undefined, {
                       month: "long",
                       day: "numeric",
                       year: "numeric",
                     })}
+                  </Text>
+                  <Text selectable style={{ color: "rgba(255,255,255,0.62)", fontSize: 11, fontWeight: "700", textAlign: "center" }}>
+                    Open the KindredCube calendar and choose your birthday.
                   </Text>
                   <Pressable
                     accessibilityRole="button"
@@ -21423,36 +21697,28 @@ function Qualifier({
                     style={{
                       minHeight: 40,
                       borderRadius: 20,
-                      backgroundColor: "#F7F3ED",
+                      backgroundColor: C.pink,
                       borderWidth: 1,
-                      borderColor: C.line,
-                      paddingHorizontal: 16,
+                      borderColor: "rgba(255,255,255,0.18)",
+                      paddingHorizontal: 18,
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
-                    <Text style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>
-                      Choose date of birth
+                    <Text style={{ color: C.paper, fontSize: 12, fontWeight: "900" }}>
+                      Open futuristic calendar
                     </Text>
                   </Pressable>
-                  {dobPickerOpen ? (
-                    <DateTimePicker
-                      value={draftBirthDate}
-                      mode="date"
-                      display="default"
-                      minimumDate={new Date(1900, 0, 1)}
-                      maximumDate={new Date()}
-                      onChange={(event, date) => {
-                        setDobPickerOpen(false);
-                        if (event.type === "dismissed") return;
-                        if (date) {
-                          setDraftBirthDate(date);
-                          setDobStatus("unsaved");
-                          update({ dateOfBirth: "" });
-                        }
-                      }}
-                    />
-                  ) : null}
+                  <FuturisticBirthDatePicker
+                    visible={dobPickerOpen}
+                    value={draftBirthDate}
+                    onClose={() => setDobPickerOpen(false)}
+                    onChange={(date) => {
+                      setDraftBirthDate(date);
+                      setDobStatus("unsaved");
+                      update({ dateOfBirth: "" });
+                    }}
+                  />
                 </View>
               )}
               <Button
