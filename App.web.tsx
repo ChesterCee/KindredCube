@@ -248,13 +248,13 @@ function Landing({ onStart }: { onStart: () => void }) {
   const compact = width < 760;
   const short = height < 720;
   const visualHeight = compact
-    ? Math.max(158, Math.min(short ? 215 : 265, height * (short ? 0.27 : 0.31)))
+    ? Math.max(short ? 245 : 305, Math.min(short ? 320 : 390, height * (short ? 0.42 : 0.44)))
     : Math.max(330, Math.min(590, height - 190));
-  const cardHeight = visualHeight * 0.9;
-  const cardWidth = Math.min(compact ? width * 0.7 : 390, cardHeight * 0.76);
+  const cardHeight = visualHeight * (compact ? 0.94 : 0.9);
+  const cardWidth = Math.min(compact ? width * 0.78 : 390, cardHeight * 0.76);
   const heartSize = short ? 50 : 72;
   const headingSize = compact
-    ? Math.max(27, Math.min(short ? 34 : 41, width * 0.105))
+    ? Math.max(31, Math.min(short ? 38 : 46, width * 0.112))
     : Math.max(48, Math.min(76, height * 0.085));
   const frontProfile = previewProfiles[cardIndex];
   const nextProfile = previewProfiles[(cardIndex + 1) % previewProfiles.length];
@@ -273,17 +273,17 @@ function Landing({ onStart }: { onStart: () => void }) {
     return () => window.clearInterval(timer);
   }, [swiping]);
   return (
-    <ScrollView scrollEnabled={false} contentInsetAdjustmentBehavior="automatic" style={{ flex: 1, backgroundColor: C.cream }} contentContainerStyle={{ height: "100vh" as any, paddingHorizontal: compact ? 14 : 42, paddingTop: compact ? 7 : 18, paddingBottom: compact ? 9 : 18, gap: compact ? 4 : 18, overflow: "hidden" }}>
+    <ScrollView scrollEnabled={false} contentInsetAdjustmentBehavior="automatic" style={{ flex: 1, backgroundColor: C.cream }} contentContainerStyle={{ minHeight: height, paddingHorizontal: compact ? 16 : 42, paddingTop: compact ? 10 : 18, paddingBottom: compact ? 18 : 18, gap: compact ? 10 : 18, overflow: "hidden" }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", maxWidth: 1320, width: "100%", alignSelf: "center" }}>
         <Logo compact={compact} />
       </View>
-      <View style={{ flex: 1, minHeight: 0, width: "100%", maxWidth: 1320, alignSelf: "center", flexDirection: compact ? "column" : "row", alignItems: "center", justifyContent: compact ? "flex-start" : "center", gap: compact ? 2 : 54 }}>
-        <View style={{ width: compact ? "100%" : 520, height: visualHeight, position: "relative", flexShrink: 1, transform: [{ translateX: compact ? 14 : 42 }] }}>
+      <View style={{ flex: 1, minHeight: 0, width: "100%", maxWidth: 1320, alignSelf: "center", flexDirection: compact ? "column" : "row", alignItems: "center", justifyContent: compact ? "space-between" : "center", gap: compact ? 12 : 54 }}>
+        <View style={{ width: compact ? "100%" : 520, height: visualHeight, position: "relative", flexShrink: 1, transform: [{ translateX: compact ? 8 : 42 }] }}>
           <View style={{ position: "absolute", top: visualHeight * .04, left: compact ? width * .04 : 18, width: cardWidth, height: cardHeight, borderRadius: short ? 24 : 34, overflow: "hidden", opacity: swiping ? 1 : .68, transform: [{ translateX: swiping ? 0 : -cardWidth * .58 }, { rotate: swiping ? "-4deg" : "-11deg" }, { scale: swiping ? 1.02 : .9 }], boxShadow: "0 26px 70px rgba(17,27,61,.25)", transitionProperty: "transform, opacity", transitionDuration: "950ms", transitionTimingFunction: "cubic-bezier(.2,.75,.2,1)" } as any}><Image source={nextProfile.photo} resizeMode="cover" style={{ width: "100%", height: "100%" }} /></View>
           <View style={{ position: "absolute", top: 0, left: compact ? width * .04 : 18, width: cardWidth, height: cardHeight * 1.03, borderRadius: short ? 24 : 34, overflow: "hidden", opacity: swiping ? 0 : 1, transform: [{ translateX: swiping ? cardWidth * 1.25 : 0 }, { rotate: swiping ? "13deg" : "-4deg" }, { scale: swiping ? .94 : 1 }], boxShadow: "0 30px 76px rgba(17,27,61,.28)", transitionProperty: "transform, opacity", transitionDuration: "950ms", transitionTimingFunction: "cubic-bezier(.25,.7,.2,1)" } as any}><Image source={frontProfile.photo} resizeMode="cover" style={{ width: "100%", height: "100%" }} /><View style={{ position: "absolute", left: short ? 8 : 18, right: short ? 8 : 18, bottom: short ? 8 : 18, borderRadius: short ? 12 : 20, padding: short ? 8 : 16, backgroundColor: "rgba(255,255,255,.86)", gap: short ? 1 : 5 } as any}><Text style={{ color: C.ink, fontSize: short ? 14 : 22, fontWeight: "900" }}>{frontProfile.name}, {frontProfile.age}</Text><Text numberOfLines={1} style={{ color: C.muted, fontSize: short ? 10 : 14 }}>{frontProfile.role} · {frontProfile.culture}</Text></View></View>
           <Pressable accessibilityRole="button" accessibilityLabel="Like this profile and show the next person" onPress={swipeRight} style={({ pressed }: any) => ({ position: "absolute", zIndex: 20, left: (compact ? width * .04 : 18) + cardWidth - heartSize * .78, top: cardHeight * .77, width: heartSize, height: heartSize, borderRadius: heartSize / 2, backgroundColor: C.coral, alignItems: "center", justifyContent: "center", transform: [{ scale: pressed ? .9 : 1 }], boxShadow: "0 18px 30px rgba(242,77,103,.3)" }) as any}><Heart size={short ? 22 : 31} color="white" fill="white" /></Pressable>
         </View>
-        <View style={{ flex: compact ? 0 : 1, width: "100%", maxWidth: 620, gap: compact ? (short ? 5 : 8) : 18, transform: [{ translateY: compact ? -8 : 0 }] }}>
+        <View style={{ flex: compact ? 0 : 1, width: "100%", maxWidth: 620, gap: compact ? (short ? 7 : 10) : 18, transform: [{ translateY: 0 }] }}>
           <Text selectable style={{ color: C.ink, fontSize: headingSize, lineHeight: headingSize * .99, fontWeight: "900", letterSpacing: compact ? -1.7 : -3.5 }}>Meet the right person that feels like <Text style={{ color: C.blue }}>home.</Text></Text>
           <Text selectable style={{ color: C.muted, fontSize: compact ? (short ? 14 : 16) : 19, lineHeight: compact ? (short ? 20 : 24) : 28, maxWidth: 550 }}>KindredCube finds your Kindred—a person who shares your values and personality.</Text>
           <View style={{ alignSelf: compact ? "stretch" : "flex-start", marginTop: compact ? -2 : 2 }}><PrimaryButton label="What is KindredCube?" onPress={() => { window.location.href = "/about"; }} /></View>

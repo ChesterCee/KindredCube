@@ -49,9 +49,20 @@ async function bootstrap() {
         "http://localhost:8081",
         "http://127.0.0.1:8081",
       ];
+  const isAllowedKindredCubeOrigin = (origin: string) =>
+    origins.includes(origin) ||
+    /^https:\/\/([a-z0-9-]+\.)?kindredcube\.com$/i.test(origin) ||
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
   app.enableCors({
-    origin: origins,
+    origin: (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) => {
+      if (!origin || isAllowedKindredCubeOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Admin-MFA"],
     credentials: false,
   });
   await app.listen(Number(process.env.PORT || 3001), "0.0.0.0");
