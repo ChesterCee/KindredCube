@@ -143,7 +143,7 @@ export class AdminModerationController {
   @Get("queue")
   async queue(@Req() request: AuthenticatedRequest, @Headers("x-admin-mfa") adminMfaToken?: string) {
     return this.withAdmin(request.user.id, request.user.sessionId, adminMfaToken, async (client) => {
-      const userStats = await client.query(
+      const userStats = await safeRows<{ total_users: number; active_users: number; pending_users: number; suspended_users: number; deleted_users: number }>(client,
         `SELECT
            count(*)::int AS total_users,
            count(*) FILTER (WHERE status = 'active')::int AS active_users,
@@ -151,22 +151,31 @@ export class AdminModerationController {
            count(*) FILTER (WHERE status = 'suspended')::int AS suspended_users,
            count(*) FILTER (WHERE status = 'deleted')::int AS deleted_users
          FROM users`,
+        [],
+        [{ total_users: 0, active_users: 0, pending_users: 0, suspended_users: 0, deleted_users: 0 }],
+        "admin user stats",
       );
-      const purchaseStats = await client.query(
+      const purchaseStats = await safeRows(client,
         `SELECT purchase_type, status, count(*)::int AS count, COALESCE(sum(amount_cents), 0)::int AS amount_cents
            FROM payment_orders
           GROUP BY purchase_type, status
           ORDER BY purchase_type, status`,
+        [],
+        [],
+        "admin purchase stats",
       );
-      const purchases = await client.query(
+      const purchases = await safeRows(client,
         `SELECT po.id, po.user_id, u.public_username::text AS username, po.purchase_type, po.status,
                 po.amount_cents, po.currency, po.created_at, po.paid_at
            FROM payment_orders po
            JOIN users u ON u.id = po.user_id
           ORDER BY po.created_at DESC
           LIMIT 120`,
+        [],
+        [],
+        "admin purchases",
       );
-      const reports = await client.query(
+      const reports = await safeRows(client,
         `WITH targets AS (
            SELECT reported_profile_id AS profile_id FROM safety_reports
            UNION
@@ -206,15 +215,21 @@ export class AdminModerationController {
           ) lb ON true
          ORDER BY latest_at DESC
          LIMIT 100`,
+        [],
+        [],
+        "admin reports and blocks",
       );
-      const appeals = await client.query(
+      const appeals = await safeRows(client,
         `SELECT id, user_id, email::text, public_username, details, status, created_at, reviewed_at, moderator_notes
            FROM moderation_appeals
           WHERE status IN ('submitted', 'reviewing')
           ORDER BY created_at DESC
           LIMIT 50`,
+        [],
+        [],
+        "admin appeals",
       );
-      const supportTickets = await client.query(
+      const supportTickets = await safeRows(client,
         `SELECT st.id, st.ticket_number AS "ticketNumber", st.user_id AS "userId",
                 COALESCE(u.email::text, st.contact_email) AS email,
                 COALESCE(u.public_username::text, st.contact_email, 'Email support') AS username,
@@ -226,14 +241,17 @@ export class AdminModerationController {
            LEFT JOIN users u ON u.id = st.user_id
           ORDER BY st.created_at DESC
           LIMIT 100`,
+        [],
+        [],
+        "admin support tickets",
       );
       return {
-        stats: userStats.rows[0],
-        purchaseStats: purchaseStats.rows,
-        purchases: purchases.rows,
-        queue: reports.rows,
-        appeals: appeals.rows,
-        supportTickets: await hydrateSupportTicketMessages(client, supportTickets.rows),
+        stats: userStats[0],
+        purchaseStats,
+        purchases,
+        queue: reports,
+        appeals,
+        supportTickets: await hydrateSupportTicketMessages(client, supportTickets),
       };
     });
   }
@@ -410,7 +428,7 @@ export class AdminModerationController {
   @Get("legal-content")
   async legalContent(@Req() request: AuthenticatedRequest, @Headers("x-admin-mfa") adminMfaToken?: string) {
     return this.withAdmin(request.user.id, request.user.sessionId, adminMfaToken, async (client) => {
-      const result = await client.query(
+      const pages = await safeRows(client,
         `SELECT slug, title, summary, body, image_urls AS "imageUrls", updated_at AS "updatedAt"
            FROM legal_content_pages
           ORDER BY CASE slug
@@ -419,8 +437,11 @@ export class AdminModerationController {
             WHEN 'community-guidelines' THEN 3
             ELSE 9
           END`,
+        [],
+        [],
+        "admin legal content",
       );
-      return { pages: result.rows };
+      return { pages };
     });
   }
 
@@ -594,7 +615,7 @@ export class AdminModerationController {
 async function hydrateSupportTicketMessages(client: import("pg").PoolClient, tickets: any[]) {
   if (!tickets.length) return tickets;
   const ids = tickets.map((ticket) => ticket.id);
-  const messages = await client.query(
+  const messages = await safeRows<any>(client,
     `SELECT id, ticket_id AS "ticketId", sender_type AS "senderType",
             sender_user_id AS "senderUserId", sender_email AS "senderEmail",
             body, source, created_at AS "createdAt"
@@ -602,14 +623,42 @@ async function hydrateSupportTicketMessages(client: import("pg").PoolClient, tic
       WHERE ticket_id = ANY($1::uuid[])
       ORDER BY created_at ASC`,
     [ids],
+    [],
+    "admin support ticket messages",
   );
   const byTicket = new Map<string, any[]>();
-  for (const message of messages.rows) {
+  for (const message of messages) {
     const list = byTicket.get(message.ticketId) || [];
     list.push(message);
     byTicket.set(message.ticketId, list);
   }
   return tickets.map((ticket) => ({ ...ticket, messages: byTicket.get(ticket.id) || [] }));
+}
+
+async function safeRows<T extends import("pg").QueryResultRow = any>(
+  client: import("pg").PoolClient,
+  sql: string,
+  params: unknown[] = [],
+  fallback: T[] = [],
+  label = "admin query",
+): Promise<T[]> {
+  const savepoint = `admin_safe_query_${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    await client.query(`SAVEPOINT ${savepoint}`);
+    const result = await client.query<T>(sql, params);
+    await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+    return result.rows;
+  } catch (error) {
+    try {
+      await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+      await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+    } catch {
+      // If the connection is already unusable, let the fallback response continue as far as possible.
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn(`[AdminModerationController] ${label} unavailable: ${detail}`);
+    return fallback;
+  }
 }
 
 function sha256(value: string) {
