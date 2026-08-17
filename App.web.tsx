@@ -32,6 +32,7 @@ import {
   type AuthenticatedUser,
   type DiscoveryCandidate,
   getDiscoveryCandidates,
+  getCurrentUser,
   likeMemberProfile,
   loginAccount,
   logoutAccount,
@@ -85,6 +86,8 @@ const previewProfiles = [
   { id: "preview-11", name: "Léa", age: 29, role: "Product designer", culture: "Lucerne", photo: require("./assets/web/lea.png"), match: 91 },
   { id: "preview-12", name: "Hannah", age: 30, role: "Sustainability lead", culture: "Berlin", photo: require("./assets/web/hannah.png"), match: 87 },
 ];
+
+const ADMIN_MFA_TOKEN_STORAGE_KEY = "kindredcube.admin-mfa-token";
 
 function Logo({ compact = false }: { compact?: boolean }) {
   return (
@@ -248,7 +251,7 @@ function Landing({ onStart }: { onStart: () => void }) {
   const compact = width < 760;
   const short = height < 720;
   const visualHeight = compact
-    ? Math.max(short ? 205 : 245, Math.min(short ? 255 : 315, height * (short ? 0.32 : 0.35)))
+    ? Math.max(short ? 190 : 225, Math.min(short ? 235 : 285, height * (short ? 0.29 : 0.31)))
     : Math.max(330, Math.min(590, height - 190));
   const cardHeight = visualHeight * (compact ? 0.94 : 0.9);
   const cardWidth = Math.min(compact ? width * 0.78 : 390, cardHeight * 0.76);
@@ -282,17 +285,17 @@ function Landing({ onStart }: { onStart: () => void }) {
         height: compact ? ("100dvh" as any) : undefined,
         flexGrow: 1,
         paddingHorizontal: compact ? 16 : 42,
-        paddingTop: compact ? 14 : 18,
+        paddingTop: compact ? 26 : 18,
         paddingBottom: compact ? 16 : 18,
-        gap: compact ? 8 : 18,
+        gap: compact ? 10 : 18,
         overflow: "hidden",
       }}
     >
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", maxWidth: 1320, width: "100%", alignSelf: "center" }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", maxWidth: 1320, width: "100%", alignSelf: "center", minHeight: compact ? 54 : undefined, zIndex: 4 }}>
         <Logo compact={compact} />
       </View>
       <View style={{ flex: 1, minHeight: 0, width: "100%", maxWidth: 1320, alignSelf: "center", flexDirection: compact ? "column" : "row", alignItems: "center", justifyContent: compact ? "flex-start" : "center", gap: compact ? (short ? 8 : 12) : 54 }}>
-        <View style={{ width: compact ? "100%" : 520, height: visualHeight, position: "relative", flexShrink: 1, marginTop: compact ? (short ? 10 : 18) : 0, transform: [{ translateX: compact ? 8 : 42 }] }}>
+        <View style={{ width: compact ? "100%" : 520, height: visualHeight, position: "relative", flexShrink: 1, marginTop: compact ? (short ? 0 : 8) : 0, transform: [{ translateX: compact ? 8 : 42 }] }}>
           <View style={{ position: "absolute", top: visualHeight * .04, left: compact ? width * .04 : 18, width: cardWidth, height: cardHeight, borderRadius: short ? 24 : 34, overflow: "hidden", opacity: swiping ? 1 : .68, transform: [{ translateX: swiping ? 0 : -cardWidth * .58 }, { rotate: swiping ? "-4deg" : "-11deg" }, { scale: swiping ? 1.02 : .9 }], boxShadow: "0 26px 70px rgba(17,27,61,.25)", transitionProperty: "transform, opacity", transitionDuration: "950ms", transitionTimingFunction: "cubic-bezier(.2,.75,.2,1)" } as any}><Image source={nextProfile.photo} resizeMode="cover" style={{ width: "100%", height: "100%" }} /></View>
           <View style={{ position: "absolute", top: 0, left: compact ? width * .04 : 18, width: cardWidth, height: cardHeight * 1.03, borderRadius: short ? 24 : 34, overflow: "hidden", opacity: swiping ? 0 : 1, transform: [{ translateX: swiping ? cardWidth * 1.25 : 0 }, { rotate: swiping ? "13deg" : "-4deg" }, { scale: swiping ? .94 : 1 }], boxShadow: "0 30px 76px rgba(17,27,61,.28)", transitionProperty: "transform, opacity", transitionDuration: "950ms", transitionTimingFunction: "cubic-bezier(.25,.7,.2,1)" } as any}><Image source={frontProfile.photo} resizeMode="cover" style={{ width: "100%", height: "100%" }} /><View style={{ position: "absolute", left: short ? 8 : 18, right: short ? 8 : 18, bottom: short ? 8 : 18, borderRadius: short ? 12 : 20, padding: short ? 8 : 16, backgroundColor: "rgba(255,255,255,.86)", gap: short ? 1 : 5 } as any}><Text style={{ color: C.ink, fontSize: short ? 14 : 22, fontWeight: "900" }}>{frontProfile.name}, {frontProfile.age}</Text><Text numberOfLines={1} style={{ color: C.muted, fontSize: short ? 10 : 14 }}>{frontProfile.role} · {frontProfile.culture}</Text></View></View>
           <Pressable accessibilityRole="button" accessibilityLabel="Like this profile and show the next person" onPress={swipeRight} style={({ pressed }: any) => ({ position: "absolute", zIndex: 20, left: (compact ? width * .04 : 18) + cardWidth - heartSize * .78, top: cardHeight * .77, width: heartSize, height: heartSize, borderRadius: heartSize / 2, backgroundColor: C.coral, alignItems: "center", justifyContent: "center", transform: [{ scale: pressed ? .9 : 1 }], boxShadow: "0 18px 30px rgba(242,77,103,.3)" }) as any}><Heart size={short ? 22 : 31} color="white" fill="white" /></Pressable>
@@ -403,6 +406,9 @@ function AdminPortal() {
   const adminOwnerEmail = "chester.chirenje@tectavis.com";
 
   const clearAdminState = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(ADMIN_MFA_TOKEN_STORAGE_KEY);
+    }
     setAdminUser(null);
     setEmail("");
     setPassword("");
@@ -423,6 +429,30 @@ function AdminPortal() {
     setLegalImageText("");
     setTicketReplies({});
     setTicketCloseReasons({});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const savedMfaToken = typeof window !== "undefined"
+      ? window.localStorage.getItem(ADMIN_MFA_TOKEN_STORAGE_KEY) || ""
+      : "";
+    if (savedMfaToken) setMfaToken(savedMfaToken);
+    getCurrentUser()
+      .then((user) => {
+        if (cancelled) return;
+        if (user.email.toLowerCase() === adminOwnerEmail) {
+          setAdminUser(user);
+        } else {
+          window.localStorage.removeItem(ADMIN_MFA_TOKEN_STORAGE_KEY);
+          setMfaToken("");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        window.localStorage.removeItem(ADMIN_MFA_TOKEN_STORAGE_KEY);
+        setMfaToken("");
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const secureAdminLogout = useCallback((message = "Your secure admin session expired. Please sign in again.") => {
@@ -531,6 +561,9 @@ function AdminPortal() {
     try {
       const result = await verifyAdminMfaCode(code.trim());
       setMfaToken(result.adminMfaToken);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(ADMIN_MFA_TOKEN_STORAGE_KEY, result.adminMfaToken);
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Admin verification failed.");
     } finally { setBusy(false); }
@@ -618,6 +651,10 @@ function AdminPortal() {
 
   const purchaseColors = { premium: C.yellow, kindred_pass: "#6A39B8", wallet: "#111111" } as const;
   const purchaseLabels = { premium: "Premium", kindred_pass: "KindredPass", wallet: "Wallet" } as const;
+  const paidPurchases = useMemo(
+    () => purchases.filter((purchase) => purchase.status === "paid" && Boolean(purchase.paid_at || purchase.created_at)),
+    [purchases],
+  );
   const purchaseTrend = useMemo(() => {
     const days = Array.from({ length: 14 }, (_, index) => {
       const date = new Date();
@@ -626,9 +663,9 @@ function AdminPortal() {
       return { key, label: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }), premium: 0, kindred_pass: 0, wallet: 0 };
     });
     const indexByDay = new Map(days.map((day, index) => [day.key, index]));
-    purchases.forEach((purchase) => {
+    paidPurchases.forEach((purchase) => {
       if (!purchase?.created_at || !(purchase.purchase_type in purchaseLabels)) return;
-      const parsedDate = new Date(purchase.created_at);
+      const parsedDate = new Date(purchase.paid_at || purchase.created_at);
       if (Number.isNaN(parsedDate.getTime())) return;
       const key = parsedDate.toISOString().slice(0, 10);
       const index = indexByDay.get(key);
@@ -636,9 +673,9 @@ function AdminPortal() {
       days[index][purchase.purchase_type] += 1;
     });
     return days;
-  }, [purchaseLabels, purchases]);
+  }, [paidPurchases, purchaseLabels]);
   const maxPurchaseTrendValue = Math.max(1, ...purchaseTrend.flatMap((day) => [day.premium, day.kindred_pass, day.wallet]));
-  const recentPurchaseTotal = (type: "premium" | "kindred_pass" | "wallet") => purchases.filter((purchase) => purchase.purchase_type === type).length;
+  const recentPurchaseTotal = (type: "premium" | "kindred_pass" | "wallet") => paidPurchases.filter((purchase) => purchase.purchase_type === type).length;
 
   if (!adminUser) return (
     <View style={{ flex: 1, minHeight: "100vh", backgroundColor: "#F7F9FE", alignItems: "center", justifyContent: "center", padding: 20 } as any}>
@@ -779,7 +816,7 @@ function AdminPortal() {
           <View style={{ backgroundColor: C.paper, borderRadius: 24, padding: compact ? 16 : 22, gap: 14, borderWidth: 1, borderColor: C.line, boxShadow: "0 18px 45px rgba(17,27,61,.08)" } as any}>
             <View>
               <Text style={{ color: C.ink, fontSize: 24, fontWeight: "900" }}>Purchases trend</Text>
-              <Text style={{ color: C.muted, lineHeight: 20 }}>Premium, KindredPass, and Wallet purchases over the last 14 days.</Text>
+              <Text style={{ color: C.muted, lineHeight: 20 }}>Completed Premium, KindredPass, and Wallet sales over the last 14 days. Pending transactions are excluded.</Text>
             </View>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
               {(["premium", "kindred_pass", "wallet"] as const).map((type) => (
@@ -801,7 +838,7 @@ function AdminPortal() {
                     {(["premium", "kindred_pass", "wallet"] as const).map((type) => (
                       <View
                         key={type}
-                        title={`${purchaseLabels[type]}: ${day[type]}`}
+                        title={`${day.label} · ${purchaseLabels[type]} completed sales: ${day[type]}`}
                         style={{
                           width: compact ? 7 : 10,
                           height: Math.max(6, (day[type] / maxPurchaseTrendValue) * 142),

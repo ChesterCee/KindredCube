@@ -158,6 +158,7 @@ export class AdminModerationController {
       const purchaseStats = await safeRows(client,
         `SELECT purchase_type, status, count(*)::int AS count, COALESCE(sum(amount_cents), 0)::int AS amount_cents
            FROM payment_orders
+          WHERE status = 'paid'
           GROUP BY purchase_type, status
           ORDER BY purchase_type, status`,
         [],
