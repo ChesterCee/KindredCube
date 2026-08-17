@@ -113,7 +113,8 @@ export class SupportController {
         [ticketNumber, request.user.id, input.reason, fullMessage],
       );
       const ticket = result.rows[0];
-      await client.query(
+      await safeSupportTicketMessageInsert(
+        client,
         `INSERT INTO support_ticket_messages (ticket_id, sender_type, sender_user_id, body, source)
          VALUES ($1, 'user', $2, $3, 'app')`,
         [ticket.id, request.user.id, fullMessage],
@@ -147,7 +148,8 @@ export class SupportController {
         [ticketId, request.user.id, closeReason],
       );
       if (!result.rows[0]) return { closed: false, ticket: null };
-      await client.query(
+      await safeSupportTicketMessageInsert(
+        client,
         `INSERT INTO support_ticket_messages (ticket_id, sender_type, sender_user_id, body, source)
          VALUES ($1, 'user', $2, $3, 'app')`,
         [ticketId, request.user.id, `Closed ticket: ${closeReason}`],
@@ -178,7 +180,8 @@ export class SupportController {
       const ticket = ticketResult.rows[0];
       if (!ticket) throw new ForbiddenException("Support ticket not found.");
       if (ticket.status === "closed") throw new ForbiddenException("This support ticket is closed.");
-      await client.query(
+      await safeSupportTicketMessageInsert(
+        client,
         `INSERT INTO support_ticket_messages (ticket_id, sender_type, sender_user_id, body, source)
          VALUES ($1, 'user', $2, $3, 'app')`,
         [ticketId, request.user.id, input.message.trim()],
@@ -349,7 +352,8 @@ async function createInboundEmailTicket(
      RETURNING id, ticket_number AS "ticketNumber"`,
     [createTicketNumber(), userId, fromEmail, reason, message],
   );
-  await client.query(
+  await safeSupportTicketMessageInsert(
+    client,
     `INSERT INTO support_ticket_messages
       (ticket_id, sender_type, sender_user_id, sender_email, body, source, external_message_id)
      VALUES ($1, 'email', $2, $3, $4, 'email', $5)`,
@@ -361,15 +365,21 @@ async function createInboundEmailTicket(
 async function hydrateTicketMessages(client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }> }, tickets: any[]) {
   if (!tickets.length) return tickets;
   const ids = tickets.map((ticket) => ticket.id);
-  const messages = await client.query(
-    `SELECT id, ticket_id AS "ticketId", sender_type AS "senderType",
-            sender_user_id AS "senderUserId", sender_email AS "senderEmail",
-            body, source, created_at AS "createdAt"
-       FROM support_ticket_messages
-      WHERE ticket_id = ANY($1::uuid[])
-      ORDER BY created_at ASC`,
-    [ids],
-  );
+  let messages: { rows: any[] };
+  try {
+    messages = await client.query(
+      `SELECT id, ticket_id AS "ticketId", sender_type AS "senderType",
+              sender_user_id AS "senderUserId", sender_email AS "senderEmail",
+              body, source, created_at AS "createdAt"
+         FROM support_ticket_messages
+        WHERE ticket_id = ANY($1::uuid[])
+        ORDER BY created_at ASC`,
+      [ids],
+    );
+  } catch (error) {
+    console.warn(`[SupportController] support ticket messages unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    return tickets.map((ticket) => ({ ...ticket, messages: [] }));
+  }
   const byTicket = new Map<string, any[]>();
   for (const message of messages.rows) {
     const list = byTicket.get(message.ticketId) || [];
@@ -377,6 +387,27 @@ async function hydrateTicketMessages(client: { query: (sql: string, params?: unk
     byTicket.set(message.ticketId, list);
   }
   return tickets.map((ticket) => ({ ...ticket, messages: byTicket.get(ticket.id) || [] }));
+}
+
+async function safeSupportTicketMessageInsert(
+  client: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  sql: string,
+  params: unknown[],
+) {
+  const savepoint = `support_message_${randomBytes(4).toString("hex")}`;
+  try {
+    await client.query(`SAVEPOINT ${savepoint}`);
+    await client.query(sql, params);
+    await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+  } catch (error) {
+    try {
+      await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+      await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+    } catch {
+      // The outer request can still return the primary support ticket when possible.
+    }
+    console.warn(`[SupportController] support ticket message write skipped: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function asText(value: unknown) {
