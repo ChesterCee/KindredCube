@@ -73,18 +73,18 @@ const C = {
 };
 
 const previewProfiles = [
-  { id: "preview-1", name: "Claire", age: 29, role: "Creative producer", culture: "New York", photo: require("./assets/web/claire.png"), match: 94 },
-  { id: "preview-2", name: "Aaliyah", age: 30, role: "Architect", culture: "Atlanta", photo: require("./assets/web/aaliyah.png"), match: 91 },
-  { id: "preview-3", name: "Aiko", age: 27, role: "Ceramic artist", culture: "Tokyo", photo: require("./assets/web/aiko.png"), match: 89 },
-  { id: "preview-4", name: "Camila", age: 28, role: "Marine biologist", culture: "Rio de Janeiro", photo: require("./assets/web/camila.png"), match: 87 },
-  { id: "preview-5", name: "Nandi", age: 31, role: "Urban designer", culture: "Durban", photo: require("./assets/web/nandi.png"), match: 93 },
-  { id: "preview-6", name: "Tariro", age: 28, role: "Founder", culture: "Harare", photo: require("./assets/web/tariro.png"), match: 90 },
-  { id: "preview-7", name: "Sofía", age: 28, role: "Food writer", culture: "Mexico City", photo: require("./assets/web/sofia.png"), match: 88 },
-  { id: "preview-8", name: "Maya", age: 29, role: "Travel photographer", culture: "Palawan", photo: require("./assets/web/maya.png"), match: 92 },
-  { id: "preview-9", name: "Mei", age: 30, role: "Floral designer", culture: "Shanghai", photo: require("./assets/web/mei.png"), match: 86 },
-  { id: "preview-10", name: "Olivia", age: 31, role: "Editorial director", culture: "London", photo: require("./assets/web/olivia.png"), match: 89 },
-  { id: "preview-11", name: "Léa", age: 29, role: "Product designer", culture: "Lucerne", photo: require("./assets/web/lea.png"), match: 91 },
-  { id: "preview-12", name: "Hannah", age: 30, role: "Sustainability lead", culture: "Berlin", photo: require("./assets/web/hannah.png"), match: 87 },
+  { id: "preview-1", name: "Claire", age: 29, role: "Creative producer", culture: "Graduate degree", photo: require("./assets/web/claire.png"), match: 94 },
+  { id: "preview-2", name: "Aaliyah", age: 30, role: "Architect", culture: "Undergraduate degree", photo: require("./assets/web/aaliyah.png"), match: 91 },
+  { id: "preview-3", name: "Aiko", age: 27, role: "Ceramic artist", culture: "Still in college", photo: require("./assets/web/aiko.png"), match: 89 },
+  { id: "preview-4", name: "Camila", age: 28, role: "Marine biologist", culture: "Graduate degree", photo: require("./assets/web/camila.png"), match: 87 },
+  { id: "preview-5", name: "Nandi", age: 31, role: "Urban designer", culture: "Undergraduate degree", photo: require("./assets/web/nandi.png"), match: 93 },
+  { id: "preview-6", name: "Tariro", age: 28, role: "Founder", culture: "Graduate degree", photo: require("./assets/web/tariro.png"), match: 90 },
+  { id: "preview-7", name: "Sofía", age: 28, role: "Food writer", culture: "Still in college", photo: require("./assets/web/sofia.png"), match: 88 },
+  { id: "preview-8", name: "Maya", age: 29, role: "Travel photographer", culture: "Undergraduate degree", photo: require("./assets/web/maya.png"), match: 92 },
+  { id: "preview-9", name: "Mei", age: 30, role: "Floral designer", culture: "Graduate degree", photo: require("./assets/web/mei.png"), match: 86 },
+  { id: "preview-10", name: "Olivia", age: 31, role: "Editorial director", culture: "Undergraduate degree", photo: require("./assets/web/olivia.png"), match: 89 },
+  { id: "preview-11", name: "Léa", age: 29, role: "Product designer", culture: "Graduate degree", photo: require("./assets/web/lea.png"), match: 91 },
+  { id: "preview-12", name: "Hannah", age: 30, role: "Sustainability lead", culture: "Still in college", photo: require("./assets/web/hannah.png"), match: 87 },
 ];
 
 const ADMIN_MFA_TOKEN_STORAGE_KEY = "kindredcube.admin-mfa-token";
@@ -251,9 +251,9 @@ function Landing({ onStart }: { onStart: () => void }) {
   const compact = width < 760;
   const short = height < 720;
   const visualHeight = compact
-    ? Math.max(short ? 310 : 340, Math.min(short ? 345 : 390, height * (short ? 0.45 : 0.47)))
+    ? Math.max(short ? 340 : 370, Math.min(short ? 390 : 430, height * (short ? 0.5 : 0.52)))
     : Math.max(330, Math.min(590, height - 190));
-  const cardHeight = compact ? visualHeight - (short ? 28 : 34) : visualHeight * 0.9;
+  const cardHeight = compact ? visualHeight - (short ? 42 : 48) : visualHeight * 0.9;
   const cardWidth = Math.min(compact ? width * 0.72 : 390, cardHeight * 0.76);
   const heartSize = short ? 50 : 72;
   const headingSize = compact
@@ -309,7 +309,7 @@ function Landing({ onStart }: { onStart: () => void }) {
           <View style={{ position: "absolute", top: 10, left: compact ? Math.max(58, (width - cardWidth) / 2 + 18) : 18, width: cardWidth, height: cardHeight, borderRadius: short ? 22 : 34, overflow: "hidden", opacity: swiping ? 0 : 1, transform: [{ translateX: swiping ? cardWidth * 1.25 : 0 }, { rotate: swiping ? "13deg" : "-4deg" }, { scale: swiping ? .94 : 1 }], boxShadow: "0 30px 76px rgba(17,27,61,.28)", transitionProperty: "transform, opacity", transitionDuration: "950ms", transitionTimingFunction: "cubic-bezier(.25,.7,.2,1)" } as any}><Image source={frontProfile.photo} resizeMode="cover" style={{ width: "100%", height: "100%" }} /><View style={{ position: "absolute", left: short ? 8 : 18, right: short ? 8 : 18, bottom: short ? 8 : 18, borderRadius: short ? 12 : 20, padding: short ? 8 : 16, backgroundColor: "rgba(255,255,255,.86)", gap: short ? 1 : 5 } as any}><Text style={{ color: C.ink, fontSize: short ? 14 : 22, fontWeight: "900" }}>{frontProfile.name}, {frontProfile.age}</Text><Text numberOfLines={1} style={{ color: C.muted, fontSize: short ? 10 : 14 }}>{frontProfile.role} · {frontProfile.culture}</Text></View></View>
           <Pressable accessibilityRole="button" accessibilityLabel="Like this profile and show the next person" onPress={swipeRight} style={({ pressed }: any) => ({ position: "absolute", zIndex: 20, left: (compact ? Math.max(58, (width - cardWidth) / 2 + 18) : 18) + cardWidth - heartSize * .78, top: 10 + cardHeight * .77, width: heartSize, height: heartSize, borderRadius: heartSize / 2, backgroundColor: C.coral, alignItems: "center", justifyContent: "center", transform: [{ scale: pressed ? .9 : 1 }], boxShadow: "0 18px 30px rgba(242,77,103,.3)" }) as any}><Heart size={short ? 22 : 31} color="white" fill="white" /></Pressable>
         </View>
-        <View style={{ flex: compact ? 0 : 1, width: "100%", maxWidth: 620, gap: compact ? (short ? 7 : 10) : 18, justifyContent: "center", paddingBottom: compact ? 0 : 0, transform: [{ translateY: 0 }] }}>
+        <View style={{ flex: compact ? 0 : 1, width: "100%", maxWidth: 620, gap: compact ? (short ? 7 : 10) : 18, justifyContent: "center", paddingBottom: compact ? 0 : 0, marginTop: compact ? (short ? 18 : 24) : 0, transform: [{ translateY: 0 }] }}>
           <Text selectable style={{ color: C.ink, fontSize: headingSize, lineHeight: headingSize * .99, fontWeight: "900", letterSpacing: compact ? -1.7 : -3.5 }}>Meet the right person that feels like <Text style={{ color: C.blue }}>home.</Text></Text>
           <Text selectable style={{ color: C.muted, fontSize: compact ? (short ? 13 : 15) : 19, lineHeight: compact ? (short ? 18 : 22) : 28, maxWidth: 550 }}>KindredCube finds your Kindred—a person who shares your values and personality.</Text>
           <View style={{ alignSelf: compact ? "stretch" : "flex-start", marginTop: compact ? (short ? 8 : 12) : 2 }}><PrimaryButton label="What is KindredCube?" onPress={() => { window.location.href = "/about"; }} /></View>
