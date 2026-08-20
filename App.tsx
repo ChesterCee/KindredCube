@@ -9402,7 +9402,7 @@ function EditableProfileScreen({
         mediaTypes: "images",
         allowsMultipleSelection: true,
         selectionLimit: remainingSlots,
-        quality: 0.8,
+        quality: 0.45,
         base64: true,
       });
       if (result.canceled || !result.assets.length) return;
@@ -9423,6 +9423,7 @@ function EditableProfileScreen({
             asset.mimeType
             : "image/jpeg";
         try {
+          setVerificationNotice(`Uploading photo ${index + 1} of ${result.assets.slice(0, remainingSlots).length}…`);
           const uploaded = await uploadProfilePhoto({
             imageBase64,
             mimeType,
@@ -9447,6 +9448,11 @@ function EditableProfileScreen({
         }
         return next;
       });
+      setVerificationNotice(
+        selectedPhotos.length === 1
+          ? "Photo uploaded. Tap Save to keep this profile change."
+          : `${selectedPhotos.length} photos uploaded. Tap Save to keep these profile changes.`,
+      );
     } finally {
       photoUploadInFlightRef.current = false;
       setPhotoUploadBusy(false);

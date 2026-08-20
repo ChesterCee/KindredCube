@@ -110,7 +110,8 @@ async function request<T>(
   }
   let response: Response;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
+  const timeoutMs = path.includes("/media/") ? 60_000 : 15_000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const accessToken = authenticated ? await getAccessToken() : "";
     response = await fetch(`${API_URL}${path}`, {
@@ -124,7 +125,9 @@ async function request<T>(
     });
   } catch {
     throw new ApiError(
-      "KindredCube could not reach the secure sign-in service. Check your connection and try again.",
+      path.includes("/media/")
+        ? "KindredCube could not finish uploading this photo. Please check your connection and try again."
+        : "KindredCube could not reach the secure sign-in service. Check your connection and try again.",
       0,
       "NETWORK_ERROR",
     );
