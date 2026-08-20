@@ -298,7 +298,7 @@ function Landing({ onStart }: { onStart: () => void }) {
         height: compact ? ("100svh" as any) : undefined,
         flexGrow: 1,
         paddingHorizontal: compact ? 16 : 42,
-        paddingTop: compact ? 30 : 18,
+        paddingTop: compact ? 58 : 18,
         paddingBottom: compact ? 18 : 18,
         gap: compact ? 0 : 18,
         overflow: "hidden",
