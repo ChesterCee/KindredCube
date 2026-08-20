@@ -45,6 +45,7 @@ import {
   Reply,
   Send,
   Settings,
+  Share2,
   ShieldCheck,
   SlidersHorizontal,
   Star,
@@ -4262,7 +4263,7 @@ function ProfileDetail({
               boxShadow: "0 5px 14px rgba(34,31,27,0.22)",
             }}
           >
-            <Text style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>?</Text>
+            <Share2 width={22} height={22} color={C.ink} strokeWidth={2.8} />
           </Pressable>
         </View>
         {!readyMeetMode && Math.abs(profileSwipeDelta) > 20 ? (
@@ -4652,7 +4653,7 @@ function SuperSwipeStore({ onBack }: { onBack: () => void }) {
         <Text style={{ color: C.ink, fontWeight: "900" }}>{"♥ Connect"}</Text>
       </Pressable>
       <View style={{ alignItems: "center", gap: 7 }}>
-        <Text style={{ color: "#E2A415", fontSize: 45 }}>?</Text>
+        <Star width={46} height={46} color="#E2A415" fill="#FFF5D5" strokeWidth={2.8} />
         <Text
           selectable
           style={{
@@ -4737,7 +4738,7 @@ function SuperSwipeStore({ onBack }: { onBack: () => void }) {
         </Text>
       ) : null}
       <Button
-        label={`Continue to Stripe ? $${pack.total.toFixed(2)}`}
+        label={`Continue to Stripe · $${pack.total.toFixed(2)}`}
         onPress={checkout}
       />
       <Text
@@ -5006,9 +5007,7 @@ function Connect({
             justifyContent: "center",
           }}
         >
-          <Text style={{ color: C.muted, fontSize: 28, fontWeight: "700" }}>
-            ?
-          </Text>
+          <X width={26} height={26} color={C.muted} strokeWidth={2.8} />
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -5025,7 +5024,7 @@ function Connect({
             justifyContent: "center",
           }}
         >
-          <Text style={{ color: "#D39B00", fontSize: 29 }}>?</Text>
+          <Star width={30} height={30} color="#D39B00" fill="#FFF2BB" strokeWidth={2.8} />
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -5042,7 +5041,7 @@ function Connect({
             justifyContent: "center",
           }}
         >
-          <Text style={{ color: C.pink, fontSize: 29 }}>?</Text>
+          <Heart width={31} height={31} color={C.pink} fill="#F7A7C6" strokeWidth={2.5} />
         </Pressable>
       </View>
       <Text selectable style={{ color: C.muted, fontSize: 10 }}>
@@ -5254,7 +5253,7 @@ function MessagesScreen({
             onPress={() => setConversationOpen(false)}
             style={{ paddingVertical: 8, paddingRight: 4 }}
           >
-            <Text style={{ color: C.pink, fontSize: 25, fontWeight: "900" }}>?</Text>
+            <ChevronLeft width={28} height={28} color={C.pink} strokeWidth={3} />
           </Pressable>
         ) : null}
         {conversationOpen ? (
@@ -5568,7 +5567,7 @@ function ProfileCompletionScreen({ onConnect }: { onConnect: () => void }) {
             >
               {section}
             </Text>
-            <Text style={{ color: C.muted }}>?</Text>
+            <ChevronRight width={18} height={18} color={C.muted} strokeWidth={2.6} />
           </View>
         ))}
       </View>
@@ -5720,7 +5719,7 @@ function WalletScreen({
           onPress={onBack}
           style={{ paddingVertical: 8 }}
         >
-          <Text style={{ color: C.ink, fontWeight: "900" }}>? Settings</Text>
+          <Text style={{ color: C.ink, fontWeight: "900" }}>Settings</Text>
         </Pressable>
         <Text
           selectable
@@ -16637,7 +16636,7 @@ function profileOccupationEducationLine(profile: Profile) {
   return [
     profile.role ? `\u{1F4BC} ${profile.role}` : "",
     profileEducation(profile) ? `\u{1F393} ${profileEducation(profile)}` : "",
-  ].filter(Boolean).join(" ? ");
+  ].filter(Boolean).join(" • ");
 }
 
 function profileDetailEmoji(label: string) {
@@ -17362,7 +17361,7 @@ function ConnectExperienceDeck({
                   justifyContent: "center",
                 }}
               >
-                <Send width={22} height={22} color={C.ink} strokeWidth={2.7} />
+                <Share2 width={22} height={22} color={C.ink} strokeWidth={2.7} />
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -18035,7 +18034,7 @@ function LikedYouScreen() {
             justifyContent: "center",
           }}
         >
-          <Text style={{ color: C.pink, fontSize: 39 }}>?</Text>
+          <Heart width={42} height={42} color={C.pink} fill="#F7A7C6" strokeWidth={2.4} />
           <View
             style={{
               position: "absolute",
@@ -18122,7 +18121,7 @@ function FilterPanel({ onClose }: { onClose: () => void }) {
             justifyContent: "center",
           }}
         >
-          <Text style={{ color: C.ink, fontSize: 23 }}>?</Text>
+          <X width={23} height={23} color={C.ink} strokeWidth={2.8} />
         </Pressable>
       </View>
       <Text selectable style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}>
@@ -19082,7 +19081,7 @@ function ConnectFiltersTabbed({
                 {mustShareInterests.map((item) => (
                   <FilterChipButton
                     key={item}
-                    label={`${item} ?`}
+                    label={`${item} ×`}
                     selected
                     onPress={() =>
                       toggle(item, mustShareInterests, setMustShareInterests, 8)
@@ -19163,7 +19162,7 @@ function ConnectFiltersTabbed({
                 {languages.map((item) => (
                   <FilterChipButton
                     key={item}
-                    label={`${item} ?`}
+                    label={`${item} ×`}
                     selected
                     onPress={() => setLanguages([])}
                   />
@@ -19444,10 +19443,11 @@ async function registerDeviceForMessagePush() {
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("messages", {
       name: "Messages",
-      importance: Notifications.AndroidImportance.HIGH,
+      importance: Notifications.AndroidImportance.MAX,
       sound: "default",
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#EF2D6F",
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     });
   }
   const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
@@ -21124,8 +21124,9 @@ function FuturisticBirthDatePicker({
   onChange: (date: Date) => void;
   onClose: () => void;
 }) {
-  const { width } = useWindowDimensions();
-  const compact = width < 390;
+  const { width, height } = useWindowDimensions();
+  const compact = width < 430 || height < 820;
+  const panelMaxHeight = Math.min(620, Math.max(470, height - 48));
   const today = new Date();
   const minimumYear = 1900;
   const monthNames = [
@@ -21180,13 +21181,18 @@ function FuturisticBirthDatePicker({
         style={{
           flex: 1,
           backgroundColor: "rgba(6,10,25,0.72)",
-          paddingHorizontal: 18,
+          paddingHorizontal: 14,
+          paddingVertical: 18,
           justifyContent: "center",
         }}
       >
         <View
           style={{
-            borderRadius: 32,
+            width: "100%",
+            maxWidth: 480,
+            maxHeight: panelMaxHeight,
+            alignSelf: "center",
+            borderRadius: 28,
             borderCurve: "continuous",
             overflow: "hidden",
             backgroundColor: "#0D1535",
@@ -21195,10 +21201,14 @@ function FuturisticBirthDatePicker({
             boxShadow: "0 28px 80px rgba(0,0,0,0.45)",
           }}
         >
-          <View
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{
+              padding: compact ? 12 : 16,
+              gap: compact ? 10 : 13,
+            }}
             style={{
-              padding: compact ? 16 : 20,
-              gap: 16,
               backgroundColor: "rgba(255,255,255,0.06)",
             }}
           >
@@ -21207,7 +21217,7 @@ function FuturisticBirthDatePicker({
                 <Text style={{ color: "#FFD234", fontSize: 11, fontWeight: "900", letterSpacing: 1.2 }}>
                   BIRTH DATE
                 </Text>
-                <Text style={{ color: C.paper, fontFamily: BRAND_FONT, fontSize: compact ? 24 : 29, fontWeight: "700" }}>
+                <Text style={{ color: C.paper, fontFamily: BRAND_FONT, fontSize: compact ? 22 : 27, fontWeight: "700" }}>
                   Choose your day
                 </Text>
                 <Text style={{ color: "rgba(255,255,255,0.66)", fontSize: 12, lineHeight: 17 }}>
@@ -21219,9 +21229,9 @@ function FuturisticBirthDatePicker({
                 accessibilityLabel="Close date picker"
                 onPress={onClose}
                 style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 21,
+                  width: compact ? 38 : 42,
+                  height: compact ? 38 : 42,
+                  borderRadius: compact ? 19 : 21,
                   alignItems: "center",
                   justifyContent: "center",
                   backgroundColor: "rgba(255,255,255,0.11)",
@@ -21233,8 +21243,8 @@ function FuturisticBirthDatePicker({
 
             <View
               style={{
-                borderRadius: 24,
-                padding: 14,
+                borderRadius: 22,
+                padding: compact ? 10 : 12,
                 backgroundColor: "rgba(255,255,255,0.09)",
                 borderWidth: 1,
                 borderColor: "rgba(255,255,255,0.12)",
@@ -21246,28 +21256,28 @@ function FuturisticBirthDatePicker({
                   accessibilityRole="button"
                   accessibilityLabel="Previous year"
                   onPress={() => updateYear(visibleYear - 1)}
-                  style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.10)" }}
+                  style={{ width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.10)" }}
                 >
                   <ChevronLeft size={19} color={C.paper} />
                 </Pressable>
                 <View style={{ alignItems: "center", gap: 2 }}>
-                  <Text style={{ color: C.paper, fontSize: 26, fontWeight: "900" }}>{visibleYear}</Text>
+                  <Text style={{ color: C.paper, fontSize: compact ? 21 : 24, fontWeight: "900" }}>{visibleYear}</Text>
                   <Text style={{ color: "rgba(255,255,255,0.56)", fontSize: 10, fontWeight: "800" }}>tap arrows to adjust</Text>
                 </View>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Next year"
                   onPress={() => updateYear(visibleYear + 1)}
-                  style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.10)" }}
+                  style={{ width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.10)" }}
                 >
                   <ChevronRight size={19} color={C.paper} />
                 </Pressable>
               </View>
               <View style={{ flexDirection: "row", gap: 8 }}>
-                <Pressable onPress={() => updateYear(visibleYear - 10)} style={{ flex: 1, minHeight: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)" }}>
+                <Pressable onPress={() => updateYear(visibleYear - 10)} style={{ flex: 1, minHeight: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)" }}>
                   <Text style={{ color: "rgba(255,255,255,0.78)", fontSize: 12, fontWeight: "900" }}>-10 years</Text>
                 </Pressable>
-                <Pressable onPress={() => updateYear(visibleYear + 10)} style={{ flex: 1, minHeight: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)" }}>
+                <Pressable onPress={() => updateYear(visibleYear + 10)} style={{ flex: 1, minHeight: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)" }}>
                   <Text style={{ color: "rgba(255,255,255,0.78)", fontSize: 12, fontWeight: "900" }}>+10 years</Text>
                 </Pressable>
               </View>
@@ -21284,9 +21294,9 @@ function FuturisticBirthDatePicker({
                     disabled={disabled}
                     onPress={() => setVisibleMonth(index)}
                     style={{
-                      minWidth: 56,
-                      minHeight: 38,
-                      borderRadius: 19,
+                      minWidth: 50,
+                      minHeight: 34,
+                      borderRadius: 17,
                       alignItems: "center",
                       justifyContent: "center",
                       backgroundColor: active ? C.pink : "rgba(255,255,255,0.10)",
@@ -21300,7 +21310,7 @@ function FuturisticBirthDatePicker({
             </ScrollView>
 
             <View style={{ gap: 8 }}>
-              <Text style={{ color: C.paper, fontSize: 18, fontWeight: "900", textAlign: "center" }}>
+              <Text style={{ color: C.paper, fontSize: compact ? 15 : 17, fontWeight: "900", textAlign: "center" }}>
                 {monthNames[visibleMonth]} {visibleYear}
               </Text>
               <View style={{ flexDirection: "row", gap: 6 }}>
@@ -21325,9 +21335,9 @@ function FuturisticBirthDatePicker({
                       disabled={!calendarDay || disabled}
                       onPress={() => calendarDay && selectDay(calendarDay)}
                       style={{
-                        width: `${(100 / 7) - 1}%`,
-                        aspectRatio: 1,
-                        borderRadius: 18,
+                        width: `${(100 / 7) - 1.1}%`,
+                        height: compact ? 30 : 34,
+                        borderRadius: compact ? 15 : 17,
                         alignItems: "center",
                         justifyContent: "center",
                         backgroundColor: active ? "#FFD234" : calendarDay ? "rgba(255,255,255,0.09)" : "transparent",
@@ -21336,7 +21346,7 @@ function FuturisticBirthDatePicker({
                         opacity: disabled ? 0.28 : 1,
                       }}
                     >
-                      {calendarDay ? <Text style={{ color: active ? C.ink : C.paper, fontSize: 14, fontWeight: "900" }}>{calendarDay}</Text> : null}
+                      {calendarDay ? <Text style={{ color: active ? C.ink : C.paper, fontSize: compact ? 12 : 13, fontWeight: "900" }}>{calendarDay}</Text> : null}
                     </Pressable>
                   );
                 })}
@@ -21345,8 +21355,8 @@ function FuturisticBirthDatePicker({
 
             <View
               style={{
-                borderRadius: 22,
-                padding: 12,
+                borderRadius: 20,
+                padding: compact ? 10 : 12,
                 backgroundColor: "rgba(255,255,255,0.09)",
                 flexDirection: "row",
                 alignItems: "center",
@@ -21364,8 +21374,8 @@ function FuturisticBirthDatePicker({
                 accessibilityRole="button"
                 onPress={confirm}
                 style={{
-                  minHeight: 44,
-                  borderRadius: 22,
+                  minHeight: 40,
+                  borderRadius: 20,
                   paddingHorizontal: 18,
                   backgroundColor: C.pink,
                   alignItems: "center",
@@ -21375,7 +21385,7 @@ function FuturisticBirthDatePicker({
                 <Text style={{ color: C.paper, fontSize: 12, fontWeight: "900" }}>Use this date</Text>
               </Pressable>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -21543,7 +21553,7 @@ function Qualifier({
               textAlign: "center",
             }}
           >
-            YOUR MATCH ? {step + 1} OF 5
+            YOUR MATCH · {step + 1} OF 5
           </Text>
           <Text
             adjustsFontSizeToFit
@@ -21688,7 +21698,7 @@ function Qualifier({
                     })}
                   </Text>
                   <Text selectable style={{ color: "rgba(255,255,255,0.62)", fontSize: 11, fontWeight: "700", textAlign: "center" }}>
-                    Open the KindredCube calendar and choose your birthday.
+                    Open Calendar and choose your birthday.
                   </Text>
                   <Pressable
                     accessibilityRole="button"
@@ -21706,7 +21716,7 @@ function Qualifier({
                     }}
                   >
                     <Text style={{ color: C.paper, fontSize: 12, fontWeight: "900" }}>
-                      Open futuristic calendar
+                      Open Calendar
                     </Text>
                   </Pressable>
                   <FuturisticBirthDatePicker

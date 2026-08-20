@@ -115,10 +115,12 @@ export class EmailService {
   }) {
     const from = this.supportSender();
     const ticketNumber = input.ticketNumber.trim();
-    const replyToken = input.replyToken?.trim();
-    const replyToAddress = replyToken
-      ? `support+${ticketNumber.toLowerCase()}.${replyToken}@kindredcube.com`
-      : "support@kindredcube.com";
+    // Use the plain support inbox for replies. Some inbound providers do not
+    // accept plus-addressed aliases unless wildcard routing is explicitly
+    // configured, which causes user replies to bounce before Resend can webhook
+    // them back into the ticket. The ticket number in the subject is enough for
+    // KindredCube to attach the reply to the existing ticket.
+    const replyToAddress = "support@kindredcube.com";
     const subject = `Re: KindredCube Support ${ticketNumber}`;
     const text = [
       input.message.trim(),

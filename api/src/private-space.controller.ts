@@ -134,8 +134,8 @@ export class PrivateSpaceController {
       );
       if (banned.rowCount) throw new ForbiddenException("This account cannot use KindredCube.");
       const result = await client.query<{ id: string; mime_type: string; size_bytes: number }>(
-        `INSERT INTO profile_media (user_id, mime_type, size_bytes, data, sha256)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO profile_media (user_id, media_type, mime_type, size_bytes, data, sha256)
+         VALUES ($1, 'chat_media', $2, $3, $4, $5)
          RETURNING id, mime_type, size_bytes`,
         [request.user.id, input.mimeType, data.length, data, sha256],
       );
@@ -199,8 +199,8 @@ export class PrivateSpaceController {
     const sha256 = createHash("sha256").update(data).digest("hex");
     return this.database.withUser(request.user.id, async (client) => {
       const result = await client.query<{ id: string; mime_type: string; size_bytes: number }>(
-        `INSERT INTO profile_media (user_id, mime_type, size_bytes, data, sha256)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO profile_media (user_id, media_type, mime_type, size_bytes, data, sha256)
+         VALUES ($1, 'chat_media', $2, $3, $4, $5)
          RETURNING id, mime_type, size_bytes`,
         [request.user.id, input.mimeType, data.length, data, sha256],
       );

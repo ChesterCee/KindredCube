@@ -8,6 +8,7 @@ type ExpoPushMessage = {
   data?: Record<string, string>;
   sound?: "default";
   priority?: "default" | "normal" | "high";
+  channelId?: string;
 };
 
 @Injectable()
@@ -77,6 +78,7 @@ export class PushNotificationsService {
         body: "Open KindredCube to reply.",
         sound: "default",
         priority: "high",
+        channelId: "messages",
         data: {
           type: "chat_message",
           senderId,
