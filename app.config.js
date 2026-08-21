@@ -9,6 +9,7 @@ const plugins = appJson.expo.plugins || [];
 const hasBuildProperties = plugins.some((plugin) =>
   Array.isArray(plugin) ? plugin[0] === "expo-build-properties" : plugin === "expo-build-properties",
 );
+const easProjectId = process.env.EAS_PROJECT_ID || appJson.expo.extra?.eas?.projectId;
 
 if (!googleMapsApiKey) {
   console.warn(
@@ -21,9 +22,7 @@ module.exports = () => ({
   slug: appJson.expo.slug || "kindredcube",
   extra: {
     ...appJson.expo.extra,
-    eas: {
-      projectId: process.env.EAS_PROJECT_ID || appJson.expo.extra?.eas?.projectId,
-    },
+    ...(easProjectId ? { eas: { projectId: easProjectId } } : {}),
   },
   android: {
     ...appJson.expo.android,
