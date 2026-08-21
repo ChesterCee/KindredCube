@@ -10,8 +10,8 @@ async function bootstrap() {
   const preserveRawBody = (request: unknown, _response: unknown, buffer: Buffer) => {
     (request as { rawBody?: Buffer }).rawBody = buffer;
   };
-  app.use(json({ limit: "25mb", verify: preserveRawBody }));
-  app.use(urlencoded({ limit: "25mb", extended: true, verify: preserveRawBody }));
+  app.use(json({ limit: "80mb", verify: preserveRawBody }));
+  app.use(urlencoded({ limit: "80mb", extended: true, verify: preserveRawBody }));
   app.getHttpAdapter().getInstance().disable("x-powered-by");
   app.getHttpAdapter().getInstance().set("trust proxy", 1);
   app.use(helmet());

@@ -9425,13 +9425,11 @@ function EditableProfileScreen({
         const imageBase64 = await getPickerAssetBase64(asset);
         if (!imageBase64) {
           setVerificationNotice("One or more photos could not be read. Please try a different photo.");
-          setPhotos((current) => current.filter((photo) => photo.id !== pendingPhoto.id));
           continue;
         }
         const sizeBytes = getPickerAssetSize(asset) || estimateBase64SizeBytes(imageBase64);
         if (sizeBytes <= 0 || sizeBytes > 8 * 1024 * 1024) {
           setVerificationNotice("One or more photos were skipped. Profile photos must be 8 MB or less.");
-          setPhotos((current) => current.filter((photo) => photo.id !== pendingPhoto.id));
           continue;
         }
         const mimeType =
@@ -9457,12 +9455,17 @@ function EditableProfileScreen({
             return replaced;
           });
         } catch (caught) {
-          setVerificationNotice(caught instanceof Error ? caught.message : "Photo upload failed. Please check your connection and try again.");
-          setPhotos((current) => current.filter((photo) => photo.id !== pendingPhoto.id));
+          const status = typeof caught === "object" && caught && "status" in caught ? Number((caught as { status?: unknown }).status) : 0;
+          const detail = status ? ` Server code: ${status}.` : "";
+          setVerificationNotice(
+            caught instanceof Error
+              ? `${caught.message}${detail} The photo is still shown locally, but it is not saved to your account yet.`
+              : "Photo upload failed. The photo is still shown locally, but it is not saved to your account yet.",
+          );
         }
       }
       if (!uploadedPhotoIds.length) {
-        setVerificationNotice("No photos were uploaded. Please check your connection and try again.");
+        setVerificationNotice("The selected photo is visible locally, but the cloud upload did not finish. Please check the server upload settings and try again.");
         return;
       }
       setVerificationNotice(
