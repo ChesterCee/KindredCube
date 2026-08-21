@@ -22,7 +22,7 @@ module.exports = () => ({
   extra: {
     ...appJson.expo.extra,
     eas: {
-      projectId: process.env.EAS_PROJECT_ID || "5c3cd481-5be9-475d-898e-12748ea10e98",
+      projectId: process.env.EAS_PROJECT_ID || appJson.expo.extra?.eas?.projectId,
     },
   },
   android: {
