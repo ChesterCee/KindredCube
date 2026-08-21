@@ -254,11 +254,12 @@ function Landing({ onStart }: { onStart: () => void }) {
     ? Math.max(short ? 330 : 355, Math.min(short ? 365 : 405, height * (short ? 0.48 : 0.5)))
     : Math.max(330, Math.min(590, height - 190));
   const cardHeight = compact ? visualHeight - (short ? 54 : 62) : visualHeight * 0.9;
-  const cardWidth = Math.min(compact ? width * 0.76 : 390, cardHeight * 0.76);
+  const cardWidth = Math.min(compact ? width * 0.82 : 390, cardHeight * 0.8);
   const compactFrontCardLeft = Math.max(54, (width - cardWidth) / 2 + 10);
   const compactBackCardLeft = Math.max(-cardWidth * 0.16, compactFrontCardLeft - cardWidth * 0.34);
   const compactImageTop = short ? 24 : 34;
   const compactCopyTop = compactImageTop + 10 + cardHeight + (short ? 18 : 24);
+  const compactHeroOffset = compact ? 78 : 0;
   const heartSize = short ? 50 : 72;
   const headingSize = compact
     ? Math.max(29, Math.min(short ? 35 : 42, width * 0.105))
@@ -285,7 +286,7 @@ function Landing({ onStart }: { onStart: () => void }) {
         }, 950);
         return true;
       });
-    }, 8000);
+    }, 5200);
     return () => window.clearInterval(timer);
   }, []);
   return (
@@ -298,7 +299,7 @@ function Landing({ onStart }: { onStart: () => void }) {
         height: compact ? ("100svh" as any) : undefined,
         flexGrow: 1,
         paddingHorizontal: compact ? 16 : 42,
-        paddingTop: compact ? 86 : 18,
+        paddingTop: compact ? 18 : 18,
         paddingBottom: compact ? 18 : 18,
         gap: compact ? 0 : 18,
         overflow: "hidden",
@@ -307,10 +308,10 @@ function Landing({ onStart }: { onStart: () => void }) {
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", maxWidth: 1320, width: "100%", alignSelf: "center", minHeight: compact ? 50 : undefined, zIndex: 4 }}>
         <Logo compact={compact} />
       </View>
-      <View style={{ flex: 1, minHeight: 0, width: "100%", maxWidth: 1320, alignSelf: "center", flexDirection: compact ? "column" : "row", alignItems: "center", justifyContent: compact ? "flex-start" : "center", gap: compact ? 8 : 54, paddingTop: compact ? 10 : 0, position: compact ? "relative" : "static" }}>
+      <View style={{ flex: 1, minHeight: 0, width: "100%", maxWidth: 1320, alignSelf: "center", flexDirection: compact ? "column" : "row", alignItems: "center", justifyContent: compact ? "flex-start" : "center", gap: compact ? 8 : 54, paddingTop: compact ? compactHeroOffset : 0, position: compact ? "relative" : "static" }}>
         <View style={{ width: compact ? "100%" : 520, height: visualHeight, position: compact ? "absolute" : "relative", top: compact ? compactImageTop : undefined, flexShrink: 0, marginTop: compact ? 0 : 0, transform: [{ translateX: compact ? 0 : 42 }] }}>
-          <View style={{ position: "absolute", top: compact ? 14 : visualHeight * .04, left: compact ? compactBackCardLeft : 18, width: cardWidth, height: cardHeight, borderRadius: short ? 22 : 34, overflow: "hidden", opacity: swiping ? 1 : .7, transform: [{ translateX: swiping ? 0 : -cardWidth * .18 }, { rotate: swiping ? "-4deg" : "-10deg" }, { scale: swiping ? 1.02 : .92 }], boxShadow: "0 26px 70px rgba(17,27,61,.25)", transitionProperty: "transform, opacity", transitionDuration: "950ms", transitionTimingFunction: "cubic-bezier(.2,.75,.2,1)" } as any}><Image source={nextProfile.photo} resizeMode="cover" style={{ width: "100%", height: "100%" }} /></View>
-          <View style={{ position: "absolute", top: 10, left: compact ? compactFrontCardLeft : 18, width: cardWidth, height: cardHeight, borderRadius: short ? 22 : 34, overflow: "hidden", opacity: swiping ? 0 : 1, transform: [{ translateX: swiping ? cardWidth * 1.25 : 0 }, { rotate: swiping ? "13deg" : "-4deg" }, { scale: swiping ? .94 : 1 }], boxShadow: "0 30px 76px rgba(17,27,61,.28)", transitionProperty: "transform, opacity", transitionDuration: "950ms", transitionTimingFunction: "cubic-bezier(.25,.7,.2,1)" } as any}><Image source={frontProfile.photo} resizeMode="cover" style={{ width: "100%", height: "100%" }} /><View style={{ position: "absolute", left: short ? 8 : 18, right: short ? 8 : 18, bottom: short ? 8 : 18, borderRadius: short ? 12 : 20, padding: short ? 8 : 16, backgroundColor: "rgba(255,255,255,.86)", gap: short ? 1 : 5 } as any}><Text style={{ color: C.ink, fontSize: short ? 14 : 22, fontWeight: "900" }}>{frontProfile.name}, {frontProfile.age}</Text><Text numberOfLines={1} style={{ color: C.muted, fontSize: short ? 10 : 14 }}>{frontProfile.role} · {frontProfile.culture}</Text></View></View>
+          <View style={{ position: "absolute", top: compact ? 14 : visualHeight * .04, left: compact ? compactBackCardLeft : 18, width: cardWidth, height: cardHeight, borderRadius: short ? 22 : 34, overflow: "hidden", opacity: swiping ? 1 : .7, transform: [{ translateX: swiping ? 0 : -cardWidth * .18 }, { rotate: swiping ? "-4deg" : "-10deg" }, { scale: swiping ? 1.02 : .92 }], boxShadow: "0 26px 70px rgba(17,27,61,.25)", transitionProperty: "transform, opacity", transitionDuration: "1200ms", transitionTimingFunction: "cubic-bezier(.2,.75,.2,1)" } as any}><Image source={nextProfile.photo} resizeMode="cover" style={{ width: "100%", height: "100%" }} /></View>
+          <View style={{ position: "absolute", top: 10, left: compact ? compactFrontCardLeft : 18, width: cardWidth, height: cardHeight, borderRadius: short ? 22 : 34, overflow: "hidden", opacity: swiping ? 0 : 1, transform: [{ translateX: swiping ? cardWidth * 1.45 : 0 }, { rotate: swiping ? "15deg" : "-4deg" }, { scale: swiping ? .94 : 1 }], boxShadow: "0 30px 76px rgba(17,27,61,.28)", transitionProperty: "transform, opacity", transitionDuration: "1200ms", transitionTimingFunction: "cubic-bezier(.25,.7,.2,1)" } as any}><Image source={frontProfile.photo} resizeMode="cover" style={{ width: "100%", height: "100%" }} /><View style={{ position: "absolute", left: short ? 8 : 18, right: short ? 8 : 18, bottom: short ? 8 : 18, borderRadius: short ? 12 : 20, padding: short ? 8 : 16, backgroundColor: "rgba(255,255,255,.86)", gap: short ? 1 : 5 } as any}><Text style={{ color: C.ink, fontSize: short ? 14 : 22, fontWeight: "900" }}>{frontProfile.name}, {frontProfile.age}</Text><Text numberOfLines={1} style={{ color: C.muted, fontSize: short ? 10 : 14 }}>{frontProfile.role} · {frontProfile.culture}</Text></View></View>
           <Pressable accessibilityRole="button" accessibilityLabel="Like this profile and show the next person" onPress={swipeRight} style={({ pressed }: any) => ({ position: "absolute", zIndex: 20, left: (compact ? compactFrontCardLeft : 18) + cardWidth - heartSize * .78, top: 10 + cardHeight * .77, width: heartSize, height: heartSize, borderRadius: heartSize / 2, backgroundColor: C.coral, alignItems: "center", justifyContent: "center", transform: [{ scale: pressed ? .9 : 1 }], boxShadow: "0 18px 30px rgba(242,77,103,.3)" }) as any}><Heart size={short ? 22 : 31} color="white" fill="white" /></Pressable>
         </View>
         <View style={{ flex: compact ? 0 : 1, width: "100%", maxWidth: 620, gap: compact ? (short ? 7 : 10) : 18, justifyContent: "center", paddingBottom: compact ? 0 : 0, marginTop: compact ? 0 : 0, position: compact ? "absolute" : "static", left: compact ? 0 : undefined, right: compact ? 0 : undefined, top: compact ? compactCopyTop : undefined, transform: [{ translateY: 0 }] }}>

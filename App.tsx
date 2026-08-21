@@ -9406,16 +9406,32 @@ function EditableProfileScreen({
         base64: true,
       });
       if (result.canceled || !result.assets.length) return;
-      const selectedPhotos: MemberPhoto[] = [];
-      for (const [index, asset] of result.assets.slice(0, remainingSlots).entries()) {
+      const pickedAssets = result.assets.slice(0, remainingSlots);
+      const pendingPhotos: MemberPhoto[] = pickedAssets.map((asset, index) => ({
+        id: `pending-photo-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+        uri: asset.uri,
+        source: "phone",
+      }));
+      setPhotos((current) => {
+        const next = [...current, ...pendingPhotos];
+        if (!current.length && next[0]) {
+          setBestPhotoId(next[0].id);
+        }
+        return next;
+      });
+      const uploadedPhotoIds: string[] = [];
+      for (const [index, asset] of pickedAssets.entries()) {
+        const pendingPhoto = pendingPhotos[index];
         const imageBase64 = await getPickerAssetBase64(asset);
         if (!imageBase64) {
           setVerificationNotice("One or more photos could not be read. Please try a different photo.");
+          setPhotos((current) => current.filter((photo) => photo.id !== pendingPhoto.id));
           continue;
         }
         const sizeBytes = getPickerAssetSize(asset) || estimateBase64SizeBytes(imageBase64);
         if (sizeBytes <= 0 || sizeBytes > 8 * 1024 * 1024) {
           setVerificationNotice("One or more photos were skipped. Profile photos must be 8 MB or less.");
+          setPhotos((current) => current.filter((photo) => photo.id !== pendingPhoto.id));
           continue;
         }
         const mimeType =
@@ -9423,35 +9439,36 @@ function EditableProfileScreen({
             asset.mimeType
             : "image/jpeg";
         try {
-          setVerificationNotice(`Uploading photo ${index + 1} of ${result.assets.slice(0, remainingSlots).length}…`);
+          setVerificationNotice(`Uploading photo ${index + 1} of ${pickedAssets.length}…`);
           const uploaded = await uploadProfilePhoto({
             imageBase64,
             mimeType,
             sizeBytes,
           });
-          selectedPhotos.push({
-            id: uploaded.id || `photo-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+          const uploadedPhoto: MemberPhoto = {
+            id: uploaded.id || pendingPhoto.id.replace("pending-photo", "photo"),
             uri: resolveServerMediaUri(uploaded.path || uploaded.uri),
+            source: "phone",
+          };
+          uploadedPhotoIds.push(uploadedPhoto.id);
+          setPhotos((current) => {
+            const replaced = current.map((photo) => (photo.id === pendingPhoto.id ? uploadedPhoto : photo));
+            setBestPhotoId((currentBestPhotoId) => currentBestPhotoId === pendingPhoto.id ? uploadedPhoto.id : currentBestPhotoId);
+            return replaced;
           });
         } catch (caught) {
           setVerificationNotice(caught instanceof Error ? caught.message : "Photo upload failed. Please check your connection and try again.");
+          setPhotos((current) => current.filter((photo) => photo.id !== pendingPhoto.id));
         }
       }
-      if (!selectedPhotos.length) {
+      if (!uploadedPhotoIds.length) {
         setVerificationNotice("No photos were uploaded. Please check your connection and try again.");
         return;
       }
-      setPhotos((current) => {
-        const next = [...current, ...selectedPhotos];
-        if (!current.length && next[0]) {
-          setBestPhotoId(next[0].id);
-        }
-        return next;
-      });
       setVerificationNotice(
-        selectedPhotos.length === 1
+        uploadedPhotoIds.length === 1
           ? "Photo uploaded. Tap Save to keep this profile change."
-          : `${selectedPhotos.length} photos uploaded. Tap Save to keep these profile changes.`,
+          : `${uploadedPhotoIds.length} photos uploaded. Tap Save to keep these profile changes.`,
       );
     } finally {
       photoUploadInFlightRef.current = false;
