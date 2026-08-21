@@ -18,7 +18,7 @@ if (!googleMapsApiKey) {
 
 module.exports = () => ({
   ...appJson.expo,
-slug: "tectavis",
+  slug: appJson.expo.slug || "kindredcube",
   extra: {
     ...appJson.expo.extra,
     eas: {
