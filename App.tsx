@@ -927,6 +927,10 @@ function stringArray(value: unknown) {
     : [];
 }
 
+function isLocalOnlyMediaUri(uri: string) {
+  return /^file:|^content:|^ph:|^assets-library:|^blob:/i.test(uri.trim());
+}
+
 function resolveServerMediaUri(uri: string) {
   const trimmed = uri.trim();
   if (!trimmed) return "";
@@ -942,14 +946,23 @@ function cleanMediaUri(uri: unknown) {
 function normalizeProfileMediaUris(profile: Record<string, unknown>) {
   const next = { ...profile };
   if (Array.isArray(next.photos)) {
-    next.photos = next.photos.map((photo) => {
-      if (!photo || typeof photo !== "object") return photo;
-      const item = { ...(photo as Record<string, unknown>) };
-      if (typeof item.uri === "string") item.uri = resolveServerMediaUri(item.uri);
-      return item;
-    });
+    next.photos = next.photos
+      .map((photo) => {
+        if (!photo || typeof photo !== "object") return photo;
+        const item = { ...(photo as Record<string, unknown>) };
+        if (typeof item.uri === "string") item.uri = resolveServerMediaUri(item.uri);
+        return item;
+      })
+      .filter((photo) => {
+        if (!photo || typeof photo !== "object") return false;
+        const uri = (photo as Record<string, unknown>).uri;
+        return typeof uri === "string" && uri.trim().length > 0 && !isLocalOnlyMediaUri(uri);
+      });
   }
-  if (typeof next.bestPhotoUri === "string") next.bestPhotoUri = resolveServerMediaUri(next.bestPhotoUri);
+  if (typeof next.bestPhotoUri === "string") {
+    const bestPhotoUri = resolveServerMediaUri(next.bestPhotoUri);
+    next.bestPhotoUri = bestPhotoUri && !isLocalOnlyMediaUri(bestPhotoUri) ? bestPhotoUri : "";
+  }
   return next;
 }
 
@@ -5586,6 +5599,14 @@ function ProfileCompletionScreen({ onConnect }: { onConnect: () => void }) {
 }
 
 type MemberPhoto = { id: string; uri?: string; portrait?: number; source?: "instagram" | "phone" };
+function isLocalOnlyProfilePhoto(photo: MemberPhoto) {
+  const uri = typeof photo.uri === "string" ? photo.uri.trim() : "";
+  return (
+    photo.id.startsWith("pending-photo-") ||
+    isLocalOnlyMediaUri(uri)
+  );
+}
+
 type SelectionEditor = {
   title: string;
   options: string[];
@@ -9443,9 +9464,13 @@ function EditableProfileScreen({
             mimeType,
             sizeBytes,
           });
+          const uploadedUri = resolveServerMediaUri(uploaded.path || uploaded.uri || "");
+          if (!uploaded.id || !uploadedUri || isLocalOnlyProfilePhoto({ id: uploaded.id, uri: uploadedUri })) {
+            throw new Error("The server did not return a saved profile photo. Please try again.");
+          }
           const uploadedPhoto: MemberPhoto = {
-            id: uploaded.id || pendingPhoto.id.replace("pending-photo", "photo"),
-            uri: resolveServerMediaUri(uploaded.path || uploaded.uri),
+            id: uploaded.id,
+            uri: uploadedUri,
             source: "phone",
           };
           uploadedPhotoIds.push(uploadedPhoto.id);
@@ -11358,6 +11383,15 @@ function EditableProfileScreen({
           setProfileSaving(true);
           setProfileSaveError("");
           try {
+            const localOnlyPhotos = photos.filter(isLocalOnlyProfilePhoto);
+            if (localOnlyPhotos.length > 0) {
+              setProfileSaveError(
+                localOnlyPhotos.length === 1
+                  ? "One photo has not reached the server yet. Please wait for the upload to finish, remove it, or try uploading it again before saving."
+                  : `${localOnlyPhotos.length} photos have not reached the server yet. Please wait for uploads to finish, remove them, or try uploading them again before saving.`,
+              );
+              return;
+            }
             const firstPhoto = photos[0];
             const draftProfile = {
               photos,

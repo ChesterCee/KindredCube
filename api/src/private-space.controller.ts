@@ -135,7 +135,7 @@ export class PrivateSpaceController {
       if (banned.rowCount) throw new ForbiddenException("This account cannot use KindredCube.");
       const result = await client.query<{ id: string; mime_type: string; size_bytes: number }>(
         `INSERT INTO profile_media (user_id, media_type, mime_type, size_bytes, data, sha256)
-         VALUES ($1, 'chat_media', $2, $3, $4, $5)
+         VALUES ($1, 'profile_photo', $2, $3, $4, $5)
          RETURNING id, mime_type, size_bytes`,
         [request.user.id, input.mimeType, data.length, data, sha256],
       );
@@ -234,14 +234,23 @@ function normalizeProfileMediaForStorage(profile: Record<string, unknown>) {
     return mediaPathFromUri(uri) || uri;
   };
   if (Array.isArray(next.photos)) {
-    next.photos = next.photos.map((photo) => {
-      if (!photo || typeof photo !== "object") return photo;
-      const item = { ...(photo as Record<string, unknown>) };
-      item.uri = normalize(item.uri);
-      return item;
-    });
+    next.photos = next.photos
+      .map((photo) => {
+        if (!photo || typeof photo !== "object") return photo;
+        const item = { ...(photo as Record<string, unknown>) };
+        item.uri = normalize(item.uri);
+        return item;
+      })
+      .filter((photo) => {
+        if (!photo || typeof photo !== "object") return false;
+        const uri = (photo as Record<string, unknown>).uri;
+        return typeof uri === "string" && uri.trim().length > 0 && !isLocalOnlyMediaUri(uri);
+      });
   }
-  if (typeof next.bestPhotoUri === "string") next.bestPhotoUri = normalize(next.bestPhotoUri);
+  if (typeof next.bestPhotoUri === "string") {
+    const normalizedBestPhotoUri = normalize(next.bestPhotoUri);
+    next.bestPhotoUri = typeof normalizedBestPhotoUri === "string" && !isLocalOnlyMediaUri(normalizedBestPhotoUri) ? normalizedBestPhotoUri : "";
+  }
   return next;
 }
 
@@ -252,14 +261,23 @@ function normalizeProfileMediaForResponse(profile: Record<string, unknown>, orig
     return path ? `${origin}${path}` : uri;
   };
   if (Array.isArray(next.photos)) {
-    next.photos = next.photos.map((photo) => {
-      if (!photo || typeof photo !== "object") return photo;
-      const item = { ...(photo as Record<string, unknown>) };
-      item.uri = normalize(item.uri);
-      return item;
-    });
+    next.photos = next.photos
+      .map((photo) => {
+        if (!photo || typeof photo !== "object") return photo;
+        const item = { ...(photo as Record<string, unknown>) };
+        item.uri = normalize(item.uri);
+        return item;
+      })
+      .filter((photo) => {
+        if (!photo || typeof photo !== "object") return false;
+        const uri = (photo as Record<string, unknown>).uri;
+        return typeof uri === "string" && uri.trim().length > 0 && !isLocalOnlyMediaUri(uri);
+      });
   }
-  if (typeof next.bestPhotoUri === "string") next.bestPhotoUri = normalize(next.bestPhotoUri);
+  if (typeof next.bestPhotoUri === "string") {
+    const normalizedBestPhotoUri = normalize(next.bestPhotoUri);
+    next.bestPhotoUri = typeof normalizedBestPhotoUri === "string" && !isLocalOnlyMediaUri(normalizedBestPhotoUri) ? normalizedBestPhotoUri : "";
+  }
   return next;
 }
 
@@ -268,6 +286,10 @@ function mediaPathFromUri(uri: string) {
   if (!trimmed) return "";
   const match = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}$/i);
   return match?.[0] || "";
+}
+
+function isLocalOnlyMediaUri(uri: string) {
+  return /^file:|^content:|^ph:|^assets-library:|^blob:/i.test(uri.trim());
 }
 
 function profilePhotoFingerprints(profile: Record<string, unknown>) {
