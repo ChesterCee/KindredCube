@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { PoolClient } from "pg";
 import { DatabaseService } from "./database.service";
 
@@ -14,6 +14,8 @@ type ExpoPushMessage = {
 
 @Injectable()
 export class PushNotificationsService {
+  private readonly logger = new Logger(PushNotificationsService.name);
+
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async registerToken(userId: string, token: string, platform: "ios" | "android" | "web" | "unknown") {
@@ -41,7 +43,10 @@ export class PushNotificationsService {
     await this.database.withUser(recipientId, async (client) => {
       if (await notificationsDisabled(client, recipientId, "newMessages")) return;
       const tokens = await activePushTokens(client, recipientId);
-      if (!tokens.rowCount) return;
+      if (!tokens.rowCount) {
+        this.logger.warn(`No active push token found for message recipient ${recipientId}.`);
+        return;
+      }
       const sender = await client.query<{ display_name: string }>(
         `SELECT COALESCE(d.display_name, u.public_username, 'Someone') AS display_name
            FROM users u
@@ -63,7 +68,7 @@ export class PushNotificationsService {
           messageId,
         },
       }));
-      await sendExpoPush(messages);
+      await sendExpoPush(messages, this.logger);
     });
   }
 
@@ -71,7 +76,10 @@ export class PushNotificationsService {
     await this.database.withUser(recipientId, async (client) => {
       if (await notificationsDisabled(client, recipientId, matched ? "newMatches" : "newAdmirers")) return;
       const tokens = await activePushTokens(client, recipientId);
-      if (!tokens.rowCount) return;
+      if (!tokens.rowCount) {
+        this.logger.warn(`No active push token found for like recipient ${recipientId}.`);
+        return;
+      }
       const messages: ExpoPushMessage[] = tokens.rows.map((row) => ({
         to: row.token,
         title: matched ? "It's a match on KindredCube" : "Someone liked you on KindredCube",
@@ -84,7 +92,7 @@ export class PushNotificationsService {
           likerId,
         },
       }));
-      await sendExpoPush(messages);
+      await sendExpoPush(messages, this.logger);
     });
   }
 }
@@ -122,10 +130,10 @@ function activePushTokens(client: PoolClient, userId: string) {
   );
 }
 
-async function sendExpoPush(messages: ExpoPushMessage[]) {
+async function sendExpoPush(messages: ExpoPushMessage[], logger: Logger) {
   if (!messages.length) return;
   try {
-    await fetch("https://exp.host/--/api/v2/push/send", {
+    const response = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -134,7 +142,21 @@ async function sendExpoPush(messages: ExpoPushMessage[]) {
       },
       body: JSON.stringify(messages.length === 1 ? messages[0] : messages),
     });
-  } catch {
+    const body = await response.text();
+    if (!response.ok) {
+      logger.warn(`Expo push request failed with ${response.status}: ${body.slice(0, 500)}`);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(body) as { data?: Array<{ status?: string; message?: string; details?: unknown }> | { status?: string; message?: string; details?: unknown } };
+      const receipts = Array.isArray(parsed.data) ? parsed.data : parsed.data ? [parsed.data] : [];
+      const failures = receipts.filter((receipt) => receipt.status === "error");
+      if (failures.length) logger.warn(`Expo push returned ${failures.length} error(s): ${JSON.stringify(failures).slice(0, 500)}`);
+    } catch {
+      logger.warn(`Expo push returned an unreadable response: ${body.slice(0, 500)}`);
+    }
+  } catch (error) {
+    logger.warn(`Expo push delivery threw before completion: ${error instanceof Error ? error.message : String(error)}`);
     // Push delivery should never fail the saved chat message.
   }
 }

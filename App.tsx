@@ -3166,6 +3166,9 @@ function mergeFreshProfileIntoChatProfile(fresh: Profile, existing?: Profile): P
   const idVerified = Boolean(profileHasStripeVerification(freshNormalized) || (existingNormalized ? profileHasStripeVerification(existingNormalized) : false));
   const selfieVerified = !idVerified && Boolean(profileHasSelfieVerification(freshNormalized) || (existingNormalized ? profileHasSelfieVerification(existingNormalized) : false));
   const meetupVerified = Boolean(profileMeetupVerified(freshNormalized) || (existingNormalized ? profileMeetupVerified(existingNormalized) : false));
+  const freshChatTime = fresh.chatLastMessageAt ? new Date(fresh.chatLastMessageAt).getTime() : 0;
+  const existingChatTime = existing?.chatLastMessageAt ? new Date(existing.chatLastMessageAt).getTime() : 0;
+  const chatSource = freshChatTime >= existingChatTime ? fresh : existing;
   return normalizeProfileVerification({
     ...merged,
     discovery: merged.discovery
@@ -3177,10 +3180,10 @@ function mergeFreshProfileIntoChatProfile(fresh: Profile, existing?: Profile): P
           meetupVerified,
         }
       : merged.discovery,
-    chatPreview: existing?.chatPreview ?? fresh.chatPreview,
-    chatPreviewFromMe: existing?.chatPreviewFromMe ?? fresh.chatPreviewFromMe,
-    chatLastMessageAt: existing?.chatLastMessageAt ?? fresh.chatLastMessageAt,
-    chatLastMessageSenderId: existing?.chatLastMessageSenderId ?? fresh.chatLastMessageSenderId,
+    chatPreview: chatSource?.chatPreview ?? fresh.chatPreview ?? existing?.chatPreview,
+    chatPreviewFromMe: chatSource?.chatPreviewFromMe ?? fresh.chatPreviewFromMe ?? existing?.chatPreviewFromMe,
+    chatLastMessageAt: chatSource?.chatLastMessageAt ?? fresh.chatLastMessageAt ?? existing?.chatLastMessageAt,
+    chatLastMessageSenderId: chatSource?.chatLastMessageSenderId ?? fresh.chatLastMessageSenderId ?? existing?.chatLastMessageSenderId,
     idVerified,
     selfieVerified,
     meetupVerified,
