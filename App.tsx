@@ -19584,8 +19584,15 @@ async function registerDeviceForMessagePush() {
   const existing = await Notifications.getPermissionsAsync();
   const permission = existing.granted ?
     existing
-    : await Notifications.requestPermissionsAsync();
+    : await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowBadge: true,
+          allowSound: true,
+        },
+      });
   if (!permission.granted) return;
+  await Notifications.setBadgeCountAsync(0).catch(() => undefined);
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("messages", {
       name: "Messages",

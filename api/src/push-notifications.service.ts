@@ -73,7 +73,9 @@ export class PushNotificationsService {
         },
       }));
       await sendExpoPush(messages, this.logger);
-      this.logger.log(`Queued ${messages.length} message push notification(s) for recipient ${recipientId}.`);
+      this.logger.log(
+        `Queued ${messages.length} message push notification(s) for recipient ${recipientId}; platforms=${summarizePushPlatforms(tokens.rows)}.`,
+      );
     });
   }
 
@@ -101,9 +103,22 @@ export class PushNotificationsService {
         },
       }));
       await sendExpoPush(messages, this.logger);
-      this.logger.log(`Queued ${messages.length} like push notification(s) for recipient ${recipientId}.`);
+      this.logger.log(
+        `Queued ${messages.length} like push notification(s) for recipient ${recipientId}; platforms=${summarizePushPlatforms(tokens.rows)}.`,
+      );
     });
   }
+}
+
+function summarizePushPlatforms(tokens: Array<{ platform: string }>) {
+  const counts = tokens.reduce<Record<string, number>>((next, row) => {
+    const platform = row.platform || "unknown";
+    next[platform] = (next[platform] || 0) + 1;
+    return next;
+  }, {});
+  return Object.entries(counts)
+    .map(([platform, count]) => `${platform}:${count}`)
+    .join(",") || "none";
 }
 
 async function notificationsDisabled(
@@ -128,8 +143,8 @@ async function notificationsDisabled(
 }
 
 function activePushTokens(client: PoolClient, userId: string) {
-  return client.query<{ token: string }>(
-    `SELECT token
+  return client.query<{ token: string; platform: string }>(
+    `SELECT token, platform
        FROM user_push_tokens
       WHERE user_id = $1
         AND enabled = true
