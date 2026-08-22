@@ -20023,20 +20023,25 @@ function SignedInHome({
           refreshReadyToMeetPeople().catch(() => undefined);
         });
         socket.on("chat:message", (message: ChatMessage) => {
-          if (!active || message.senderId === initialUser.id) return;
-          const profile = findKnownChatProfile(message.senderId);
+          if (!active) return;
+          const fromMe = message.senderId === initialUser.id;
+          const conversationProfileId = fromMe ? message.recipientId : message.senderId;
+          if (!conversationProfileId) return;
+          const profile = findKnownChatProfile(conversationProfileId);
           if (!profile) {
             refreshChatConversations().catch(() => undefined);
-            setUnreadChatIds((current) => {
-              return current.includes(message.senderId) ? current : [...current, message.senderId];
-            });
+            if (!fromMe) {
+              setUnreadChatIds((current) => {
+                return current.includes(conversationProfileId) ? current : [...current, conversationProfileId];
+              });
+            }
             return;
           }
           const incomingPreview = chatMessagePreview(message);
           const incomingProfile = {
             ...profile,
             chatPreview: incomingPreview,
-            chatPreviewFromMe: false,
+            chatPreviewFromMe: fromMe,
             chatLastMessageAt: message.createdAt,
             chatLastMessageSenderId: message.senderId,
           };
@@ -20050,7 +20055,7 @@ function SignedInHome({
           setMemberChatReadyNearby(Boolean(profileMatchingSignals(incomingProfile).readyToMeet));
           const activeKey = activeMemberChat ? likeProfileKey(activeMemberChat) : "";
           const profileKey = likeProfileKey(incomingProfile);
-          const shouldNotify = activeKey !== profileKey || message.kind === "meeting_proposal" || message.kind === "meeting_response";
+          const shouldNotify = !fromMe && (activeKey !== profileKey || message.kind === "meeting_proposal" || message.kind === "meeting_response");
           if (shouldNotify) {
             setUnreadChatIds((current) => {
               return current.includes(profileKey) ? current : [...current, profileKey];
