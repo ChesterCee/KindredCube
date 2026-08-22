@@ -11043,7 +11043,7 @@ function EditableProfileScreen({
           }}
         >
           <Text style={{ color: "#59359C", fontSize: 12, fontWeight: "900" }}>
-            I don't know ? Take the personality test
+            I don't know — take the personality test
           </Text>
         </Pressable>
       </ProfileSection>
@@ -17405,7 +17405,7 @@ function ConnectExperienceDeck({
                   Share.share({
                     title: "KindredCube",
                     message:
-                      "I found somebody on KindredCube who I think might match your values.\n\nJoin KindredCube: https://kindredcube.com",
+                      "I found a potential kindred on KindredCube who I think might be a good fit for you.\n\nJoin KindredCube: https://kindredcube.com",
                     url: "https://kindredcube.com",
                   }).catch(() => undefined);
                 }}
