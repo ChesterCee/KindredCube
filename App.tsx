@@ -172,6 +172,53 @@ const APP_FONT = Platform.select({ ios: "Avenir Next", android: "sans-serif", de
 WebBrowser.maybeCompleteAuthSession();
 
 const LOCATION_PERMISSION_ASKED_KEY = "kindredcube.locationPermissionAsked";
+const HOME_CACHE_VERSION = 1;
+
+type HomeStartupCache = {
+  version: number;
+  savedAt: string;
+  privateProfile?: Record<string, unknown>;
+  privateSettings?: Record<string, unknown>;
+  discoveryPeople?: Profile[];
+  readyToMeetPeople?: Profile[];
+  incomingLikes?: IncomingLike[];
+  memberChats?: Profile[];
+  memberChat?: Profile | null;
+  walletBalanceCents?: number;
+  premiumActive?: boolean;
+  kindredPassActive?: boolean;
+};
+
+function homeCacheUri(userId: string) {
+  return `${LegacyFileSystem.documentDirectory || ""}kindredcube-home-${encodeURIComponent(userId)}.json`;
+}
+
+async function readHomeStartupCache(userId: string): Promise<HomeStartupCache | null> {
+  if (process.env.EXPO_OS === "web" || !LegacyFileSystem.documentDirectory) return null;
+  try {
+    const raw = await LegacyFileSystem.readAsStringAsync(homeCacheUri(userId));
+    const parsed = JSON.parse(raw) as HomeStartupCache;
+    return parsed.version === HOME_CACHE_VERSION ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeHomeStartupCache(userId: string, cache: Partial<HomeStartupCache>) {
+  if (process.env.EXPO_OS === "web" || !LegacyFileSystem.documentDirectory) return;
+  try {
+    await LegacyFileSystem.writeAsStringAsync(
+      homeCacheUri(userId),
+      JSON.stringify({
+        ...cache,
+        version: HOME_CACHE_VERSION,
+        savedAt: new Date().toISOString(),
+      }),
+    );
+  } catch {
+    // Cache writes should never block the live app.
+  }
+}
 
 async function requestForegroundLocationOnce() {
   const current = await Location.getForegroundPermissionsAsync();
@@ -19614,6 +19661,77 @@ function SignedInHome({
   const [realReadyToMeetPeople, setRealReadyToMeetPeople] = useState<Profile[]>([]);
   const readyMeetSeenAtRef = useRef<Record<string, number>>({});
   const incomingChatSocketRef = useRef<Socket | null>(null);
+  const homeCacheRef = useRef<Partial<HomeStartupCache>>({});
+  const homeCacheSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queueHomeCacheSave = useCallback((patch: Partial<HomeStartupCache>) => {
+    if (!initialUser?.id) return;
+    homeCacheRef.current = { ...homeCacheRef.current, ...patch };
+    if (homeCacheSaveTimer.current) clearTimeout(homeCacheSaveTimer.current);
+    homeCacheSaveTimer.current = setTimeout(() => {
+      writeHomeStartupCache(initialUser.id, homeCacheRef.current).catch(() => undefined);
+    }, 250);
+  }, [initialUser?.id]);
+  const applyPrivateSpaceSnapshot = useCallback((profile: Record<string, unknown>, settings: Record<string, unknown>) => {
+    const normalizedProfile = normalizeProfileMediaUris(profile);
+    privateProfileRef.current = normalizedProfile;
+    privateSettingsRef.current = settings;
+    setPrivateProfile(normalizedProfile);
+    setPrivateSettings(settings);
+    setBlockedProfileIds(Array.isArray(settings.blockedProfileIds) ? settings.blockedProfileIds as string[] : []);
+    setPaidReadyMeetChatIds(Array.isArray(settings.paidReadyMeetChatIds) ? settings.paidReadyMeetChatIds as string[] : []);
+    setReadyMeetPassExpiresAt(typeof settings.readyMeetPassExpiresAt === "string" ? settings.readyMeetPassExpiresAt : "");
+    setCompletedPostMeetCheckKeys(
+      Array.isArray(settings.completedPostMeetCheckKeys) ?
+        (settings.completedPostMeetCheckKeys as unknown[]).filter((item): item is string => typeof item === "string")
+        : [],
+    );
+    setLikedProfiles(Array.isArray(settings.likedProfileIds) ? settings.likedProfileIds as string[] : []);
+    setRevealedIncomingLikeIds(
+      Array.isArray(settings.revealedIncomingLikeIds) ?
+        (settings.revealedIncomingLikeIds as unknown[]).filter((item): item is string => typeof item === "string")
+        : [],
+    );
+    setDismissedRecommendationIds(
+      settings.dismissedRecommendationIds &&
+      typeof settings.dismissedRecommendationIds === "object" &&
+      !Array.isArray(settings.dismissedRecommendationIds) ?
+        settings.dismissedRecommendationIds as Record<string, string>
+        : {},
+    );
+    const normalizedPhotos = Array.isArray(normalizedProfile.photos) ?
+      (normalizedProfile.photos as Array<{ uri?: unknown }>)
+      : [];
+    const firstSavedPhotoUri =
+      normalizedPhotos
+        .map((photo) => cleanMediaUri(photo?.uri))
+        .find((uri) => uri.length > 0) || "";
+    setProfilePhotoUri(
+      typeof normalizedProfile.bestPhotoUri === "string" && normalizedProfile.bestPhotoUri.trim() ?
+        resolveServerMediaUri(normalizedProfile.bestPhotoUri)
+        : firstSavedPhotoUri,
+    );
+    const recalculatedProfileStrength = calculateProfileStrengthValue(
+      normalizedProfile,
+      identityVerificationStatus,
+      identityVerificationMethod,
+    );
+    setProfileStrength(recalculatedProfileStrength);
+    if (recalculatedProfileStrength >= 100) {
+      setShowRecommendation(false);
+    }
+    setProfileInterests(
+      Array.isArray(normalizedProfile.interests) ?
+        (normalizedProfile.interests as string[])
+        : [],
+    );
+    setProfileBio(typeof normalizedProfile.bio === "string" ? normalizedProfile.bio : "");
+    setSearchingFor(
+      Array.isArray(normalizedProfile.relationshipGoals) ?
+        (normalizedProfile.relationshipGoals as string[])
+        : [],
+    );
+    return normalizedProfile;
+  }, [identityVerificationMethod, identityVerificationStatus]);
   useEffect(() => {
     const count = unreadChatIds.length + (assistantUnread ? 1 : 0);
     setUnreadMessageCount(count);
@@ -19625,19 +19743,28 @@ function SignedInHome({
   }, [initialUser?.id]);
   const refreshDiscoveryPeople = useCallback(async () => {
     const result = await getDiscoveryCandidates();
-    setRealDiscoveryPeople(result.candidates.map(discoveryCandidateToProfile));
-  }, []);
+    const profiles = result.candidates.map(discoveryCandidateToProfile);
+    setRealDiscoveryPeople(profiles);
+    queueHomeCacheSave({ discoveryPeople: profiles });
+  }, [queueHomeCacheSave]);
   const refreshReadyToMeetPeople = useCallback(async () => {
     const result = await getReadyToMeetCandidates();
-    setRealReadyToMeetPeople(result.candidates.map(discoveryCandidateToProfile));
-  }, []);
+    const profiles = result.candidates.map(discoveryCandidateToProfile);
+    setRealReadyToMeetPeople(profiles);
+    queueHomeCacheSave({ readyToMeetPeople: profiles });
+  }, [queueHomeCacheSave]);
   const refreshPaymentState = useCallback(async () => {
     const summary = await getPaymentSummary();
     setWalletBalance(summary.walletBalanceCents / 100);
     setPremiumActive(summary.premiumActive);
     setKindredPassActive(summary.kindredPassActive);
+    queueHomeCacheSave({
+      walletBalanceCents: summary.walletBalanceCents,
+      premiumActive: summary.premiumActive,
+      kindredPassActive: summary.kindredPassActive,
+    });
     return summary;
-  }, []);
+  }, [queueHomeCacheSave]);
   const refreshIncomingLikes = useCallback(async () => {
     const result = await getIncomingLikes();
     setIncomingLikes((current) => {
@@ -19663,8 +19790,9 @@ function SignedInHome({
       });
       return Array.from(next);
     });
+    queueHomeCacheSave({ incomingLikes: result.likes });
     return result.likes;
-  }, [likedProfiles, revealedIncomingLikeIds]);
+  }, [likedProfiles, queueHomeCacheSave, revealedIncomingLikeIds]);
   const refreshChatConversations = useCallback(async (markIncomingUnread = false) => {
     const result = await getChatConversations();
     const profiles: Profile[] = result.conversations
@@ -19707,8 +19835,9 @@ function SignedInHome({
     if (latest) {
       setMemberChatReadyNearby(Boolean(profileMatchingSignals(latest).readyToMeet));
     }
+    queueHomeCacheSave({ memberChats: mergedProfiles, memberChat: latest });
     return mergedProfiles;
-  }, [activeMemberChat, initialUser?.id, memberChats]);
+  }, [activeMemberChat, initialUser?.id, memberChats, queueHomeCacheSave]);
   const openPaymentCheckout = useCallback(async (
     purchaseType: "wallet" | "kindred_pass" | "premium",
     walletAmount?: number,
@@ -19760,10 +19889,11 @@ function SignedInHome({
     const merged = { ...privateSettingsRef.current, ...settings };
     privateSettingsRef.current = merged;
     setPrivateSettings(merged);
+    queueHomeCacheSave({ privateProfile: privateProfileRef.current, privateSettings: merged });
     updatePrivateSpace(privateProfileRef.current, merged).catch(
       () => undefined,
     );
-  }, []);
+  }, [queueHomeCacheSave]);
   const dismissRecommendation = useCallback((profile: Profile, days?: number) => {
     const key = likeProfileKey(profile);
     const until = days ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : "never";
@@ -19949,67 +20079,31 @@ function SignedInHome({
     let active = true;
     setPrivateSpaceLoaded(false);
     setPrivateSpaceLoadError("");
+    if (initialUser?.id) {
+      readHomeStartupCache(initialUser.id)
+        .then((cache) => {
+          if (!active || !cache) return;
+          homeCacheRef.current = cache;
+          if (cache.privateProfile && cache.privateSettings) {
+            applyPrivateSpaceSnapshot(cache.privateProfile, cache.privateSettings);
+            setPrivateSpaceLoaded(true);
+          }
+          if (Array.isArray(cache.discoveryPeople)) setRealDiscoveryPeople(cache.discoveryPeople);
+          if (Array.isArray(cache.readyToMeetPeople)) setRealReadyToMeetPeople(cache.readyToMeetPeople);
+          if (Array.isArray(cache.incomingLikes)) setIncomingLikes(cache.incomingLikes);
+          if (Array.isArray(cache.memberChats)) setMemberChats(cache.memberChats);
+          if (cache.memberChat) setMemberChat(cache.memberChat);
+          if (typeof cache.walletBalanceCents === "number") setWalletBalance(cache.walletBalanceCents / 100);
+          if (typeof cache.premiumActive === "boolean") setPremiumActive(cache.premiumActive);
+          if (typeof cache.kindredPassActive === "boolean") setKindredPassActive(cache.kindredPassActive);
+        })
+        .catch(() => undefined);
+    }
     getPrivateSpace()
       .then(({ profile, settings }) => {
         if (!active) return;
-        const normalizedProfile = normalizeProfileMediaUris(profile);
-        privateProfileRef.current = normalizedProfile;
-        privateSettingsRef.current = settings;
-        setPrivateProfile(normalizedProfile);
-        setPrivateSettings(settings);
-        setBlockedProfileIds(Array.isArray(settings.blockedProfileIds) ? settings.blockedProfileIds as string[] : []);
-        setPaidReadyMeetChatIds(Array.isArray(settings.paidReadyMeetChatIds) ? settings.paidReadyMeetChatIds as string[] : []);
-        setReadyMeetPassExpiresAt(typeof settings.readyMeetPassExpiresAt === "string" ? settings.readyMeetPassExpiresAt : "");
-        setCompletedPostMeetCheckKeys(
-          Array.isArray(settings.completedPostMeetCheckKeys) ?
-            (settings.completedPostMeetCheckKeys as unknown[]).filter((item): item is string => typeof item === "string")
-            : [],
-        );
-        setLikedProfiles(Array.isArray(settings.likedProfileIds) ? settings.likedProfileIds as string[] : []);
-        setRevealedIncomingLikeIds(
-          Array.isArray(settings.revealedIncomingLikeIds) ?
-            (settings.revealedIncomingLikeIds as unknown[]).filter((item): item is string => typeof item === "string")
-            : [],
-        );
-        setDismissedRecommendationIds(
-          settings.dismissedRecommendationIds &&
-          typeof settings.dismissedRecommendationIds === "object" &&
-          !Array.isArray(settings.dismissedRecommendationIds) ?
-            settings.dismissedRecommendationIds as Record<string, string>
-            : {},
-        );
-        const normalizedPhotos = Array.isArray(normalizedProfile.photos) ?
-          (normalizedProfile.photos as Array<{ uri?: unknown }>)
-          : [];
-        const firstSavedPhotoUri =
-          normalizedPhotos
-            .map((photo) => cleanMediaUri(photo?.uri))
-            .find((uri) => uri.length > 0) || "";
-        setProfilePhotoUri(
-          typeof normalizedProfile.bestPhotoUri === "string" && normalizedProfile.bestPhotoUri.trim() ?
-            resolveServerMediaUri(normalizedProfile.bestPhotoUri)
-            : firstSavedPhotoUri,
-        );
-        const recalculatedProfileStrength = calculateProfileStrengthValue(
-          normalizedProfile,
-          identityVerificationStatus,
-          identityVerificationMethod,
-        );
-        setProfileStrength(recalculatedProfileStrength);
-        if (recalculatedProfileStrength >= 100) {
-          setShowRecommendation(false);
-        }
-        setProfileInterests(
-          Array.isArray(normalizedProfile.interests) ?
-            (normalizedProfile.interests as string[])
-            : [],
-        );
-        setProfileBio(typeof normalizedProfile.bio === "string" ? normalizedProfile.bio : "");
-        setSearchingFor(
-          Array.isArray(normalizedProfile.relationshipGoals) ?
-            (normalizedProfile.relationshipGoals as string[])
-            : [],
-        );
+        const normalizedProfile = applyPrivateSpaceSnapshot(profile, settings);
+        queueHomeCacheSave({ privateProfile: normalizedProfile, privateSettings: settings });
         setPrivateSpaceLoaded(true);
       })
       .catch((caught) => {
@@ -20024,8 +20118,10 @@ function SignedInHome({
       active = false;
       if (savePrivateSpaceTimer.current)
         clearTimeout(savePrivateSpaceTimer.current);
+      if (homeCacheSaveTimer.current)
+        clearTimeout(homeCacheSaveTimer.current);
     };
-  }, [initialUser?.id, privateSpaceReloadKey]);
+  }, [applyPrivateSpaceSnapshot, initialUser?.id, privateSpaceReloadKey, queueHomeCacheSave]);
   useEffect(() => {
     if (!privateSpaceLoaded) return;
     refreshDiscoveryPeople().catch(() => setRealDiscoveryPeople([]));
@@ -20091,6 +20187,7 @@ function SignedInHome({
       };
       privateProfileRef.current = merged;
       setPrivateProfile(merged);
+      queueHomeCacheSave({ privateProfile: merged, privateSettings: privateSettingsRef.current });
       if (savePrivateSpaceTimer.current)
         clearTimeout(savePrivateSpaceTimer.current);
       savePrivateSpaceTimer.current = setTimeout(() => {
@@ -20099,7 +20196,7 @@ function SignedInHome({
         );
       }, 650);
     },
-    [initialUser?.identity, initialUser?.seeking],
+    [initialUser?.identity, initialUser?.seeking, queueHomeCacheSave],
   );
   const persistSettingsData = useCallback(
     (settings: Record<string, unknown>) => {
@@ -20176,6 +20273,7 @@ function SignedInHome({
     privateSettingsRef.current = saved.settings;
     setPrivateProfile(saved.profile);
     setPrivateSettings(saved.settings);
+    queueHomeCacheSave({ privateProfile: saved.profile, privateSettings: saved.settings });
     setProfileStrength(calculateProfileStrengthValue(
       saved.profile,
       identityVerificationStatus,
@@ -20183,7 +20281,7 @@ function SignedInHome({
     ));
     await refreshDiscoveryPeople();
     await refreshReadyToMeetPeople();
-  }, [identityVerificationMethod, identityVerificationStatus, initialUser.identity, initialUser.seeking, refreshDiscoveryPeople, refreshReadyToMeetPeople]);
+  }, [identityVerificationMethod, identityVerificationStatus, initialUser?.identity, initialUser?.seeking, queueHomeCacheSave, refreshDiscoveryPeople, refreshReadyToMeetPeople]);
   const flushAndLogout = useCallback(async () => {
     if (savePrivateSpaceTimer.current) {
       clearTimeout(savePrivateSpaceTimer.current);
