@@ -21,7 +21,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "bundleIdentifier": "com.tectavisincorporated.kindredcube"
+      "bundleIdentifier": "com.tectavis.kindredcube"
     },
     "android": {
       "adaptiveIcon": {
@@ -37,7 +37,7 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
-      "package": "com.tectavisincorporated.kindredcube"
+      "package": "com.tectavis.kindredcube"
     },
     "web": {
       "favicon": "./assets/kindredcube-horizontal-logo-transparent.png"
