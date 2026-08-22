@@ -42,7 +42,10 @@ export class PushNotificationsService {
 
   async sendMessageNotification(recipientId: string, senderId: string, messageId: string) {
     await this.database.withUser(recipientId, async (client) => {
-      if (await notificationsDisabled(client, recipientId, "newMessages")) return;
+      if (await notificationsDisabled(client, recipientId, "newMessages")) {
+        this.logger.warn(`Message push skipped because recipient ${recipientId} disabled new message notifications.`);
+        return;
+      }
       const tokens = await activePushTokens(client, recipientId);
       if (!tokens.rowCount) {
         this.logger.warn(`No active push token found for message recipient ${recipientId}.`);
@@ -76,7 +79,10 @@ export class PushNotificationsService {
 
   async sendLikeNotification(recipientId: string, likerId: string, matched: boolean) {
     await this.database.withUser(recipientId, async (client) => {
-      if (await notificationsDisabled(client, recipientId, matched ? "newMatches" : "newAdmirers")) return;
+      if (await notificationsDisabled(client, recipientId, matched ? "newMatches" : "newAdmirers")) {
+        this.logger.warn(`Like push skipped because recipient ${recipientId} disabled ${matched ? "new match" : "new admirer"} notifications.`);
+        return;
+      }
       const tokens = await activePushTokens(client, recipientId);
       if (!tokens.rowCount) {
         this.logger.warn(`No active push token found for like recipient ${recipientId}.`);

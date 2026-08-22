@@ -1144,10 +1144,16 @@ function mergeChatProfiles(incoming: Profile[], current: Profile[]) {
     merged.set(key, mergeFreshProfileIntoChatProfile(existing, profile));
   });
   return Array.from(merged.values()).sort((a, b) => {
-    const aTime = a.chatLastMessageAt ? new Date(a.chatLastMessageAt).getTime() : 0;
-    const bTime = b.chatLastMessageAt ? new Date(b.chatLastMessageAt).getTime() : 0;
+    const aTime = safeChatTime(a.chatLastMessageAt);
+    const bTime = safeChatTime(b.chatLastMessageAt);
     return bTime - aTime;
   });
+}
+
+function safeChatTime(value?: string) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 function likeProfileKeyValue(profile: Pick<Profile, "id" | "name">) {
@@ -3182,8 +3188,8 @@ function mergeFreshProfileIntoChatProfile(fresh: Profile, existing?: Profile): P
   const idVerified = Boolean(profileHasStripeVerification(freshNormalized) || (existingNormalized ? profileHasStripeVerification(existingNormalized) : false));
   const selfieVerified = !idVerified && Boolean(profileHasSelfieVerification(freshNormalized) || (existingNormalized ? profileHasSelfieVerification(existingNormalized) : false));
   const meetupVerified = Boolean(profileMeetupVerified(freshNormalized) || (existingNormalized ? profileMeetupVerified(existingNormalized) : false));
-  const freshChatTime = fresh.chatLastMessageAt ? new Date(fresh.chatLastMessageAt).getTime() : 0;
-  const existingChatTime = existing?.chatLastMessageAt ? new Date(existing.chatLastMessageAt).getTime() : 0;
+  const freshChatTime = safeChatTime(fresh.chatLastMessageAt);
+  const existingChatTime = safeChatTime(existing?.chatLastMessageAt);
   const chatSource = freshChatTime >= existingChatTime ? fresh : existing;
   return normalizeProfileVerification({
     ...merged,
@@ -19680,8 +19686,20 @@ function SignedInHome({
   const [realReadyToMeetPeople, setRealReadyToMeetPeople] = useState<Profile[]>([]);
   const readyMeetSeenAtRef = useRef<Record<string, number>>({});
   const incomingChatSocketRef = useRef<Socket | null>(null);
+  const incomingLikesRef = useRef<IncomingLike[]>([]);
+  const memberChatRef = useRef<Profile | null>(null);
+  const memberChatsRef = useRef<Profile[]>([]);
+  const activeMemberChatRef = useRef<Profile | null>(null);
+  const realDiscoveryPeopleRef = useRef<Profile[]>([]);
+  const realReadyToMeetPeopleRef = useRef<Profile[]>([]);
   const homeCacheRef = useRef<Partial<HomeStartupCache>>({});
   const homeCacheSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  incomingLikesRef.current = incomingLikes;
+  memberChatRef.current = memberChat;
+  memberChatsRef.current = memberChats;
+  activeMemberChatRef.current = activeMemberChat;
+  realDiscoveryPeopleRef.current = realDiscoveryPeople;
+  realReadyToMeetPeopleRef.current = realReadyToMeetPeople;
   const queueHomeCacheSave = useCallback((patch: Partial<HomeStartupCache>) => {
     if (!initialUser?.id) return;
     homeCacheRef.current = { ...homeCacheRef.current, ...patch };
@@ -19826,7 +19844,7 @@ function SignedInHome({
         };
       });
     if (markIncomingUnread) {
-      const activeKey = activeMemberChat ? likeProfileKey(activeMemberChat) : "";
+      const activeKey = activeMemberChatRef.current ? likeProfileKey(activeMemberChatRef.current) : "";
       setUnreadChatIds((current) => {
         const next = new Set(current);
         profiles.forEach((profile) => {
@@ -19856,7 +19874,7 @@ function SignedInHome({
     }
     queueHomeCacheSave({ memberChats: mergedProfiles, memberChat: latest });
     return mergedProfiles;
-  }, [activeMemberChat, initialUser?.id, memberChats, queueHomeCacheSave]);
+  }, [initialUser?.id, queueHomeCacheSave]);
   const openPaymentCheckout = useCallback(async (
     purchaseType: "wallet" | "kindred_pass" | "premium",
     walletAmount?: number,
@@ -19991,19 +20009,37 @@ function SignedInHome({
     setFilterOpen(false);
   }, [memberChats]);
   const findKnownChatProfile = useCallback((profileId: string) => {
-    const incomingProfile = incomingLikes
+    const incomingProfile = incomingLikesRef.current
       .map((like) => discoveryCandidateToProfile(like.profile))
       .find((profile) => profile.id === profileId);
     if (incomingProfile) return incomingProfile;
-    const discoveredProfile = realDiscoveryPeople.find((profile) => profile.id === profileId);
+    const discoveredProfile = realDiscoveryPeopleRef.current.find((profile) => profile.id === profileId);
     if (discoveredProfile) return discoveredProfile;
-    const readyProfile = realReadyToMeetPeople.find((profile) => profile.id === profileId);
+    const readyProfile = realReadyToMeetPeopleRef.current.find((profile) => profile.id === profileId);
     if (readyProfile) return readyProfile;
-    const chatProfile = memberChats.find((profile) => profile.id === profileId);
+    const chatProfile = memberChatsRef.current.find((profile) => profile.id === profileId);
     if (chatProfile) return chatProfile;
-    if (memberChat?.id === profileId) return memberChat;
+    if (memberChatRef.current?.id === profileId) return memberChatRef.current;
     return null;
-  }, [incomingLikes, memberChat, memberChats, realDiscoveryPeople, realReadyToMeetPeople]);
+  }, []);
+  const promoteChatProfile = useCallback((profile: Profile) => {
+    setMemberChat((current) =>
+      current && likeProfileKey(current) === likeProfileKey(profile)
+        ? mergeFreshProfileIntoChatProfile(profile, current)
+        : profile,
+    );
+    setMemberChats((current) => {
+      const key = likeProfileKey(profile);
+      const existing = current.find((item) => likeProfileKey(item) === key);
+      const promoted = mergeFreshProfileIntoChatProfile(profile, existing);
+      const next = [
+        promoted,
+        ...current.filter((item) => likeProfileKey(item) !== key),
+      ].sort((a, b) => safeChatTime(b.chatLastMessageAt) - safeChatTime(a.chatLastMessageAt));
+      queueHomeCacheSave({ memberChats: next, memberChat: next[0] || promoted });
+      return next;
+    });
+  }, [queueHomeCacheSave]);
   useEffect(() => {
     if (!initialUser?.id) return;
     let active = true;
@@ -20064,15 +20100,9 @@ function SignedInHome({
             chatLastMessageAt: message.createdAt,
             chatLastMessageSenderId: message.senderId,
           };
-          setMemberChat((current) =>
-            current && likeProfileKey(current) === likeProfileKey(incomingProfile) ? { ...current, ...incomingProfile } : incomingProfile,
-          );
-          setMemberChats((current) => [
-            incomingProfile,
-            ...current.filter((item) => likeProfileKey(item) !== likeProfileKey(incomingProfile)),
-          ]);
+          promoteChatProfile(incomingProfile);
           setMemberChatReadyNearby(Boolean(profileMatchingSignals(incomingProfile).readyToMeet));
-          const activeKey = activeMemberChat ? likeProfileKey(activeMemberChat) : "";
+          const activeKey = activeMemberChatRef.current ? likeProfileKey(activeMemberChatRef.current) : "";
           const profileKey = likeProfileKey(incomingProfile);
           const shouldNotify = !fromMe && (activeKey !== profileKey || message.kind === "meeting_proposal" || message.kind === "meeting_response");
           if (shouldNotify) {
@@ -20088,7 +20118,7 @@ function SignedInHome({
       if (incomingChatSocketRef.current === socket) incomingChatSocketRef.current = null;
       socket?.disconnect();
     };
-  }, [activeMemberChat, findKnownChatProfile, initialUser?.id, refreshChatConversations, refreshReadyToMeetPeople]);
+  }, [findKnownChatProfile, initialUser?.id, promoteChatProfile, refreshChatConversations, refreshReadyToMeetPeople]);
   const profilePaidChatId = (profile: Profile) => profile.id || `profile-${profile.name.toLowerCase()}`;
   const readyMeetPassActive = readyMeetPassExpiresAt ? new Date(readyMeetPassExpiresAt).getTime() > Date.now() : false;
   const requestPaidMemberChat = useCallback((profile: Profile) => {
@@ -20632,11 +20662,7 @@ function SignedInHome({
               chatLastMessageSenderId: message.senderId,
             }
           : profile;
-        setMemberChat(sentProfile);
-        setMemberChats((current) => [
-          sentProfile,
-          ...current.filter((item) => likeProfileKey(item) !== likeProfileKey(sentProfile)),
-        ]);
+        promoteChatProfile(sentProfile);
         setMatchedProfileIds((current) => {
           const key = likeProfileKey(profile);
           return current.includes(key) ? current : [...current, key];
