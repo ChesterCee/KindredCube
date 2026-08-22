@@ -84,6 +84,7 @@ export class PaymentsService {
   }
 
   async summary(userId: string) {
+    await this.reconcilePendingCheckouts(userId);
     return this.database.withUser(userId, async (client) => {
       const wallet = await client.query<{ balance_cents: number }>(
         "SELECT balance_cents FROM wallet_accounts WHERE user_id = $1",
@@ -109,9 +110,12 @@ export class PaymentsService {
     if (!sessionId.startsWith("cs_")) throw new BadRequestException("A valid Stripe Checkout session is required.");
     const session = await this.client().checkout.sessions.retrieve(sessionId);
     if (session.metadata?.user_id !== userId) throw new BadRequestException("This payment does not belong to the signed-in account.");
+    if (session.status !== "expired" && session.payment_status !== "paid" && session.mode !== "subscription") {
+      return this.summary(userId);
+    }
     const eventType = session.status === "expired" ? "checkout.session.expired" : "checkout.session.completed";
     await this.processWebhook({
-      id: `checkout-confirm:${session.id}`,
+      id: `checkout-confirm:${session.id}:${session.status}:${session.payment_status}`,
       object: "event",
       api_version: null,
       created: Math.floor(Date.now() / 1000),
@@ -122,6 +126,41 @@ export class PaymentsService {
       type: eventType,
     } as Stripe.Event);
     return this.summary(userId);
+  }
+
+  private async reconcilePendingCheckouts(userId: string) {
+    if (!this.stripe) return;
+    const pending = await this.database.withUser(userId, async (client) => {
+      const result = await client.query<{
+        stripe_checkout_session_id: string;
+      }>(
+        `SELECT stripe_checkout_session_id
+         FROM payment_orders
+         WHERE user_id = $1
+           AND status = 'pending'
+           AND stripe_checkout_session_id IS NOT NULL
+         ORDER BY created_at DESC
+         LIMIT 10`,
+        [userId],
+      );
+      return result.rows;
+    });
+    for (const row of pending) {
+      const session = await this.client().checkout.sessions.retrieve(row.stripe_checkout_session_id);
+      const eventType = session.status === "expired" ? "checkout.session.expired" : "checkout.session.completed";
+      if (session.status !== "expired" && session.payment_status !== "paid" && session.mode !== "subscription") continue;
+      await this.processWebhook({
+        id: `checkout-reconcile:${session.id}:${session.status}:${session.payment_status}`,
+        object: "event",
+        api_version: null,
+        created: Math.floor(Date.now() / 1000),
+        data: { object: session },
+        livemode: session.livemode,
+        pending_webhooks: 0,
+        request: null,
+        type: eventType,
+      } as Stripe.Event);
+    }
   }
 
   async spend(userId: string, item: WalletItem, idempotencyKey: string) {

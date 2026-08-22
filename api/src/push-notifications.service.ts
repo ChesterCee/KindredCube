@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { PoolClient } from "pg";
 import { DatabaseService } from "./database.service";
 
 type ExpoPushMessage = {
@@ -38,31 +39,8 @@ export class PushNotificationsService {
 
   async sendMessageNotification(recipientId: string, senderId: string, messageId: string) {
     await this.database.withUser(recipientId, async (client) => {
-      const preferences = await client.query<{ settings_data: Record<string, unknown> }>(
-        `SELECT settings_data
-           FROM user_private_spaces
-          WHERE user_id = $1
-          LIMIT 1`,
-        [recipientId],
-      );
-      const notificationPreferences = preferences.rows[0]?.settings_data?.notificationPreferences;
-      if (
-        notificationPreferences &&
-        typeof notificationPreferences === "object" &&
-        !Array.isArray(notificationPreferences) &&
-        (notificationPreferences as Record<string, unknown>).newMessages === false
-      ) {
-        return;
-      }
-      const tokens = await client.query<{ token: string }>(
-        `SELECT token
-           FROM user_push_tokens
-          WHERE user_id = $1
-            AND enabled = true
-          ORDER BY last_seen_at DESC
-          LIMIT 5`,
-        [recipientId],
-      );
+      if (await notificationsDisabled(client, recipientId, "newMessages")) return;
+      const tokens = await activePushTokens(client, recipientId);
       if (!tokens.rowCount) return;
       const sender = await client.query<{ display_name: string }>(
         `SELECT COALESCE(d.display_name, u.public_username, 'Someone') AS display_name
@@ -88,6 +66,60 @@ export class PushNotificationsService {
       await sendExpoPush(messages);
     });
   }
+
+  async sendLikeNotification(recipientId: string, likerId: string, matched: boolean) {
+    await this.database.withUser(recipientId, async (client) => {
+      if (await notificationsDisabled(client, recipientId, matched ? "newMatches" : "newAdmirers")) return;
+      const tokens = await activePushTokens(client, recipientId);
+      if (!tokens.rowCount) return;
+      const messages: ExpoPushMessage[] = tokens.rows.map((row) => ({
+        to: row.token,
+        title: matched ? "It's a match on KindredCube" : "Someone liked you on KindredCube",
+        body: matched ? "You both liked each other. Open KindredCube to start chatting." : "Open Liked You to see the new activity.",
+        sound: "default",
+        priority: "high",
+        channelId: "likes",
+        data: {
+          type: matched ? "match" : "like",
+          likerId,
+        },
+      }));
+      await sendExpoPush(messages);
+    });
+  }
+}
+
+async function notificationsDisabled(
+  client: PoolClient,
+  userId: string,
+  key: "newMessages" | "newAdmirers" | "newMatches",
+) {
+  const preferences = await client.query<{ settings_data: Record<string, unknown> }>(
+    `SELECT settings_data
+       FROM user_private_spaces
+      WHERE user_id = $1
+      LIMIT 1`,
+    [userId],
+  );
+  const notificationPreferences = preferences.rows[0]?.settings_data?.notificationPreferences;
+  return Boolean(
+    notificationPreferences &&
+      typeof notificationPreferences === "object" &&
+      !Array.isArray(notificationPreferences) &&
+      (notificationPreferences as Record<string, unknown>)[key] === false,
+  );
+}
+
+function activePushTokens(client: PoolClient, userId: string) {
+  return client.query<{ token: string }>(
+    `SELECT token
+       FROM user_push_tokens
+      WHERE user_id = $1
+        AND enabled = true
+      ORDER BY last_seen_at DESC
+      LIMIT 5`,
+    [userId],
+  );
 }
 
 async function sendExpoPush(messages: ExpoPushMessage[]) {

@@ -61,9 +61,7 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
   onModuleInit() {
     this.unsubscribeRealtime = this.realtime.onMessage((message) => {
       this.server.to(userRoom(message.senderId)).to(userRoom(message.recipientId)).emit("chat:message", message);
-      if (!this.connectedUsers.has(message.recipientId)) {
-        this.push.sendMessageNotification(message.recipientId, message.senderId, message.id).catch(() => undefined);
-      }
+      this.push.sendMessageNotification(message.recipientId, message.senderId, message.id).catch(() => undefined);
     });
     this.unsubscribeReadyToMeet = this.realtime.onReadyToMeetPresence((update) => {
       this.server.emit("ready-to-meet:presence", update);

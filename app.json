@@ -35,7 +35,8 @@
         "android.permission.CAMERA",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.kindredcube.kindredcube"
     },
@@ -65,6 +66,7 @@
         }
       ],
       "expo-web-browser",
+      "expo-notifications",
       "expo-secure-store",
       [
         "expo-audio",

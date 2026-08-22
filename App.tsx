@@ -15,6 +15,7 @@ import { Directory, File, Paths } from "expo-file-system";
 import * as LegacyFileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
+import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 import {
   Baby,
@@ -169,6 +170,19 @@ const BRAND_FONT = Platform.select({ ios: "AvenirNext-DemiBold", android: "sans-
 const APP_FONT = Platform.select({ ios: "Avenir Next", android: "sans-serif", default: "sans-serif" });
 
 WebBrowser.maybeCompleteAuthSession();
+
+const LOCATION_PERMISSION_ASKED_KEY = "kindredcube.locationPermissionAsked";
+
+async function requestForegroundLocationOnce() {
+  const current = await Location.getForegroundPermissionsAsync();
+  if (current.status === "granted") return current;
+  if (process.env.EXPO_OS !== "web") {
+    const askedBefore = await SecureStore.getItemAsync(LOCATION_PERMISSION_ASKED_KEY).catch(() => null);
+    if (askedBefore === "1") return current;
+    await SecureStore.setItemAsync(LOCATION_PERMISSION_ASKED_KEY, "1").catch(() => undefined);
+  }
+  return Location.requestForegroundPermissionsAsync();
+}
 
 async function openKindredInAppSession(url: string, returnUrl = "kindredcube://browser-complete") {
   try {
@@ -3357,7 +3371,7 @@ function Results({
     let active = true;
     (async () => {
       try {
-        const permission = await Location.requestForegroundPermissionsAsync();
+        const permission = await requestForegroundLocationOnce();
         if (permission.status !== "granted") {
           if (active) setStatus("denied");
           return;
@@ -9354,7 +9368,7 @@ function EditableProfileScreen({
     (async () => {
       try {
         setCurrentLocationStatus("loading");
-        const permission = await Location.requestForegroundPermissionsAsync();
+        const permission = await requestForegroundLocationOnce();
         if (permission.status !== "granted") {
           if (active) setCurrentLocationStatus("denied");
           return;
@@ -14796,7 +14810,7 @@ function ReadyToMeetFeature({
     setLocationStatus("loading");
     (async () => {
       try {
-        const permission = await Location.requestForegroundPermissionsAsync();
+        const permission = await requestForegroundLocationOnce();
         if (permission.status !== "granted") {
           if (active) setLocationStatus("denied");
           return;
@@ -19510,7 +19524,7 @@ async function registerDeviceForMessagePush() {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     });
   }
-  const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
+  const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID || "2cf58077-efbd-4743-8035-9868ff7de9ab";
   const token = await Notifications.getExpoPushTokenAsync(
     projectId ? { projectId } : undefined,
   );
@@ -19704,7 +19718,7 @@ function SignedInHome({
     const browserResult = await openKindredInAppSession(checkout.url, "kindredcube://payment-complete");
     const completedUrl = "url" in browserResult ? browserResult.url : undefined;
     if (browserResult.type !== "success" || !completedUrl || completedUrl.includes("canceled=true")) return false;
-    const sessionId = completedUrl.match(/[&]session_id=([^&]+)/)?.[1];
+    const sessionId = completedUrl.match(/[?&]session_id=([^&]+)/)?.[1];
     if (sessionId) {
       const confirmedSummary = await confirmPaymentCheckout(decodeURIComponent(sessionId));
       setWalletBalance(confirmedSummary.walletBalanceCents / 100);

@@ -2,6 +2,7 @@ import { Body, Controller, Get, Inject, Post, Req, UseGuards } from "@nestjs/com
 import { IsIn, IsOptional, IsUUID } from "class-validator";
 import { AccessTokenGuard, AuthenticatedRequest } from "./auth/auth.guard";
 import { DatabaseService } from "./database.service";
+import { PushNotificationsService } from "./push-notifications.service";
 
 class CreateMemberLikeInput {
   @IsUUID()
@@ -38,11 +39,14 @@ type IncomingLikeRow = {
 @Controller("v1/likes")
 @UseGuards(AccessTokenGuard)
 export class MemberLikesController {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(PushNotificationsService) private readonly push: PushNotificationsService,
+  ) {}
 
   @Post()
-  like(@Req() request: AuthenticatedRequest, @Body() input: CreateMemberLikeInput) {
-    return this.database.withUser(request.user.id, async (client) => {
+  async like(@Req() request: AuthenticatedRequest, @Body() input: CreateMemberLikeInput) {
+    const result = await this.database.withUser(request.user.id, async (client) => {
       const candidate = await client.query<{ user_id: string }>(
         `SELECT d.user_id
            FROM discovery_profiles d
@@ -57,12 +61,13 @@ export class MemberLikesController {
       if (!candidate.rows[0]) return { liked: false, reason: "profile_unavailable" };
 
       const source = input.source || "connect";
-      await client.query(
+      const likeResult = await client.query<{ newly_liked: boolean }>(
         `INSERT INTO member_likes (liker_id, liked_user_id, source, visible_at)
          VALUES ($1, $2, $3, now() + interval '30 days')
          ON CONFLICT (liker_id, liked_user_id) DO UPDATE SET
            source = EXCLUDED.source,
-           updated_at = now()`,
+           updated_at = now()
+         RETURNING (xmax = 0) AS newly_liked`,
         [request.user.id, input.profileId, source],
       );
       const mutual = await client.query(
@@ -88,9 +93,14 @@ export class MemberLikesController {
         liked: true,
         matched: Boolean(mutual.rowCount),
         profileId: input.profileId,
+        newlyLiked: Boolean(likeResult.rows[0]?.newly_liked),
         visibleToRecipientAfterDays: 30,
       };
     });
+    if (result.liked && result.newlyLiked) {
+      this.push.sendLikeNotification(input.profileId, request.user.id, Boolean(result.matched)).catch(() => undefined);
+    }
+    return result;
   }
 
   @Get("incoming")
