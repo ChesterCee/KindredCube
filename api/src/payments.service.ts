@@ -54,6 +54,7 @@ export class PaymentsService {
       mode: purchaseType === "premium" ? "subscription" : "payment",
       customer_email: account.email,
       metadata,
+      payment_intent_data: purchaseType === "premium" ? undefined : { metadata },
       subscription_data: purchaseType === "premium" ? { metadata } : undefined,
       line_items: [{
         quantity: 1,
@@ -108,9 +109,9 @@ export class PaymentsService {
 
   async confirmCheckout(userId: string, sessionId: string) {
     if (!sessionId.startsWith("cs_")) throw new BadRequestException("A valid Stripe Checkout session is required.");
-    const session = await this.client().checkout.sessions.retrieve(sessionId);
+    const session = await this.client().checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
     if (session.metadata?.user_id !== userId) throw new BadRequestException("This payment does not belong to the signed-in account.");
-    if (session.status !== "expired" && session.payment_status !== "paid" && session.mode !== "subscription") {
+    if (session.status !== "expired" && !this.checkoutSessionPaid(session) && session.mode !== "subscription") {
       return this.summary(userId);
     }
     const eventType = session.status === "expired" ? "checkout.session.expired" : "checkout.session.completed";
@@ -146,9 +147,9 @@ export class PaymentsService {
       return result.rows;
     });
     for (const row of pending) {
-      const session = await this.client().checkout.sessions.retrieve(row.stripe_checkout_session_id);
+      const session = await this.client().checkout.sessions.retrieve(row.stripe_checkout_session_id, { expand: ["payment_intent"] });
       const eventType = session.status === "expired" ? "checkout.session.expired" : "checkout.session.completed";
-      if (session.status !== "expired" && session.payment_status !== "paid" && session.mode !== "subscription") continue;
+      if (session.status !== "expired" && !this.checkoutSessionPaid(session) && session.mode !== "subscription") continue;
       await this.processWebhook({
         id: `checkout-reconcile:${session.id}:${session.status}:${session.payment_status}`,
         object: "event",
@@ -233,7 +234,7 @@ export class PaymentsService {
         await client.query(`UPDATE payment_orders SET status = 'expired', updated_at = now() WHERE user_id = $1 AND id = $2`, [userId, orderId]);
         return;
       }
-      if (session.payment_status !== "paid" && session.mode !== "subscription") return;
+      if (!this.checkoutSessionPaid(session) && session.mode !== "subscription") return;
       const amountCents = Number(session.amount_total || session.metadata?.amount_cents || 0);
       if (Number.isInteger(amountCents) && amountCents > 0) {
         await client.query(
@@ -252,10 +253,13 @@ export class PaymentsService {
       );
       if (!order.rows[0]) return;
       if (purchaseType === "wallet") {
+        const walletIdempotencyKey = `wallet-topup:${orderId}`;
         const credited = await client.query(
-          `INSERT INTO wallet_ledger (user_id, delta_cents, entry_type, stripe_event_id)
-           VALUES ($1, $2, 'top_up', $3) ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id`,
-          [userId, order.rows[0].amount_cents, event.id],
+          `INSERT INTO wallet_ledger (user_id, delta_cents, entry_type, stripe_event_id, idempotency_key)
+           VALUES ($1, $2, 'top_up', $3, $4)
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [userId, order.rows[0].amount_cents, event.id, walletIdempotencyKey],
         );
         if (credited.rowCount) {
           await client.query(
@@ -285,5 +289,11 @@ export class PaymentsService {
     }
     if (type === "kindred_pass") return Number(process.env.KINDRED_PASS_PRICE_CENTS || 1999);
     return Number(process.env.PREMIUM_PRICE_CENTS || 4999);
+  }
+
+  private checkoutSessionPaid(session: Stripe.Checkout.Session) {
+    if (session.payment_status === "paid") return true;
+    const paymentIntent = session.payment_intent;
+    return typeof paymentIntent === "object" && paymentIntent?.status === "succeeded";
   }
 }
