@@ -172,6 +172,7 @@ const APP_FONT = Platform.select({ ios: "Avenir Next", android: "sans-serif", de
 WebBrowser.maybeCompleteAuthSession();
 
 const LOCATION_PERMISSION_ASKED_KEY = "kindredcube.locationPermissionAsked";
+const LOCATION_PERMISSION_ASKED_FILE = `${LegacyFileSystem.documentDirectory || ""}kindredcube-location-permission-asked.txt`;
 const HOME_CACHE_VERSION = 1;
 
 type HomeStartupCache = {
@@ -220,14 +221,29 @@ async function writeHomeStartupCache(userId: string, cache: Partial<HomeStartupC
   }
 }
 
+async function readLocationPermissionAsked() {
+  if (process.env.EXPO_OS === "web") return false;
+  const secureValue = await SecureStore.getItemAsync(LOCATION_PERMISSION_ASKED_KEY).catch(() => null);
+  if (secureValue === "1") return true;
+  if (!LegacyFileSystem.documentDirectory) return false;
+  const fileInfo = await LegacyFileSystem.getInfoAsync(LOCATION_PERMISSION_ASKED_FILE).catch(() => null);
+  return Boolean(fileInfo?.exists);
+}
+
+async function markLocationPermissionAsked() {
+  if (process.env.EXPO_OS === "web") return;
+  await SecureStore.setItemAsync(LOCATION_PERMISSION_ASKED_KEY, "1").catch(() => undefined);
+  if (!LegacyFileSystem.documentDirectory) return;
+  await LegacyFileSystem.writeAsStringAsync(LOCATION_PERMISSION_ASKED_FILE, "1").catch(() => undefined);
+}
+
 async function requestForegroundLocationOnce() {
   const current = await Location.getForegroundPermissionsAsync();
   if (current.status === "granted") return current;
-  if (process.env.EXPO_OS !== "web") {
-    const askedBefore = await SecureStore.getItemAsync(LOCATION_PERMISSION_ASKED_KEY).catch(() => null);
-    if (askedBefore === "1") return current;
-    await SecureStore.setItemAsync(LOCATION_PERMISSION_ASKED_KEY, "1").catch(() => undefined);
-  }
+  if (process.env.EXPO_OS === "web") return current;
+  if (current.status !== "undetermined" || current.canAskAgain === false) return current;
+  if (await readLocationPermissionAsked()) return current;
+  await markLocationPermissionAsked();
   return Location.requestForegroundPermissionsAsync();
 }
 

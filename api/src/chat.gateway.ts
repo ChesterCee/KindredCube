@@ -1,4 +1,4 @@
-import { Inject, OnModuleDestroy, OnModuleInit, UsePipes, ValidationPipe } from "@nestjs/common";
+import { Inject, Logger, OnModuleDestroy, OnModuleInit, UsePipes, ValidationPipe } from "@nestjs/common";
 import {
   ConnectedSocket,
   MessageBody,
@@ -47,6 +47,7 @@ type AuthenticatedSocket = Socket & {
 export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleDestroy {
   @WebSocketServer()
   private readonly server!: Server;
+  private readonly logger = new Logger(ChatGateway.name);
   private readonly connectedUsers = new Map<string, number>();
   private unsubscribeRealtime: (() => void) | null = null;
   private unsubscribeReadyToMeet: (() => void) | null = null;
@@ -61,10 +62,23 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
   onModuleInit() {
     this.unsubscribeRealtime = this.realtime.onMessage((message) => {
       this.server.to(userRoom(message.senderId)).to(userRoom(message.recipientId)).emit("chat:message", message);
+      void Promise.all([
+        this.server.in(userRoom(message.senderId)).fetchSockets(),
+        this.server.in(userRoom(message.recipientId)).fetchSockets(),
+      ])
+        .then(([senderSockets, recipientSockets]) => {
+          this.logger.log(
+            `Realtime chat emitted ${message.id}; sender=${message.senderId}; recipient=${message.recipientId}; senderSockets=${senderSockets.length}; recipientSockets=${recipientSockets.length}`,
+          );
+        })
+        .catch((error) => {
+          this.logger.warn(`Realtime chat socket count failed for ${message.id}: ${error instanceof Error ? error.message : String(error)}`);
+        });
       this.push.sendMessageNotification(message.recipientId, message.senderId, message.id).catch(() => undefined);
     });
     this.unsubscribeReadyToMeet = this.realtime.onReadyToMeetPresence((update) => {
       this.server.emit("ready-to-meet:presence", update);
+      this.logger.log(`Ready-to-Meet presence emitted for user ${update.userId}: ${update.available ? "available" : "offline"}`);
     });
   }
 
@@ -79,14 +93,18 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
       const claims = await this.tokens.verifyAccessToken(token);
       socket.data.user = { id: claims.sub, sessionId: claims.sid };
       await socket.join(userRoom(claims.sub));
-      this.connectedUsers.set(claims.sub, (this.connectedUsers.get(claims.sub) || 0) + 1);
-      socket.on("disconnect", () => {
+      const connectedCount = (this.connectedUsers.get(claims.sub) || 0) + 1;
+      this.connectedUsers.set(claims.sub, connectedCount);
+      this.logger.log(`Chat socket connected for user ${claims.sub}; activeSockets=${connectedCount}`);
+      socket.on("disconnect", (reason) => {
         const count = Math.max(0, (this.connectedUsers.get(claims.sub) || 1) - 1);
         if (count) this.connectedUsers.set(claims.sub, count);
         else this.connectedUsers.delete(claims.sub);
+        this.logger.log(`Chat socket disconnected for user ${claims.sub}; reason=${reason}; activeSockets=${count}`);
       });
       socket.emit("chat:ready", { userId: claims.sub });
-    } catch {
+    } catch (error) {
+      this.logger.warn(`Chat socket rejected: ${error instanceof Error ? error.message : String(error)}`);
       socket.emit("chat:error", { message: "Chat connection is not authorized." });
       socket.disconnect(true);
     }

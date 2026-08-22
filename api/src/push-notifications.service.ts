@@ -35,6 +35,7 @@ export class PushNotificationsService {
            updated_at = now()`,
         [userId, normalized, platform],
       );
+      this.logger.log(`Registered ${platform} push token for user ${userId}.`);
       return { registered: true };
     });
   }
@@ -69,6 +70,7 @@ export class PushNotificationsService {
         },
       }));
       await sendExpoPush(messages, this.logger);
+      this.logger.log(`Queued ${messages.length} message push notification(s) for recipient ${recipientId}.`);
     });
   }
 
@@ -93,6 +95,7 @@ export class PushNotificationsService {
         },
       }));
       await sendExpoPush(messages, this.logger);
+      this.logger.log(`Queued ${messages.length} like push notification(s) for recipient ${recipientId}.`);
     });
   }
 }
