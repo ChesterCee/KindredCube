@@ -961,10 +961,12 @@ export async function getChatSocketConfig() {
     throw new ApiError("KindredCube requires an HTTPS API connection outside local development.", 0, "INSECURE_API_URL");
   }
   let token = await getAccessToken();
-  if (!token) {
-    const refreshed = await refreshSession();
-    if (refreshed) token = await getAccessToken();
+  const refreshed = await refreshSession();
+  if (refreshed === "invalid") {
+    await expireSession();
+    throw new ApiError("Sign in again to use chat.", 401, "CHAT_AUTH_REQUIRED");
   }
+  if (refreshed === "refreshed") token = await getAccessToken();
   if (!token) {
     await expireSession();
     throw new ApiError("Sign in again to use chat.", 401, "CHAT_AUTH_REQUIRED");
