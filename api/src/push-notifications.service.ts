@@ -249,6 +249,12 @@ async function notificationBadgeCount(client: PoolClient, userId: string) {
 
 async function sendExpoPush(messages: ExpoPushMessage[], logger: Logger) {
   if (!messages.length) return;
+  if (messages.length > 1) {
+    for (const message of messages) {
+      await sendExpoPush([message], logger);
+    }
+    return;
+  }
   try {
     const response = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
@@ -257,7 +263,7 @@ async function sendExpoPush(messages: ExpoPushMessage[], logger: Logger) {
         "Accept-encoding": "gzip, deflate",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(messages.length === 1 ? messages[0] : messages),
+      body: JSON.stringify(messages[0]),
     });
     const body = await response.text();
     if (!response.ok) {
