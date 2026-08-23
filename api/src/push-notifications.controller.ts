@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Inject, Post, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Inject, Post, Req, UseGuards } from "@nestjs/common";
 import { IsIn, IsString, MaxLength, MinLength } from "class-validator";
 import { AccessTokenGuard, AuthenticatedRequest } from "./auth/auth.guard";
 import { PushNotificationsService } from "./push-notifications.service";
@@ -25,5 +25,15 @@ export class PushNotificationsController {
     } catch {
       throw new BadRequestException("A valid push notification token is required.");
     }
+  }
+
+  @Get("push-diagnostics")
+  diagnostics(@Req() request: AuthenticatedRequest) {
+    return this.push.diagnostics(request.user.id);
+  }
+
+  @Post("test-push")
+  sendTestPush(@Req() request: AuthenticatedRequest) {
+    return this.push.sendTestNotification(request.user.id);
   }
 }

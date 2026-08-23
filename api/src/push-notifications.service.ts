@@ -41,6 +41,63 @@ export class PushNotificationsService {
     });
   }
 
+  async diagnostics(userId: string) {
+    return this.database.withUser(userId, async (client) => {
+      const tokens = await client.query<{
+        platform: string;
+        enabled: boolean;
+        last_seen_at: string;
+        token_prefix: string;
+      }>(
+        `SELECT platform, enabled, last_seen_at, left(token, 28) AS token_prefix
+           FROM user_push_tokens
+          WHERE user_id = $1
+          ORDER BY last_seen_at DESC
+          LIMIT 10`,
+        [userId],
+      );
+      const badgeCount = await notificationBadgeCount(client, userId);
+      return {
+        badgeCount,
+        tokenCount: tokens.rowCount,
+        tokens: tokens.rows.map((row) => ({
+          platform: row.platform,
+          enabled: row.enabled,
+          lastSeenAt: row.last_seen_at,
+          tokenPrefix: row.token_prefix,
+        })),
+      };
+    });
+  }
+
+  async sendTestNotification(userId: string) {
+    await this.database.withUser(userId, async (client) => {
+      const tokens = await activePushTokens(client, userId);
+      if (!tokens.rowCount) {
+        this.logger.warn(`No active push token found for test recipient ${userId}.`);
+        return;
+      }
+      const badgeCount = await notificationBadgeCount(client, userId);
+      const messages: ExpoPushMessage[] = tokens.rows.map((row) => ({
+        to: row.token,
+        title: "KindredCube test notification",
+        body: "If you can see this on your phone, push notifications are connected.",
+        sound: "default",
+        priority: "high",
+        channelId: "messages",
+        badge: Math.max(1, badgeCount || 1),
+        data: {
+          type: "push_test",
+        },
+      }));
+      await sendExpoPush(messages, this.logger);
+      this.logger.log(
+        `Queued ${messages.length} test push notification(s) for user ${userId}; platforms=${summarizePushPlatforms(tokens.rows)}.`,
+      );
+    });
+    return { queued: true };
+  }
+
   async sendMessageNotification(recipientId: string, senderId: string, messageId: string) {
     await this.database.withUser(recipientId, async (client) => {
       if (await notificationsDisabled(client, recipientId, "newMessages")) {
@@ -208,15 +265,56 @@ async function sendExpoPush(messages: ExpoPushMessage[], logger: Logger) {
       return;
     }
     try {
-      const parsed = JSON.parse(body) as { data?: Array<{ status?: string; message?: string; details?: unknown }> | { status?: string; message?: string; details?: unknown } };
+      const parsed = JSON.parse(body) as { data?: Array<{ status?: string; id?: string; message?: string; details?: unknown }> | { status?: string; id?: string; message?: string; details?: unknown } };
       const receipts = Array.isArray(parsed.data) ? parsed.data : parsed.data ? [parsed.data] : [];
       const failures = receipts.filter((receipt) => receipt.status === "error");
       if (failures.length) logger.warn(`Expo push returned ${failures.length} error(s): ${JSON.stringify(failures).slice(0, 500)}`);
+      const ticketIds = receipts
+        .map((receipt) => receipt.id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      if (ticketIds.length) {
+        logger.log(`Expo push accepted ${ticketIds.length} ticket(s): ${ticketIds.join(",")}`);
+        setTimeout(() => {
+          fetchExpoReceipts(ticketIds, logger).catch((error) => {
+            logger.warn(`Expo push receipt check failed: ${error instanceof Error ? error.message : String(error)}`);
+          });
+        }, 15_000);
+      }
     } catch {
       logger.warn(`Expo push returned an unreadable response: ${body.slice(0, 500)}`);
     }
   } catch (error) {
     logger.warn(`Expo push delivery threw before completion: ${error instanceof Error ? error.message : String(error)}`);
     // Push delivery should never fail the saved chat message.
+  }
+}
+
+async function fetchExpoReceipts(ticketIds: string[], logger: Logger) {
+  if (!ticketIds.length) return;
+  const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Accept-encoding": "gzip, deflate",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ ids: ticketIds }),
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    logger.warn(`Expo push receipt request failed with ${response.status}: ${body.slice(0, 500)}`);
+    return;
+  }
+  try {
+    const parsed = JSON.parse(body) as { data?: Record<string, { status?: string; message?: string; details?: unknown }> };
+    const receipts = parsed.data || {};
+    const failures = Object.entries(receipts).filter(([, receipt]) => receipt.status === "error");
+    if (failures.length) {
+      logger.warn(`Expo push receipt error(s): ${JSON.stringify(Object.fromEntries(failures)).slice(0, 900)}`);
+      return;
+    }
+    logger.log(`Expo push receipt check passed for ${Object.keys(receipts).length} ticket(s).`);
+  } catch {
+    logger.warn(`Expo push receipt returned unreadable response: ${body.slice(0, 500)}`);
   }
 }
