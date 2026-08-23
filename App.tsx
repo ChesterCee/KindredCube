@@ -150,6 +150,7 @@ import {
 } from "react-native-safe-area-context";
 import {
   Animated,
+  AppState,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -19580,37 +19581,47 @@ function ConnectFiltersTabbed({
 }
 
 async function registerDeviceForMessagePush() {
-  if (process.env.EXPO_OS === "web") return;
-  const existing = await Notifications.getPermissionsAsync();
-  const permission = existing.granted ?
-    existing
-    : await Notifications.requestPermissionsAsync({
-        ios: {
-          allowAlert: true,
-          allowBadge: true,
-          allowSound: true,
-        },
+  try {
+    if (process.env.EXPO_OS === "web") return;
+    const existing = await Notifications.getPermissionsAsync();
+    const permission = existing.granted ?
+      existing
+      : await Notifications.requestPermissionsAsync({
+          ios: {
+            allowAlert: true,
+            allowBadge: true,
+            allowSound: true,
+          },
+        });
+    if (!permission.granted) {
+      console.warn("KindredCube push notifications are not enabled on this device.");
+      return;
+    }
+    await Notifications.setBadgeCountAsync(0).catch(() => undefined);
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("messages", {
+        name: "Messages",
+        importance: Notifications.AndroidImportance.MAX,
+        sound: "default",
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#EF2D6F",
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       });
-  if (!permission.granted) return;
-  await Notifications.setBadgeCountAsync(0).catch(() => undefined);
-  if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("messages", {
-      name: "Messages",
-      importance: Notifications.AndroidImportance.MAX,
-      sound: "default",
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: "#EF2D6F",
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    });
+    }
+    const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID || "2cf58077-efbd-4743-8035-9868ff7de9ab";
+    const token = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined,
+    );
+    await registerPushToken(
+      token.data,
+      Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : "unknown",
+    );
+  } catch (error) {
+    console.warn(
+      "KindredCube could not register this phone for push notifications.",
+      error instanceof Error ? error.message : error,
+    );
   }
-  const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID || "2cf58077-efbd-4743-8035-9868ff7de9ab";
-  const token = await Notifications.getExpoPushTokenAsync(
-    projectId ? { projectId } : undefined,
-  );
-  await registerPushToken(
-    token.data,
-    Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : "unknown",
-  );
 }
 
 function SignedInHome({
@@ -19784,6 +19795,12 @@ function SignedInHome({
   useEffect(() => {
     if (!initialUser?.id) return;
     registerDeviceForMessagePush().catch(() => undefined);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        registerDeviceForMessagePush().catch(() => undefined);
+      }
+    });
+    return () => subscription.remove();
   }, [initialUser?.id]);
   const refreshDiscoveryPeople = useCallback(async () => {
     const result = await getDiscoveryCandidates();
