@@ -62,6 +62,7 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
   onModuleInit() {
     this.unsubscribeRealtime = this.realtime.onMessage((message) => {
       this.server.to(userRoom(message.senderId)).to(userRoom(message.recipientId)).emit("chat:message", message);
+      const recipientActiveSockets = this.connectedUsers.get(message.recipientId) || 0;
       void Promise.all([
         this.server.in(userRoom(message.senderId)).fetchSockets(),
         this.server.in(userRoom(message.recipientId)).fetchSockets(),
@@ -74,6 +75,10 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
         .catch((error) => {
           this.logger.warn(`Realtime chat socket count failed for ${message.id}: ${error instanceof Error ? error.message : String(error)}`);
         });
+      if (recipientActiveSockets > 0) {
+        this.logger.log(`Skipped push for ${message.id}; recipient ${message.recipientId} is active in app.`);
+        return;
+      }
       this.push.sendMessageNotification(message.recipientId, message.senderId, message.id).catch(() => undefined);
     });
     this.unsubscribeReadyToMeet = this.realtime.onReadyToMeetPresence((update) => {

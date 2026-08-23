@@ -20263,6 +20263,58 @@ function SignedInHome({
     }
     setChatPaywallProfile(profile);
   }, [kindredPassActive, openMemberChat, paidReadyMeetChatIds, premiumActive, profileIsMatched, readyMeetPassActive]);
+  const handledNotificationResponsesRef = useRef<Set<string>>(new Set());
+  const openNotificationTarget = useCallback(async (data: Record<string, unknown>) => {
+    const type = typeof data.type === "string" ? data.type : "";
+    if (type === "chat_message") {
+      const senderId = typeof data.senderId === "string" ? data.senderId : "";
+      setTab("chats");
+      setSelectedMemberProfile(null);
+      if (!senderId) return;
+      let profile = findKnownChatProfile(senderId);
+      if (!profile) {
+        try {
+          const chats = await refreshChatConversations(true);
+          profile = chats.find((item) => item.id === senderId) || null;
+        } catch {
+          profile = null;
+        }
+      }
+      if (profile) {
+        openMemberChat(profile);
+        return;
+      }
+      setUnreadChatIds((current) => current.includes(senderId) ? current : [...current, senderId]);
+      return;
+    }
+    if (type === "like" || type === "match") {
+      setActiveMemberChat(null);
+      setSelectedMemberProfile(null);
+      setTab(type === "match" ? "chats" : "liked");
+      refreshIncomingLikes().catch(() => undefined);
+      if (type === "match") refreshChatConversations(true).catch(() => undefined);
+      return;
+    }
+    if (type === "push_test") {
+      setTab("chats");
+    }
+  }, [findKnownChatProfile, openMemberChat, refreshChatConversations, refreshIncomingLikes]);
+  const handleNotificationResponse = useCallback((response: Notifications.NotificationResponse | null | undefined) => {
+    if (!response) return;
+    const responseId = response.notification.request.identifier || JSON.stringify(response.notification.request.content.data || {});
+    if (handledNotificationResponsesRef.current.has(responseId)) return;
+    handledNotificationResponsesRef.current.add(responseId);
+    const data = response.notification.request.content.data || {};
+    openNotificationTarget(data as Record<string, unknown>).catch(() => undefined);
+  }, [openNotificationTarget]);
+  useEffect(() => {
+    if (!initialUser?.id || process.env.EXPO_OS === "web") return;
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    Notifications.getLastNotificationResponseAsync()
+      .then(handleNotificationResponse)
+      .catch(() => undefined);
+    return () => subscription.remove();
+  }, [handleNotificationResponse, initialUser?.id]);
   useEffect(() => {
     let active = true;
     setPrivateSpaceLoaded(false);
