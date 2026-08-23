@@ -20281,17 +20281,67 @@ function SignedInHome({
   }, [kindredPassActive, openMemberChat, paidReadyMeetChatIds, premiumActive, profileIsMatched, readyMeetPassActive]);
   const handledNotificationResponsesRef = useRef<Set<string>>(new Set());
   const pendingNotificationChatProfileIdRef = useRef("");
+  const [pendingNotificationTarget, setPendingNotificationTarget] = useState<{
+    type: "chat" | "liked" | "chats";
+    profileId?: string;
+  } | null>(null);
   useEffect(() => {
-    const pendingProfileId = pendingNotificationChatProfileIdRef.current;
+    if (!privateSpaceLoaded || pendingNotificationTarget?.type !== "chat") return;
+    const pendingProfileId = pendingNotificationTarget.profileId || pendingNotificationChatProfileIdRef.current;
     if (!pendingProfileId) return;
     const profile = findKnownChatProfile(pendingProfileId);
-    if (!profile) return;
+    if (!profile) {
+      refreshChatConversations(true).catch(() => undefined);
+      return;
+    }
     pendingNotificationChatProfileIdRef.current = "";
+    setPendingNotificationTarget(null);
+    setSettingsOpen(false);
+    setProfileEditing(false);
+    setMembershipOptionsOpen(false);
+    setSelectedMemberProfile(null);
+    setFilterOpen(false);
     openMemberChat(profile);
-  }, [findKnownChatProfile, memberChats, memberChat, incomingLikes, realDiscoveryPeople, realReadyToMeetPeople, openMemberChat]);
+  }, [
+    findKnownChatProfile,
+    memberChats,
+    memberChat,
+    incomingLikes,
+    realDiscoveryPeople,
+    realReadyToMeetPeople,
+    openMemberChat,
+    pendingNotificationTarget,
+    privateSpaceLoaded,
+    refreshChatConversations,
+  ]);
+  useEffect(() => {
+    if (!privateSpaceLoaded || !pendingNotificationTarget) return;
+    if (pendingNotificationTarget.type === "liked") {
+      setPendingNotificationTarget(null);
+      setActiveMemberChat(null);
+      setSelectedMemberProfile(null);
+      setSettingsOpen(false);
+      setProfileEditing(false);
+      setMembershipOptionsOpen(false);
+      setFilterOpen(false);
+      setTab("liked");
+      refreshIncomingLikes().catch(() => undefined);
+    } else if (pendingNotificationTarget.type === "chats") {
+      setPendingNotificationTarget(null);
+      setActiveMemberChat(null);
+      setSelectedMemberProfile(null);
+      setSettingsOpen(false);
+      setProfileEditing(false);
+      setMembershipOptionsOpen(false);
+      setFilterOpen(false);
+      setTab("chats");
+      refreshChatConversations(true).catch(() => undefined);
+    }
+  }, [pendingNotificationTarget, privateSpaceLoaded, refreshChatConversations, refreshIncomingLikes]);
   const openNotificationTarget = useCallback(async (data: Record<string, unknown>) => {
     const type = typeof data.type === "string" ? data.type : "";
-    if (type === "chat_message") {
+    const destination = typeof data.destination === "string" ? data.destination : "";
+    if (type === "chat_message" || destination === "chat") {
       const senderId =
         typeof data.senderId === "string" ? data.senderId
           : typeof data.profileId === "string" ? data.profileId
@@ -20305,6 +20355,7 @@ function SignedInHome({
       setActiveMemberChat(null);
       if (!senderId) return;
       pendingNotificationChatProfileIdRef.current = senderId;
+      setPendingNotificationTarget({ type: "chat", profileId: senderId });
       let profile = findKnownChatProfile(senderId);
       if (!profile) {
         try {
@@ -20316,18 +20367,25 @@ function SignedInHome({
       }
       if (profile) {
         pendingNotificationChatProfileIdRef.current = "";
+        setPendingNotificationTarget(null);
         openMemberChat(profile);
         return;
       }
       setUnreadChatIds((current) => current.includes(senderId) ? current : [...current, senderId]);
       return;
     }
-    if (type === "like" || type === "match") {
+    if (type === "like" || type === "match" || destination === "liked" || destination === "chats") {
+      const target = type === "match" || destination === "chats" ? "chats" : "liked";
+      setPendingNotificationTarget({ type: target });
       setActiveMemberChat(null);
       setSelectedMemberProfile(null);
-      setTab(type === "match" ? "chats" : "liked");
+      setSettingsOpen(false);
+      setProfileEditing(false);
+      setMembershipOptionsOpen(false);
+      setFilterOpen(false);
+      setTab(target);
       refreshIncomingLikes().catch(() => undefined);
-      if (type === "match") refreshChatConversations(true).catch(() => undefined);
+      if (target === "chats") refreshChatConversations(true).catch(() => undefined);
       return;
     }
     if (type === "push_test") {

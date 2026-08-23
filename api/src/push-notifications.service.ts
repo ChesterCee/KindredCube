@@ -137,6 +137,8 @@ export class PushNotificationsService {
         badge: Math.max(1, badgeCount),
         data: {
           type: "chat_message",
+          destination: "chat",
+          profileId: senderId,
           senderId,
           messageId,
         },
@@ -170,6 +172,8 @@ export class PushNotificationsService {
         badge: Math.max(1, badgeCount),
         data: {
           type: matched ? "match" : "like",
+          destination: matched ? "chats" : "liked",
+          profileId: likerId,
           likerId,
         },
       }));
