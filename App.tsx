@@ -2652,12 +2652,18 @@ function ProfileImage({
   blurred?: boolean;
 }) {
   const photos = profilePhotoUris(profile);
-  if (photos.length) {
+  const [failedUri, setFailedUri] = useState("");
+  const uri = photos.find((photoUri) => photoUri !== failedUri) || "";
+  useEffect(() => {
+    if (failedUri && !photos.includes(failedUri)) setFailedUri("");
+  }, [failedUri, photos]);
+  if (uri) {
     return (
       <Image
-        source={{ uri: photos[0] }}
+        source={{ uri }}
         resizeMode="cover"
         blurRadius={blurred ? 64 : 0}
+        onError={() => setFailedUri(uri)}
         style={{ width: size, height: size, backgroundColor: C.line }}
       />
     );

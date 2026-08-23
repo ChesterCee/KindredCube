@@ -471,11 +471,10 @@ export class ChatService {
     const photoUris = Array.isArray(matching.photos)
       ? matching.photos
           .map((photo) => photo && typeof photo === "object" && "uri" in photo ? (photo as { uri?: unknown }).uri : undefined)
+          .map(publicMediaUri)
           .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
       : [];
-    const bestPhotoUri = typeof matching.bestPhotoUri === "string" && matching.bestPhotoUri.trim().length > 0
-      ? matching.bestPhotoUri
-      : undefined;
+    const bestPhotoUri = publicMediaUri(matching.bestPhotoUri);
     return {
       profile: {
         id: row.other_user_id,
@@ -539,6 +538,18 @@ function activeMatchingData(matching: Record<string, unknown>): Record<string, u
     && new Date(matching.readyToMeetAt).getTime() <= Date.now()
     && new Date(matching.readyToMeetExpiresAt).getTime() > Date.now();
   return { ...matching, readyToMeet };
+}
+
+function publicMediaUri(uri: unknown) {
+  if (typeof uri !== "string") return "";
+  const trimmed = uri.trim();
+  if (!trimmed) return "";
+  const match = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}$/i);
+  if (match?.[0]) {
+    const origin = (process.env.PUBLIC_API_URL || process.env.API_PUBLIC_URL || "").replace(/\/$/, "");
+    return origin ? `${origin}${match[0]}` : match[0];
+  }
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : "";
 }
 
 function ageFromDate(value: string) {
