@@ -15,6 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
+        "NSMicrophoneUsageDescription": "KindredCube needs microphone access when you choose to record and send a voice note.",
         "LSApplicationQueriesSchemes": [
           "uber",
           "lyft"

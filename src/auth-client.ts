@@ -916,6 +916,7 @@ export type ChatMessage = {
   unsentAt?: string;
   text?: string;
   gifUrl?: string;
+  gifPreviewUrl?: string;
   gifTitle?: string;
   imageUri?: string;
   videoUri?: string;
@@ -993,7 +994,7 @@ export function getChatConversations() {
 export function sendChatMessage(
   recipientId: string,
   kind: ChatMessage["kind"],
-  payload: Partial<Pick<ChatMessage, "text" | "gifUrl" | "gifTitle" | "imageUri" | "videoUri" | "fileSizeBytes" | "audioUri" | "durationMillis" | "meetingProposal" | "meetingResponse">>,
+  payload: Partial<Pick<ChatMessage, "text" | "gifUrl" | "gifPreviewUrl" | "gifTitle" | "imageUri" | "videoUri" | "fileSizeBytes" | "audioUri" | "durationMillis" | "meetingProposal" | "meetingResponse">>,
 ) {
   return request<ChatMessage>(
     "/v1/chats/messages",

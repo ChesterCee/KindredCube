@@ -13505,7 +13505,7 @@ function ReadyMeetChat({
   const proposalSentByMe = latestProposalMessage?.sender === "me";
   const sendRealtimeMessage = useCallback(async (
     kind: ChatMessage["kind"],
-    payload: Partial<Pick<ChatMessage, "text" | "gifUrl" | "gifTitle" | "imageUri" | "videoUri" | "fileSizeBytes" | "audioUri" | "durationMillis" | "meetingProposal" | "meetingResponse">>,
+    payload: Partial<Pick<ChatMessage, "text" | "gifUrl" | "gifPreviewUrl" | "gifTitle" | "imageUri" | "videoUri" | "fileSizeBytes" | "audioUri" | "durationMillis" | "meetingProposal" | "meetingResponse">>,
   ) => {
     if (!profile.id) {
       setComposerNotice("This profile is not connected to a real account yet.");
@@ -13777,8 +13777,10 @@ function ReadyMeetChat({
     fileSizeBytes: number,
     durationMillis?: number,
   ) => {
-    const fileBase64 = await new File(localUri).base64();
-    const uploaded = await uploadChatMedia({ fileBase64, mimeType, sizeBytes: fileSizeBytes });
+    const fileInfo = await LegacyFileSystem.getInfoAsync(localUri);
+    if (!fileInfo.exists) throw new Error("Media file is no longer available.");
+    const fileBase64 = await LegacyFileSystem.readAsStringAsync(localUri, { encoding: "base64" });
+    const uploaded = await uploadChatMedia({ fileBase64, mimeType, sizeBytes: fileInfo.size || fileSizeBytes || 1 });
     const payload = kind === "image" ?
       { imageUri: uploaded.uri, fileSizeBytes: uploaded.sizeBytes }
       : kind === "video" ?
@@ -13858,8 +13860,7 @@ function ReadyMeetChat({
         await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
         const audioUri = audioRecorder.uri;
         if (audioUri) {
-          const audioFile = new File(audioUri);
-          await queueChatMedia("audio", audioUri, "audio/mp4", Number(audioFile.size) || 1, durationMillis);
+          await queueChatMedia("audio", audioUri, "audio/mp4", 1, durationMillis);
         }
         return;
       }
@@ -13869,9 +13870,10 @@ function ReadyMeetChat({
         return;
       }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await audioRecorder.prepareToRecordAsync();
+      await audioRecorder.prepareToRecordAsync(RecordingPresets.HIGH_QUALITY);
       audioRecorder.record();
-    } catch {
+    } catch (caught) {
+      console.warn("Voice note recording failed", caught);
       setComposerNotice("The voice note could not be recorded. Check microphone permission and try again.");
     }
   };
@@ -13883,7 +13885,7 @@ function ReadyMeetChat({
     setGifBusy(false);
   }, []);
   const sendGifMessage = useCallback(async (gif: { id: string; title: string; url: string; previewUrl: string }) => {
-    const delivered = await sendRealtimeMessage("gif", { gifUrl: gif.url, gifTitle: gif.title });
+    const delivered = await sendRealtimeMessage("gif", { gifUrl: gif.url, gifPreviewUrl: gif.previewUrl, gifTitle: gif.title });
     if (delivered) closeGifPicker();
   }, [closeGifPicker, sendRealtimeMessage]);
   const runGifSearch = async (overrideQuery?: string) => {
@@ -14332,6 +14334,10 @@ function ReadyMeetChat({
           const previous = chatMessages[index - 1];
           const showDate = !previous || chatDayKey(previous.createdAt) !== chatDayKey(item.createdAt);
           const reactionValues = item.reactions ? Object.values(item.reactions).filter(Boolean) : [];
+          const itemPayload = item as ChatMessage & { url?: string; uri?: string; previewUrl?: string };
+          const gifUri = item.kind === "gif"
+            ? itemPayload.gifUrl || itemPayload.url || itemPayload.previewUrl || itemPayload.uri || itemPayload.gifPreviewUrl
+            : "";
           return (
             <View key={item.id} style={{ width: "100%", gap: showDate ? 8 : 0 }}>
               {showDate ? (
@@ -14364,7 +14370,14 @@ function ReadyMeetChat({
                 delayLongPress={280}
                 style={{ borderRadius: 16, borderCurve: "continuous", overflow: "hidden", backgroundColor: selectedForDelete ? "#FDE5E1" : bubbleColor, borderWidth: selectedForDelete ? 2.5 : 1.5, borderColor: selectedForDelete ? "#C84534" : bubbleBorder, padding: 10, zIndex: 2 }}
               >
-                {item.kind === "gif" && item.gifUrl ? <Image source={{ uri: item.gifUrl }} accessibilityLabel={item.gifTitle || "GIF"} resizeMode="cover" style={{ width: 220, height: 165, borderRadius: 11 }} /> : null}
+                {item.kind === "gif" && gifUri ? (
+                  <Image
+                    source={{ uri: gifUri }}
+                    accessibilityLabel={item.gifTitle || "GIF"}
+                    resizeMode="cover"
+                    style={{ width: 220, height: 165, borderRadius: 11, backgroundColor: "#F3EFE8" }}
+                  />
+                ) : null}
                 {item.kind === "image" && item.imageUri ? (
                   <Pressable
                     accessibilityRole="imagebutton"

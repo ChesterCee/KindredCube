@@ -16,6 +16,7 @@ type MeetingProposalPayload = {
 export type ChatPayload = {
   text?: string;
   gifUrl?: string;
+  gifPreviewUrl?: string;
   gifTitle?: string;
   imageUri?: string;
   videoUri?: string;
@@ -40,6 +41,7 @@ export type ChatMessageResponse = {
   unsentAt?: string;
   text?: string;
   gifUrl?: string;
+  gifPreviewUrl?: string;
   gifTitle?: string;
   imageUri?: string;
   videoUri?: string;
@@ -555,9 +557,11 @@ function normalizePayload(kind: ChatContentKind, payload: ChatPayload) {
   }
   if (kind === "gif") {
     const gifUrl = typeof payload.gifUrl === "string" ? payload.gifUrl.trim() : "";
+    const gifPreviewUrl = typeof payload.gifPreviewUrl === "string" ? payload.gifPreviewUrl.trim() : "";
     if (!/^https:\/\//.test(gifUrl)) throw new BadRequestException("Choose a valid GIF.");
     return {
       gifUrl,
+      ...(gifPreviewUrl && /^https:\/\//.test(gifPreviewUrl) ? { gifPreviewUrl } : {}),
       gifTitle: typeof payload.gifTitle === "string" ? payload.gifTitle.slice(0, 160) : "GIF",
     };
   }
