@@ -20280,13 +20280,31 @@ function SignedInHome({
     setChatPaywallProfile(profile);
   }, [kindredPassActive, openMemberChat, paidReadyMeetChatIds, premiumActive, profileIsMatched, readyMeetPassActive]);
   const handledNotificationResponsesRef = useRef<Set<string>>(new Set());
+  const pendingNotificationChatProfileIdRef = useRef("");
+  useEffect(() => {
+    const pendingProfileId = pendingNotificationChatProfileIdRef.current;
+    if (!pendingProfileId) return;
+    const profile = findKnownChatProfile(pendingProfileId);
+    if (!profile) return;
+    pendingNotificationChatProfileIdRef.current = "";
+    openMemberChat(profile);
+  }, [findKnownChatProfile, memberChats, memberChat, incomingLikes, realDiscoveryPeople, realReadyToMeetPeople, openMemberChat]);
   const openNotificationTarget = useCallback(async (data: Record<string, unknown>) => {
     const type = typeof data.type === "string" ? data.type : "";
     if (type === "chat_message") {
-      const senderId = typeof data.senderId === "string" ? data.senderId : "";
+      const senderId =
+        typeof data.senderId === "string" ? data.senderId
+          : typeof data.profileId === "string" ? data.profileId
+            : typeof data.userId === "string" ? data.userId
+              : "";
       setTab("chats");
+      setSettingsOpen(false);
+      setProfileEditing(false);
+      setMembershipOptionsOpen(false);
       setSelectedMemberProfile(null);
+      setActiveMemberChat(null);
       if (!senderId) return;
+      pendingNotificationChatProfileIdRef.current = senderId;
       let profile = findKnownChatProfile(senderId);
       if (!profile) {
         try {
@@ -20297,6 +20315,7 @@ function SignedInHome({
         }
       }
       if (profile) {
+        pendingNotificationChatProfileIdRef.current = "";
         openMemberChat(profile);
         return;
       }
