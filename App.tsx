@@ -174,6 +174,8 @@ WebBrowser.maybeCompleteAuthSession();
 
 const LOCATION_PERMISSION_ASKED_KEY = "kindredcube.locationPermissionAsked";
 const LOCATION_PERMISSION_ASKED_FILE = `${LegacyFileSystem.documentDirectory || ""}kindredcube-location-permission-asked.txt`;
+const WELCOME_ANIMATION_SEEN_KEY = "kindredcube.welcomeAnimationSeen";
+const LAST_SESSION_USER_FILE = `${LegacyFileSystem.documentDirectory || ""}kindredcube-last-session-user.json`;
 const HOME_CACHE_VERSION = 1;
 
 type HomeStartupCache = {
@@ -189,6 +191,7 @@ type HomeStartupCache = {
   walletBalanceCents?: number;
   premiumActive?: boolean;
   kindredPassActive?: boolean;
+  chatMessagesByProfileId?: Record<string, ChatMessageItem[]>;
 };
 
 function homeCacheUri(userId: string) {
@@ -219,6 +222,43 @@ async function writeHomeStartupCache(userId: string, cache: Partial<HomeStartupC
     );
   } catch {
     // Cache writes should never block the live app.
+  }
+}
+
+async function readWelcomeAnimationSeen() {
+  return (await SecureStore.getItemAsync(WELCOME_ANIMATION_SEEN_KEY).catch(() => null)) === "1";
+}
+
+async function markWelcomeAnimationSeen() {
+  await SecureStore.setItemAsync(WELCOME_ANIMATION_SEEN_KEY, "1").catch(() => undefined);
+}
+
+async function readLastSessionUser(): Promise<AuthenticatedUser | null> {
+  if (process.env.EXPO_OS === "web" || !LegacyFileSystem.documentDirectory) return null;
+  try {
+    const raw = await LegacyFileSystem.readAsStringAsync(LAST_SESSION_USER_FILE);
+    const parsed = JSON.parse(raw) as AuthenticatedUser;
+    return parsed?.id && parsed?.email ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeLastSessionUser(user: AuthenticatedUser) {
+  if (process.env.EXPO_OS === "web" || !LegacyFileSystem.documentDirectory) return;
+  try {
+    await LegacyFileSystem.writeAsStringAsync(LAST_SESSION_USER_FILE, JSON.stringify(user));
+  } catch {
+    // This cache is only for faster app startup.
+  }
+}
+
+async function clearLastSessionUser() {
+  if (process.env.EXPO_OS === "web" || !LegacyFileSystem.documentDirectory) return;
+  try {
+    await LegacyFileSystem.deleteAsync(LAST_SESSION_USER_FILE, { idempotent: true });
+  } catch {
+    // The app can still sign out even if this best-effort cache cleanup fails.
   }
 }
 
@@ -957,6 +997,11 @@ type Profile = {
   chatLastMessageAt?: string;
   chatLastMessageSenderId?: string;
   promptAnswers?: Record<string, { prompt: string; answer: string }>;
+};
+
+type ChatMessageItem = ChatMessage & {
+  sender: "me" | "them";
+  pending?: boolean;
 };
 
 function safeProfilePromptAnswers(value: unknown): Record<string, { prompt: string; answer: string }> {
@@ -5282,6 +5327,8 @@ function MessagesScreen({
   onCurrentUserMeetupVerified,
   completedPostMeetCheckKeys = [],
   onPostMeetCheckCompleted,
+  cachedChatMessagesByProfileId = {},
+  onMessagesCached,
 }: {
   username: string;
   assistantAvailable: boolean;
@@ -5306,6 +5353,8 @@ function MessagesScreen({
   onCurrentUserMeetupVerified?: () => void;
   completedPostMeetCheckKeys?: string[];
   onPostMeetCheckCompleted?: (key: string) => void;
+  cachedChatMessagesByProfileId?: Record<string, ChatMessageItem[]>;
+  onMessagesCached?: (profileId: string, messages: ChatMessageItem[]) => void;
 }) {
   const [conversationOpen, setConversationOpen] = useState(false);
   const [chatListFilter, setChatListFilter] = useState<"all" | "unread">("all");
@@ -5328,7 +5377,7 @@ function MessagesScreen({
         keyboardVerticalOffset={8}
       >
         <View style={{ flex: 1, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 30, gap: 10 }}>
-          <ReadyMeetChat currentUserId={currentUserId} profile={activeMemberChat} onBack={onCloseMemberChat} onProfilePress={onProfilePress} onBlock={onBlockMember} onReport={onReportMember} onMessageSent={onMemberMessageSent} readyNearby={memberReadyNearby} online={false} verificationStatus={verificationStatus} verificationMethod={verificationMethod} onVerificationStatusChange={onVerificationStatusChange} onVerificationMethodChange={onVerificationMethodChange} onCurrentUserMeetupVerified={onCurrentUserMeetupVerified} completedPostMeetCheckKeys={completedPostMeetCheckKeys} onPostMeetCheckCompleted={onPostMeetCheckCompleted} />
+          <ReadyMeetChat currentUserId={currentUserId} profile={activeMemberChat} onBack={onCloseMemberChat} onProfilePress={onProfilePress} onBlock={onBlockMember} onReport={onReportMember} onMessageSent={onMemberMessageSent} readyNearby={memberReadyNearby} online={false} verificationStatus={verificationStatus} verificationMethod={verificationMethod} onVerificationStatusChange={onVerificationStatusChange} onVerificationMethodChange={onVerificationMethodChange} onCurrentUserMeetupVerified={onCurrentUserMeetupVerified} completedPostMeetCheckKeys={completedPostMeetCheckKeys} onPostMeetCheckCompleted={onPostMeetCheckCompleted} cachedMessages={activeMemberChat.id ? cachedChatMessagesByProfileId[activeMemberChat.id] || [] : []} onMessagesCached={onMessagesCached} />
         </View>
       </KeyboardAvoidingView>
     );
@@ -12953,6 +13002,8 @@ function ReadyMeetChat({
   onCurrentUserMeetupVerified,
   completedPostMeetCheckKeys = [],
   onPostMeetCheckCompleted,
+  cachedMessages = [],
+  onMessagesCached,
 }: {
   currentUserId?: string;
   profile: Profile;
@@ -12970,6 +13021,8 @@ function ReadyMeetChat({
   onCurrentUserMeetupVerified?: () => void;
   completedPostMeetCheckKeys?: string[];
   onPostMeetCheckCompleted?: (key: string) => void;
+  cachedMessages?: ChatMessageItem[];
+  onMessagesCached?: (profileId: string, messages: ChatMessageItem[]) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
@@ -12979,28 +13032,7 @@ function ReadyMeetChat({
     payload: Partial<Pick<ChatMessage, "imageUri" | "videoUri" | "fileSizeBytes" | "audioUri" | "durationMillis">>;
     label: string;
   } | null>(null);
-  const [chatMessages, setChatMessages] = useState<Array<{
-    id: string;
-    senderId?: string;
-    recipientId?: string;
-    createdAt?: string;
-    sender: "me" | "them";
-    kind: ChatMessage["kind"];
-    text?: string;
-    gifUrl?: string;
-    gifTitle?: string;
-    imageUri?: string;
-    videoUri?: string;
-    fileSizeBytes?: number;
-    audioUri?: string;
-    durationMillis?: number;
-    meetingProposal?: ChatMessage["meetingProposal"];
-    meetingResponse?: ChatMessage["meetingResponse"];
-    editedAt?: string;
-    unsentAt?: string;
-    reactions?: Record<string, string>;
-    pending?: boolean;
-  }>>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessageItem[]>(cachedMessages);
   const [messageActionTarget, setMessageActionTarget] = useState<(typeof chatMessages)[number] | null>(null);
   const [editingMessageId, setEditingMessageId] = useState("");
   const [editDraft, setEditDraft] = useState("");
@@ -13147,21 +13179,26 @@ function ReadyMeetChat({
   }, [currentUserId, profile.id]);
 
   useEffect(() => {
-    setChatMessages([]);
+    setChatMessages(cachedMessages);
+    warmChatImageCache(cachedMessages);
     if (!profile.id) {
       setComposerNotice("This chat cannot deliver in real time until the profile has a real account.");
       return;
     }
+    const profileId = profile.id;
     let active = true;
     let socket: Socket | null = null;
     setComposerNotice("");
-    getConversationMessages(profile.id)
+    getConversationMessages(profileId)
       .then((result) => {
         if (!active) return;
-        setChatMessages(result.messages.map((item) => ({
+        const messages = result.messages.map((item) => ({
           ...item,
-          sender: (currentUserId ? item.senderId === currentUserId : item.senderId !== profile.id) ? "me" : "them",
-        })));
+          sender: (currentUserId ? item.senderId === currentUserId : item.senderId !== profileId) ? "me" : "them",
+        })) as ChatMessageItem[];
+        setChatMessages(messages);
+        warmChatImageCache(messages);
+        onMessagesCached?.(profileId, messages);
       })
       .catch((caught) => {
         if (!active) return;
@@ -13196,6 +13233,16 @@ function ReadyMeetChat({
       socket?.disconnect();
     };
   }, [appendServerMessage, currentUserId, profile.id]);
+
+  useEffect(() => {
+    if (!profile.id || !chatMessages.length) return;
+    const profileId = profile.id;
+    const timer = setTimeout(() => {
+      onMessagesCached?.(profileId, chatMessages);
+      warmChatImageCache(chatMessages);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [chatMessages, onMessagesCached, profile.id]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000);
@@ -16890,6 +16937,35 @@ function profilePhotoUris(profile: Profile) {
   ];
 }
 
+function warmImageCache(uris: unknown[]) {
+  if (process.env.EXPO_OS === "web") return;
+  [
+    ...new Set(
+      uris
+        .map(cleanMediaUri)
+        .filter((uri): uri is string => uri.length > 0 && /^https?:\/\//i.test(uri)),
+    ),
+  ]
+    .slice(0, 80)
+    .forEach((uri) => {
+      Image.prefetch(uri).catch(() => undefined);
+    });
+}
+
+function warmProfileImageCache(profiles: Profile[]) {
+  warmImageCache(profiles.flatMap((profile) => profilePhotoUris(profile)));
+}
+
+function warmChatImageCache(messages: ChatMessageItem[]) {
+  warmImageCache(
+    messages.flatMap((message) => [
+      message.imageUri,
+      message.gifUrl,
+      message.videoUri,
+    ]),
+  );
+}
+
 type ProfileGalleryItem = { kind: "uri" | "portrait"; value: string | number; source?: "instagram" };
 
 function profileGalleryItems(profile: Profile): ProfileGalleryItem[] {
@@ -19685,6 +19761,7 @@ function SignedInHome({
   const [assistantUnread, setAssistantUnread] = useState(false);
   const [memberChat, setMemberChat] = useState<Profile | null>(null);
   const [memberChats, setMemberChats] = useState<Profile[]>([]);
+  const [cachedChatMessagesByProfileId, setCachedChatMessagesByProfileId] = useState<Record<string, ChatMessageItem[]>>({});
   const [activeMemberChat, setActiveMemberChat] = useState<Profile | null>(null);
   const [memberChatReadyNearby, setMemberChatReadyNearby] = useState(false);
   const [selectedMemberProfile, setSelectedMemberProfile] = useState<Profile | null>(null);
@@ -19726,6 +19803,19 @@ function SignedInHome({
       writeHomeStartupCache(initialUser.id, homeCacheRef.current).catch(() => undefined);
     }, 250);
   }, [initialUser?.id]);
+  const cacheChatMessages = useCallback((profileId: string, messages: ChatMessageItem[]) => {
+    if (!profileId) return;
+    const compactMessages = messages.filter((item) => !item.pending).slice(-100);
+    setCachedChatMessagesByProfileId((current) => {
+      const next = {
+        ...current,
+        [profileId]: compactMessages,
+      };
+      queueHomeCacheSave({ chatMessagesByProfileId: next });
+      return next;
+    });
+    warmChatImageCache(compactMessages);
+  }, [queueHomeCacheSave]);
   const applyPrivateSpaceSnapshot = useCallback((profile: Record<string, unknown>, settings: Record<string, unknown>) => {
     const normalizedProfile = normalizeProfileMediaUris(profile);
     privateProfileRef.current = normalizedProfile;
@@ -19806,12 +19896,14 @@ function SignedInHome({
     const result = await getDiscoveryCandidates();
     const profiles = result.candidates.map(discoveryCandidateToProfile);
     setRealDiscoveryPeople(profiles);
+    warmProfileImageCache(profiles);
     queueHomeCacheSave({ discoveryPeople: profiles });
   }, [queueHomeCacheSave]);
   const refreshReadyToMeetPeople = useCallback(async () => {
     const result = await getReadyToMeetCandidates();
     const profiles = result.candidates.map(discoveryCandidateToProfile);
     setRealReadyToMeetPeople(profiles);
+    warmProfileImageCache(profiles);
     queueHomeCacheSave({ readyToMeetPeople: profiles });
   }, [queueHomeCacheSave]);
   const refreshPaymentState = useCallback(async () => {
@@ -19851,6 +19943,7 @@ function SignedInHome({
       });
       return Array.from(next);
     });
+    warmProfileImageCache(result.likes.map((like) => discoveryCandidateToProfile(like.profile)));
     queueHomeCacheSave({ incomingLikes: result.likes });
     return result.likes;
   }, [likedProfiles, queueHomeCacheSave, revealedIncomingLikeIds]);
@@ -19896,6 +19989,7 @@ function SignedInHome({
     if (latest) {
       setMemberChatReadyNearby(Boolean(profileMatchingSignals(latest).readyToMeet));
     }
+    warmProfileImageCache(mergedProfiles);
     queueHomeCacheSave({ memberChats: mergedProfiles, memberChat: latest });
     return mergedProfiles;
   }, [initialUser?.id, queueHomeCacheSave]);
@@ -20174,6 +20268,18 @@ function SignedInHome({
           if (typeof cache.walletBalanceCents === "number") setWalletBalance(cache.walletBalanceCents / 100);
           if (typeof cache.premiumActive === "boolean") setPremiumActive(cache.premiumActive);
           if (typeof cache.kindredPassActive === "boolean") setKindredPassActive(cache.kindredPassActive);
+          if (cache.chatMessagesByProfileId && typeof cache.chatMessagesByProfileId === "object") {
+            setCachedChatMessagesByProfileId(cache.chatMessagesByProfileId);
+            Object.values(cache.chatMessagesByProfileId).forEach((messages) => {
+              if (Array.isArray(messages)) warmChatImageCache(messages);
+            });
+          }
+          warmProfileImageCache([
+            ...(Array.isArray(cache.discoveryPeople) ? cache.discoveryPeople : []),
+            ...(Array.isArray(cache.readyToMeetPeople) ? cache.readyToMeetPeople : []),
+            ...(Array.isArray(cache.memberChats) ? cache.memberChats : []),
+            ...(cache.memberChat ? [cache.memberChat] : []),
+          ]);
         })
         .catch(() => undefined);
     }
@@ -20669,6 +20775,8 @@ function SignedInHome({
       onVerificationMethodChange={setIdentityVerificationMethod}
       completedPostMeetCheckKeys={completedPostMeetCheckKeys}
       onPostMeetCheckCompleted={rememberCompletedPostMeetCheck}
+      cachedChatMessagesByProfileId={cachedChatMessagesByProfileId}
+      onMessagesCached={cacheChatMessages}
       onCurrentUserMeetupVerified={() => {
         setPrivateProfile((current) => ({ ...current, meetupVerified: true }));
         privateProfileRef.current = { ...privateProfileRef.current, meetupVerified: true };
@@ -22098,7 +22206,7 @@ export default function App() {
   const [screen, setScreen] = useState<
     "landing" | "account-choice" | "qualifier" | "login" | "forgot-password" | "reset-password" | "verifying" | "home"
   >("landing");
-  const [launching, setLaunching] = useState(true);
+  const [launching, setLaunching] = useState(process.env.EXPO_OS !== "web");
   const [verificationTicket, setVerificationTicket] = useState("");
   const [verificationError, setVerificationError] = useState("");
   const [passwordResetToken, setPasswordResetToken] = useState("");
@@ -22115,12 +22223,77 @@ export default function App() {
       setPasswordResetToken("");
       setPasswordResetRequiresCurrentPassword(false);
       setScreen("landing");
+      clearLastSessionUser().catch(() => undefined);
     });
     return () => setAuthExpiredHandler(null);
   }, []);
   useEffect(() => {
-    const timer = setTimeout(() => setLaunching(false), 11_000);
-    return () => clearTimeout(timer);
+    if (sessionUser) writeLastSessionUser(sessionUser).catch(() => undefined);
+  }, [sessionUser]);
+  useEffect(() => {
+    let active = true;
+    const boot = async () => {
+      const [cachedUser, welcomeSeen] = await Promise.all([
+        readLastSessionUser(),
+        readWelcomeAnimationSeen(),
+      ]);
+      if (!active) return;
+      if (cachedUser) {
+        setSessionUser(cachedUser);
+        setStartInProfileEditor(false);
+        setScreen("home");
+        setLaunching(false);
+        getCurrentUser()
+          .then((freshUser) => {
+            if (!active) return;
+            setSessionUser(freshUser);
+            setStartInProfileEditor(false);
+            setScreen("home");
+          })
+          .catch(() => undefined);
+        return;
+      }
+      if (welcomeSeen || process.env.EXPO_OS === "web") {
+        setLaunching(false);
+        getCurrentUser()
+          .then((freshUser) => {
+            if (!active) return;
+            setSessionUser(freshUser);
+            setStartInProfileEditor(false);
+            setScreen("home");
+          })
+          .catch(() => undefined);
+        return;
+      }
+      const timer = setTimeout(() => {
+        if (!active) return;
+        markWelcomeAnimationSeen().catch(() => undefined);
+        setLaunching(false);
+      }, 3_200);
+      getCurrentUser()
+        .then((freshUser) => {
+          if (!active) return;
+          markWelcomeAnimationSeen().catch(() => undefined);
+          setSessionUser(freshUser);
+          setStartInProfileEditor(false);
+          setScreen("home");
+          setLaunching(false);
+        })
+        .catch(() => undefined);
+      return () => clearTimeout(timer);
+    };
+    let cleanup: (() => void) | undefined;
+    boot()
+      .then((nextCleanup) => {
+        cleanup = nextCleanup;
+      })
+      .catch(() => {
+        if (active) setLaunching(false);
+      });
+    return () => {
+      active = false;
+      cleanup?.();
+    };
   }, []);
   useEffect(() => {
     const handleVerificationUrl = (url: string | null) => {
@@ -22162,33 +22335,6 @@ export default function App() {
       handleVerificationUrl(url),
     );
     return () => subscription.remove();
-  }, []);
-  useEffect(() => {
-    let active = true;
-    Linking.getInitialURL()
-      .then((url) => {
-        if (!active) return;
-        if (url && (url.includes("verify-email") || url.includes("reset-password"))) return;
-        getCurrentUser()
-          .then((user) => {
-            if (!active) return;
-            setSessionUser(user);
-            setStartInProfileEditor(false);
-            setScreen((current) =>
-              current === "landing" || current === "account-choice" || current === "login"
-                ? "home"
-                : current,
-            );
-          })
-          .catch(() => {
-            // No saved session, expired credentials, or temporary network issue.
-            // Keep the normal landing/login flow without forcing a logout screen.
-          });
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
   }, []);
   useEffect(() => {
     if (!verificationTicket) return;
