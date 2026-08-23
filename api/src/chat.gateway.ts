@@ -7,7 +7,7 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from "@nestjs/websockets";
-import { IsIn, IsObject, IsUUID } from "class-validator";
+import { IsBoolean, IsIn, IsObject, IsUUID } from "class-validator";
 import { Server, Socket } from "socket.io";
 import { TokenService } from "./auth/token.service";
 import { ChatContentKind, ChatPayload, ChatService } from "./chat.service";
@@ -23,6 +23,11 @@ class SocketChatMessageDto {
 
   @IsObject()
   payload!: ChatPayload;
+}
+
+class SocketPresenceDto {
+  @IsBoolean()
+  active!: boolean;
 }
 
 type AuthenticatedSocket = Socket & {
@@ -49,6 +54,7 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
   private readonly server!: Server;
   private readonly logger = new Logger(ChatGateway.name);
   private readonly connectedUsers = new Map<string, number>();
+  private readonly foregroundUsers = new Map<string, Set<string>>();
   private unsubscribeRealtime: (() => void) | null = null;
   private unsubscribeReadyToMeet: (() => void) | null = null;
 
@@ -62,7 +68,7 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
   onModuleInit() {
     this.unsubscribeRealtime = this.realtime.onMessage((message) => {
       this.server.to(userRoom(message.senderId)).to(userRoom(message.recipientId)).emit("chat:message", message);
-      const recipientActiveSockets = this.connectedUsers.get(message.recipientId) || 0;
+      const recipientForegroundSockets = this.foregroundUsers.get(message.recipientId)?.size || 0;
       void Promise.all([
         this.server.in(userRoom(message.senderId)).fetchSockets(),
         this.server.in(userRoom(message.recipientId)).fetchSockets(),
@@ -75,8 +81,8 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
         .catch((error) => {
           this.logger.warn(`Realtime chat socket count failed for ${message.id}: ${error instanceof Error ? error.message : String(error)}`);
         });
-      if (recipientActiveSockets > 0) {
-        this.logger.log(`Skipped push for ${message.id}; recipient ${message.recipientId} is active in app.`);
+      if (recipientForegroundSockets > 0) {
+        this.logger.log(`Skipped push for ${message.id}; recipient ${message.recipientId} is active in foreground.`);
         return;
       }
       this.push.sendMessageNotification(message.recipientId, message.senderId, message.id).catch(() => undefined);
@@ -100,11 +106,13 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
       await socket.join(userRoom(claims.sub));
       const connectedCount = (this.connectedUsers.get(claims.sub) || 0) + 1;
       this.connectedUsers.set(claims.sub, connectedCount);
+      addForegroundSocket(this.foregroundUsers, claims.sub, socket.id);
       this.logger.log(`Chat socket connected for user ${claims.sub}; activeSockets=${connectedCount}`);
       socket.on("disconnect", (reason) => {
         const count = Math.max(0, (this.connectedUsers.get(claims.sub) || 1) - 1);
         if (count) this.connectedUsers.set(claims.sub, count);
         else this.connectedUsers.delete(claims.sub);
+        removeForegroundSocket(this.foregroundUsers, claims.sub, socket.id);
         this.logger.log(`Chat socket disconnected for user ${claims.sub}; reason=${reason}; activeSockets=${count}`);
       });
       socket.emit("chat:ready", { userId: claims.sub });
@@ -131,6 +139,18 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
       return { ok: false, message };
     }
   }
+
+  @SubscribeMessage("chat:presence")
+  setPresence(
+    @ConnectedSocket() socket: AuthenticatedSocket,
+    @MessageBody() input: SocketPresenceDto,
+  ) {
+    const user = socket.data.user;
+    if (!user) return { ok: false };
+    if (input.active) addForegroundSocket(this.foregroundUsers, user.id, socket.id);
+    else removeForegroundSocket(this.foregroundUsers, user.id, socket.id);
+    return { ok: true };
+  }
 }
 
 function tokenFromSocket(socket: Socket) {
@@ -143,4 +163,18 @@ function tokenFromSocket(socket: Socket) {
 
 function userRoom(userId: string) {
   return `user:${userId}`;
+}
+
+function addForegroundSocket(map: Map<string, Set<string>>, userId: string, socketId: string) {
+  const sockets = map.get(userId) || new Set<string>();
+  sockets.add(socketId);
+  map.set(userId, sockets);
+}
+
+function removeForegroundSocket(map: Map<string, Set<string>>, userId: string, socketId: string) {
+  const sockets = map.get(userId);
+  if (!sockets) return;
+  sockets.delete(socketId);
+  if (sockets.size) map.set(userId, sockets);
+  else map.delete(userId);
 }

@@ -14342,7 +14342,7 @@ function ReadyMeetChat({
           const reactionValues = item.reactions ? Object.values(item.reactions).filter(Boolean) : [];
           const itemPayload = item as ChatMessage & { url?: string; uri?: string; previewUrl?: string };
           const gifUri = item.kind === "gif"
-            ? itemPayload.gifUrl || itemPayload.url || itemPayload.previewUrl || itemPayload.uri || itemPayload.gifPreviewUrl
+            ? itemPayload.gifPreviewUrl || itemPayload.previewUrl || itemPayload.gifUrl || itemPayload.url || itemPayload.uri
             : "";
           return (
             <View key={item.id} style={{ width: "100%", gap: showDate ? 8 : 0 }}>
@@ -16979,6 +16979,7 @@ function warmChatImageCache(messages: ChatMessageItem[]) {
   warmImageCache(
     messages.flatMap((message) => [
       message.imageUri,
+      message.gifPreviewUrl,
       message.gifUrl,
       message.videoUri,
     ]),
@@ -20184,6 +20185,7 @@ function SignedInHome({
     if (!initialUser?.id) return;
     let active = true;
     let socket: Socket | null = null;
+    let appStateSubscription: { remove: () => void } | null = null;
     getChatSocketConfig()
       .then(({ url, token }) => {
         if (!active) return;
@@ -20195,6 +20197,12 @@ function SignedInHome({
           reconnectionDelay: 700,
         });
         incomingChatSocketRef.current = socket;
+        const publishChatPresence = () => {
+          socket?.emit("chat:presence", { active: AppState.currentState === "active" });
+        };
+        socket.on("connect", publishChatPresence);
+        publishChatPresence();
+        appStateSubscription = AppState.addEventListener("change", publishChatPresence);
         socket.on("ready-to-meet:presence", (update: { userId?: string; available?: boolean; availableAt?: string; expiresAt?: string; profile?: DiscoveryCandidate }) => {
           if (!active) return;
           if (update.userId && update.userId !== initialUser.id) {
@@ -20219,6 +20227,7 @@ function SignedInHome({
         });
         socket.on("chat:message", (message: ChatMessage) => {
           if (!active) return;
+          warmChatImageCache([message as ChatMessageItem]);
           const fromMe = message.senderId === initialUser.id;
           const conversationProfileId = fromMe ? message.recipientId : message.senderId;
           if (!conversationProfileId) return;
@@ -20255,6 +20264,7 @@ function SignedInHome({
       .catch(() => undefined);
     return () => {
       active = false;
+      appStateSubscription?.remove();
       if (incomingChatSocketRef.current === socket) incomingChatSocketRef.current = null;
       socket?.disconnect();
     };

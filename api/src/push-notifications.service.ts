@@ -117,11 +117,20 @@ export class PushNotificationsService {
         [senderId],
       );
       const senderName = sender.rows[0]?.display_name || "Someone";
+      const message = await client.query<{ content_kind: string }>(
+        `SELECT content_kind
+           FROM chat_messages
+          WHERE id = $1
+            AND recipient_id = $2
+          LIMIT 1`,
+        [messageId, recipientId],
+      );
+      const messageKind = message.rows[0]?.content_kind || "text";
       const badgeCount = await notificationBadgeCount(client, recipientId);
       const messages: ExpoPushMessage[] = tokens.rows.map((row) => ({
         to: row.token,
         title: `New message from ${senderName}`,
-        body: "Open KindredCube to reply.",
+        body: pushBodyForChatKind(messageKind),
         sound: "default",
         priority: "high",
         channelId: "messages",
@@ -170,6 +179,16 @@ export class PushNotificationsService {
       );
     });
   }
+}
+
+function pushBodyForChatKind(kind: string) {
+  if (kind === "gif") return "Sent a GIF.";
+  if (kind === "image") return "Sent a photo.";
+  if (kind === "audio") return "Sent a voice note.";
+  if (kind === "video") return "Sent a video.";
+  if (kind === "meeting_proposal") return "Sent a meeting proposal.";
+  if (kind === "meeting_response") return "Updated a meeting proposal.";
+  return "Open KindredCube to reply.";
 }
 
 function summarizePushPlatforms(tokens: Array<{ platform: string }>) {
