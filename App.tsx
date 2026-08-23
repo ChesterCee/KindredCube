@@ -9236,7 +9236,7 @@ function ProfileHubScreen({
               Premium
             </Text>
             <Text selectable style={{ color: C.muted, fontSize: 11 }}>
-              $49.99/month · the complete KindredCube experience
+              $49.99/month · recurring Premium access
             </Text>
           </View>
           <Star width={30} height={30} color="#B78100" fill="#E7B51E" />
@@ -9285,7 +9285,7 @@ function ProfileHubScreen({
               KindredPass
             </Text>
             <Text selectable style={{ color: C.muted, fontSize: 11 }}>
-              $19.99 · Premium access for one week
+              $19.99 one-time · Premium access for one week
             </Text>
           </View>
           <View
@@ -9297,7 +9297,7 @@ function ProfileHubScreen({
             }}
           >
             <Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>
-              24 HOURS
+              7 DAYS
             </Text>
           </View>
         </View>
@@ -16632,7 +16632,7 @@ function MembershipOptionsModal({
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                 <View style={{ flex: 1 }}>
                   <Text selectable style={{ color: "#59359C", fontSize: 22, fontWeight: "900" }}>KindredPass</Text>
-                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>$19.99 · Premium access for one week</Text>
+                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>$19.99 one-time · Premium access for one week</Text>
                 </View>
                 <BadgeCheck width={29} height={29} color="#59359C" />
               </View>
@@ -16659,7 +16659,7 @@ function MembershipOptionsModal({
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                 <View style={{ flex: 1 }}>
                   <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Premium</Text>
-                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>$49.99 ? the full KindredCube experience</Text>
+                  <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>$49.99/month · recurring Premium access</Text>
                 </View>
                 <Star width={30} height={30} color="#B78100" fill="#E7B51E" />
               </View>
@@ -19673,7 +19673,6 @@ async function registerDeviceForMessagePush() {
       console.warn("KindredCube push notifications are not enabled on this device.");
       return;
     }
-    await Notifications.setBadgeCountAsync(0).catch(() => undefined);
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync("messages", {
         name: "Messages",
@@ -19882,6 +19881,10 @@ function SignedInHome({
     setUnreadMessageCount(count);
     setHasNewMessage(count > 0);
   }, [assistantUnread, unreadChatIds]);
+  useEffect(() => {
+    if (process.env.EXPO_OS === "web") return;
+    Notifications.setBadgeCountAsync(unreadMessageCount).catch(() => undefined);
+  }, [unreadMessageCount]);
   useEffect(() => {
     if (!initialUser?.id) return;
     registerDeviceForMessagePush().catch(() => undefined);

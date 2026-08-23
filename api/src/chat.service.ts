@@ -233,6 +233,14 @@ export class ChatService {
           LIMIT 100`,
         [userId, otherUserId],
       );
+      await client.query(
+        `UPDATE chat_messages
+            SET read_at = COALESCE(read_at, now())
+          WHERE sender_id = $2
+            AND recipient_id = $1
+            AND read_at IS NULL`,
+        [userId, otherUserId],
+      );
       return { messages: result.rows.map((row) => this.toResponse(row)) };
     });
   }

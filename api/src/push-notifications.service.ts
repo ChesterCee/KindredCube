@@ -10,6 +10,7 @@ type ExpoPushMessage = {
   sound?: "default";
   priority?: "default" | "normal" | "high";
   channelId?: string;
+  badge?: number;
 };
 
 @Injectable()
@@ -59,6 +60,7 @@ export class PushNotificationsService {
         [senderId],
       );
       const senderName = sender.rows[0]?.display_name || "Someone";
+      const badgeCount = await notificationBadgeCount(client, recipientId);
       const messages: ExpoPushMessage[] = tokens.rows.map((row) => ({
         to: row.token,
         title: `New message from ${senderName}`,
@@ -66,6 +68,7 @@ export class PushNotificationsService {
         sound: "default",
         priority: "high",
         channelId: "messages",
+        badge: Math.max(1, badgeCount),
         data: {
           type: "chat_message",
           senderId,
@@ -90,6 +93,7 @@ export class PushNotificationsService {
         this.logger.warn(`No active push token found for like recipient ${recipientId}.`);
         return;
       }
+      const badgeCount = await notificationBadgeCount(client, recipientId);
       const messages: ExpoPushMessage[] = tokens.rows.map((row) => ({
         to: row.token,
         title: matched ? "It's a match on KindredCube" : "Someone liked you on KindredCube",
@@ -97,6 +101,7 @@ export class PushNotificationsService {
         sound: "default",
         priority: "high",
         channelId: "likes",
+        badge: Math.max(1, badgeCount),
         data: {
           type: matched ? "match" : "like",
           likerId,
@@ -152,6 +157,37 @@ function activePushTokens(client: PoolClient, userId: string) {
       LIMIT 5`,
     [userId],
   );
+}
+
+async function notificationBadgeCount(client: PoolClient, userId: string) {
+  const result = await client.query<{ count: number }>(
+    `WITH unread_messages AS (
+       SELECT count(*)::int AS total
+         FROM chat_messages
+        WHERE recipient_id = $1
+          AND read_at IS NULL
+          AND unsent_at IS NULL
+          AND deleted_for_recipient_at IS NULL
+     ),
+     pending_likes AS (
+       SELECT count(*)::int AS total
+         FROM member_likes incoming
+        WHERE incoming.liked_user_id = $1
+          AND incoming.visible_at <= now()
+          AND incoming.chat_started_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM member_likes outgoing
+             WHERE outgoing.liker_id = incoming.liked_user_id
+               AND outgoing.liked_user_id = incoming.liker_id
+               AND outgoing.chat_started_at IS NOT NULL
+          )
+     )
+     SELECT (COALESCE((SELECT total FROM unread_messages), 0)
+           + COALESCE((SELECT total FROM pending_likes), 0))::int AS count`,
+    [userId],
+  );
+  return Number(result.rows[0]?.count || 0);
 }
 
 async function sendExpoPush(messages: ExpoPushMessage[], logger: Logger) {
