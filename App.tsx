@@ -318,6 +318,11 @@ const C = {
 };
 
 type IdentityVerificationMethod = "stripe_identity" | "video_selfie" | "";
+type NotificationNavigationTarget = {
+  id: string;
+  type: "chat" | "liked" | "chats";
+  profileId?: string;
+};
 
 const READY_TO_MEET_RADIUS_KM = 48.2803;
 const CHAT_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
@@ -333,14 +338,39 @@ function formatMoney(amount: number, options: { signed?: boolean } = {}) {
 }
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async () => {
+    const appIsActive = AppState.currentState === "active";
+    return {
+      shouldShowAlert: !appIsActive,
+      shouldPlaySound: !appIsActive,
+      shouldSetBadge: true,
+      shouldShowBanner: !appIsActive,
+      shouldShowList: !appIsActive,
+    };
+  },
 });
+
+function notificationTargetFromData(data: Record<string, unknown>): NotificationNavigationTarget | null {
+  const type = typeof data.type === "string" ? data.type : "";
+  const destination = typeof data.destination === "string" ? data.destination : "";
+  const id =
+    typeof data.messageId === "string" ? data.messageId
+      : typeof data.likerId === "string" ? data.likerId
+        : typeof data.profileId === "string" ? data.profileId
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  if (type === "chat_message" || destination === "chat") {
+    const profileId =
+      typeof data.senderId === "string" ? data.senderId
+        : typeof data.profileId === "string" ? data.profileId
+          : typeof data.userId === "string" ? data.userId
+            : "";
+    if (!profileId) return null;
+    return { id, type: "chat", profileId };
+  }
+  if (type === "like" || destination === "liked") return { id, type: "liked" };
+  if (type === "match" || destination === "chats") return { id, type: "chats" };
+  return null;
+}
 
 const identityOptions = ["Man", "Woman", "Nonbinary"];
 const seekingOptions = ["Women", "Men", "Everyone"];
@@ -19725,12 +19755,16 @@ function SignedInHome({
   onLogout,
   initialUser,
   startInProfileEditor = false,
+  notificationTarget,
+  onNotificationTargetHandled,
 }: {
   people: Profile[];
   onProfilePress?: (profile: Profile) => void;
   onLogout: () => void;
   initialUser?: AuthenticatedUser | null;
   startInProfileEditor?: boolean;
+  notificationTarget?: NotificationNavigationTarget | null;
+  onNotificationTargetHandled?: (id: string) => void;
 }) {
   const [tab, setTab] = useState<
     "profile" | "explore" | "connect" | "liked" | "chats"
@@ -20286,6 +20320,17 @@ function SignedInHome({
     profileId?: string;
   } | null>(null);
   useEffect(() => {
+    if (!notificationTarget) return;
+    setPendingNotificationTarget({
+      type: notificationTarget.type,
+      profileId: notificationTarget.profileId,
+    });
+    if (notificationTarget.type === "chat" && notificationTarget.profileId) {
+      pendingNotificationChatProfileIdRef.current = notificationTarget.profileId;
+    }
+    onNotificationTargetHandled?.(notificationTarget.id);
+  }, [notificationTarget, onNotificationTargetHandled]);
+  useEffect(() => {
     if (!privateSpaceLoaded || pendingNotificationTarget?.type !== "chat") return;
     const pendingProfileId = pendingNotificationTarget.profileId || pendingNotificationChatProfileIdRef.current;
     if (!pendingProfileId) return;
@@ -20398,8 +20443,10 @@ function SignedInHome({
     if (handledNotificationResponsesRef.current.has(responseId)) return;
     handledNotificationResponsesRef.current.add(responseId);
     const data = response.notification.request.content.data || {};
+    const target = notificationTargetFromData(data as Record<string, unknown>);
+    if (target) onNotificationTargetHandled?.(target.id);
     openNotificationTarget(data as Record<string, unknown>).catch(() => undefined);
-  }, [openNotificationTarget]);
+  }, [onNotificationTargetHandled, openNotificationTarget]);
   useEffect(() => {
     if (!initialUser?.id || process.env.EXPO_OS === "web") return;
     const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
@@ -22375,10 +22422,32 @@ export default function App() {
     useState(false);
   const [sessionUser, setSessionUser] = useState<AuthenticatedUser | null>(null);
   const [startInProfileEditor, setStartInProfileEditor] = useState(false);
+  const [notificationTarget, setNotificationTarget] = useState<NotificationNavigationTarget | null>(null);
+  const handledRootNotificationResponsesRef = useRef<Set<string>>(new Set());
+  const handleRootNotificationResponse = useCallback((response: Notifications.NotificationResponse | null | undefined) => {
+    if (!response) return;
+    const responseId = response.notification.request.identifier || JSON.stringify(response.notification.request.content.data || {});
+    if (handledRootNotificationResponsesRef.current.has(responseId)) return;
+    handledRootNotificationResponsesRef.current.add(responseId);
+    const target = notificationTargetFromData(response.notification.request.content.data || {});
+    if (!target) return;
+    setNotificationTarget(target);
+    setLaunching(false);
+    setScreen("home");
+  }, []);
+  useEffect(() => {
+    if (process.env.EXPO_OS === "web") return;
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleRootNotificationResponse);
+    Notifications.getLastNotificationResponseAsync()
+      .then(handleRootNotificationResponse)
+      .catch(() => undefined);
+    return () => subscription.remove();
+  }, [handleRootNotificationResponse]);
   useEffect(() => {
     setAuthExpiredHandler(() => {
       setSessionUser(null);
       setStartInProfileEditor(false);
+      setNotificationTarget(null);
       setVerificationTicket("");
       setVerificationError("");
       setPasswordResetToken("");
@@ -22658,10 +22727,15 @@ export default function App() {
         onProfilePress={() => undefined}
         initialUser={sessionUser}
         startInProfileEditor={startInProfileEditor}
+        notificationTarget={notificationTarget}
+        onNotificationTargetHandled={(id) => {
+          setNotificationTarget((current) => current?.id === id ? null : current);
+        }}
         onLogout={() => {
           logoutAccount().finally(() => {
             setSessionUser(null);
             setStartInProfileEditor(false);
+            setNotificationTarget(null);
             setScreen("landing");
           });
         }}
