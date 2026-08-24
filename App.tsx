@@ -178,6 +178,10 @@ const WELCOME_ANIMATION_SEEN_KEY = "kindredcube.welcomeAnimationSeen";
 const LAST_SESSION_USER_FILE = `${LegacyFileSystem.documentDirectory || ""}kindredcube-last-session-user.json`;
 const HOME_CACHE_VERSION = 1;
 
+function appHeaderTopPadding(insets: { top: number }) {
+  return Math.max(insets.top, Platform.OS === "android" ? 18 : 0) + 8;
+}
+
 type HomeStartupCache = {
   version: number;
   savedAt: string;
@@ -1321,16 +1325,13 @@ function Logo({
   align?: "center" | "left";
 }) {
   const { width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const logoWidth = Math.min(size === "compact" ? 170 : 190, width - 40);
   const logoHeight = logoWidth / (1659 / 399);
-  const topPadding = insets.top + 8;
   return (
     <View
       style={{
         width: logoWidth,
-        height: logoHeight + topPadding,
-        paddingTop: topPadding,
+        height: logoHeight,
         alignSelf: align === "left" ? "flex-start" : "center",
       }}
     >
@@ -1581,10 +1582,12 @@ function ChatIcon({ active }: { active: boolean }) {
 }
 
 function AppHeader({ onFilter }: { onFilter: () => void }) {
+  const insets = useSafeAreaInsets();
   return (
     <View
       style={{
         width: "100%",
+        paddingTop: appHeaderTopPadding(insets),
         flexDirection: "row",
         alignItems: "flex-end",
         justifyContent: "space-between",
@@ -5267,6 +5270,7 @@ function CompleteProfileRecommendation({
   onComplete: () => void;
   onBrowse: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   return (
     <ScrollView
       scrollEnabled={false}
@@ -5274,7 +5278,7 @@ function CompleteProfileRecommendation({
       contentContainerStyle={{
         flexGrow: 1,
         paddingHorizontal: 20,
-        paddingTop: 18,
+        paddingTop: appHeaderTopPadding(insets),
         paddingBottom: 24,
         gap: 18,
       }}
@@ -5455,7 +5459,6 @@ function MessagesScreen({
         gap: 18,
       }}
     >
-      <Logo size="compact" />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, zIndex: 1000, elevation: 1000 }}>
         {conversationOpen ? (
           <Pressable
@@ -8969,6 +8972,7 @@ function ProfileHubScreen({
   premiumActive: boolean;
   kindredPassActive: boolean;
 }) {
+  const insets = useSafeAreaInsets();
   const [activePlan, setActivePlan] = useState<
     "wallet" | "premium" | "pass"
   >("wallet");
@@ -9011,6 +9015,7 @@ function ProfileHubScreen({
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={{
         paddingHorizontal: 18,
+        paddingTop: appHeaderTopPadding(insets),
         paddingBottom: 36,
         gap: 15,
       }}
@@ -16178,10 +16183,11 @@ function ExploreRecommendations({
   onBlock: (profile: Profile, reason: MemberReportReason, details: string) => void;
   onReport?: (profile: Profile, reason: MemberReportReason, details: string) => void;
 }) {
+  const insets = useSafeAreaInsets();
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ paddingBottom: 34, gap: 17 }}
+      contentContainerStyle={{ paddingTop: appHeaderTopPadding(insets), paddingBottom: 34, gap: 17 }}
     >
       <View style={{ paddingHorizontal: 18 }}>
         <Logo size="compact" />
@@ -16301,6 +16307,7 @@ function LikedYouExperience({
   onWalletReveal: (like: IncomingLike, profile: Profile) => Promise<boolean>;
   onLikeRevealed: (like: IncomingLike, profile: Profile) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [showPaywall, setShowPaywall] = useState<Profile | null>(null);
   const [walletRevealedProfiles, setWalletRevealedProfiles] = useState<
     string[]
@@ -16316,6 +16323,7 @@ function LikedYouExperience({
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
           paddingHorizontal: 18,
+          paddingTop: appHeaderTopPadding(insets),
           paddingBottom: 30,
           gap: 15,
         }}
