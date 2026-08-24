@@ -2042,12 +2042,36 @@ function GlobalCityHero() {
   );
 }
 
+function ReadyMeetLoopLandingHero() {
+  return (
+    <View style={{ flex: 1, backgroundColor: "#071227" }}>
+      <Image
+        source={require("./assets/ready-meet/ready-meet-empty-loop.gif")}
+        resizeMode="cover"
+        style={{ width: "100%", height: "100%" }}
+      />
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: "34%",
+          backgroundColor: "rgba(7,18,39,0.32)",
+        }}
+      />
+    </View>
+  );
+}
+
 function Landing({ onStart }: { onStart: () => void }) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const short = height < 650;
   const narrow = width < 360;
   const bottomSystemGap = Math.max(insets.bottom, Platform.OS === "android" ? 42 : 0);
+  const topSystemGap = Math.max(insets.top, Platform.OS === "android" ? 18 : 0);
   return (
     <ScrollView
       scrollEnabled={false}
@@ -2055,7 +2079,7 @@ function Landing({ onStart }: { onStart: () => void }) {
       contentContainerStyle={{
         flexGrow: 1,
         paddingHorizontal: narrow ? 12 : 16,
-        paddingTop: short ? 16 : 24,
+        paddingTop: topSystemGap + (short ? 12 : 16),
         paddingBottom: bottomSystemGap + (short ? 14 : 18),
         gap: short ? 8 : 12,
       }}
@@ -2071,7 +2095,7 @@ function Landing({ onStart }: { onStart: () => void }) {
           boxShadow: "0 10px 28px rgba(54,42,31,0.16)",
         }}
       >
-        <GlobalCityHero />
+        <ReadyMeetLoopLandingHero />
         <View
           style={{
             position: "absolute",
