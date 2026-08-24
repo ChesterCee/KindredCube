@@ -1332,6 +1332,7 @@ function Logo({
       style={{
         width: logoWidth,
         height: logoHeight,
+        backgroundColor: C.cream,
         alignSelf: align === "left" ? "flex-start" : "center",
       }}
     >
@@ -1339,6 +1340,7 @@ function Logo({
         accessibilityLabel="KindredCube"
         source={require("./assets/kindredcube-current-logo-header.png")}
         resizeMode="contain"
+        fadeDuration={0}
         style={{ width: logoWidth, height: logoHeight }}
       />
     </View>
@@ -1583,11 +1585,12 @@ function ChatIcon({ active }: { active: boolean }) {
 
 function AppHeader({ onFilter }: { onFilter: () => void }) {
   const insets = useSafeAreaInsets();
+  const topSystemGap = Math.max(insets.top, Platform.OS === "android" ? 18 : 0);
   return (
     <View
       style={{
         width: "100%",
-        paddingTop: appHeaderTopPadding(insets),
+        paddingTop: appHeaderTopPadding(insets) + topSystemGap,
         flexDirection: "row",
         alignItems: "flex-end",
         justifyContent: "space-between",
