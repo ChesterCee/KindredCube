@@ -2043,9 +2043,11 @@ function GlobalCityHero() {
 }
 
 function Landing({ onStart }: { onStart: () => void }) {
+  const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const short = height < 650;
   const narrow = width < 360;
+  const bottomSystemGap = Math.max(insets.bottom, Platform.OS === "android" ? 42 : 0);
   return (
     <ScrollView
       scrollEnabled={false}
@@ -2054,7 +2056,7 @@ function Landing({ onStart }: { onStart: () => void }) {
         flexGrow: 1,
         paddingHorizontal: narrow ? 12 : 16,
         paddingTop: short ? 16 : 24,
-        paddingBottom: short ? 10 : 14,
+        paddingBottom: bottomSystemGap + (short ? 14 : 18),
         gap: short ? 8 : 12,
       }}
     >
@@ -2075,7 +2077,7 @@ function Landing({ onStart }: { onStart: () => void }) {
             position: "absolute",
             left: 10,
             right: 10,
-            bottom: 10,
+            bottom: bottomSystemGap + 10,
             gap: short ? 7 : 9,
             borderRadius: 22,
             borderCurve: "continuous",
@@ -19766,6 +19768,9 @@ function SignedInHome({
   notificationTarget?: NotificationNavigationTarget | null;
   onNotificationTargetHandled?: (id: string) => void;
 }) {
+  const insets = useSafeAreaInsets();
+  const bottomSystemGap = Math.max(insets.bottom, Platform.OS === "android" ? 42 : 0);
+  const bottomTabPadding = bottomSystemGap + 8;
   const [tab, setTab] = useState<
     "profile" | "explore" | "connect" | "liked" | "chats"
   >(startInProfileEditor ? "profile" : "connect");
@@ -21325,9 +21330,9 @@ function SignedInHome({
       </Modal>
       <View
         style={{
-          minHeight: 74,
-          paddingBottom: 7,
-          paddingTop: 5,
+          minHeight: 62 + bottomTabPadding,
+          paddingBottom: bottomTabPadding,
+          paddingTop: 8,
           flexDirection: "row",
           backgroundColor: C.paper,
           borderTopWidth: 1,
