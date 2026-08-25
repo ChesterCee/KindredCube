@@ -165,6 +165,17 @@ export class AdminModerationController {
         [],
         "admin purchase stats",
       );
+      const activeUsers = await safeRows(client,
+        `SELECT id::text, email::text, COALESCE(public_username::text, '') AS username,
+                status::text, created_at, updated_at
+           FROM users
+          WHERE status = 'active'
+          ORDER BY updated_at DESC, created_at DESC
+          LIMIT 500`,
+        [],
+        [],
+        "admin active users",
+      );
       const purchases = await safeRows(client,
         `SELECT po.id, po.user_id, u.public_username::text AS username, po.purchase_type, po.status,
                 po.amount_cents, po.currency, po.created_at, po.paid_at
@@ -248,6 +259,7 @@ export class AdminModerationController {
       );
       return {
         stats: userStats[0],
+        activeUsers,
         purchaseStats,
         purchases,
         queue: reports,

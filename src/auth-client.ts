@@ -28,6 +28,8 @@ const API_URL_IS_SECURE =
   (process.env.EXPO_OS === "web" && runningOnLocalWeb && API_URL_IS_LOCAL_OR_PRIVATE);
 const ACCESS_TOKEN_KEY = "kindredcube.access-token";
 const REFRESH_TOKEN_KEY = "kindredcube.refresh-token";
+const WEB_TOKEN_SESSION_KEY = "kindredcube.web-token-session";
+const WEB_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 export class ApiError extends Error {
   constructor(
@@ -57,6 +59,12 @@ type TokenPair = {
   accessTokenExpiresInSeconds: number;
 };
 
+type WebTokenSession = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+};
+
 export type AuthenticatedUser = {
   id: string;
   email: string;
@@ -82,6 +90,39 @@ let authExpiredHandler: (() => void) | null = null;
 let refreshPromise: Promise<RefreshResult> | null = null;
 
 type RefreshResult = "refreshed" | "invalid" | "network_error";
+
+function readWebTokenSession(): WebTokenSession | null {
+  if (process.env.EXPO_OS !== "web" || typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(WEB_TOKEN_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<WebTokenSession>;
+    if (!parsed.accessToken || !parsed.refreshToken || !parsed.expiresAt || parsed.expiresAt <= Date.now()) {
+      window.sessionStorage.removeItem(WEB_TOKEN_SESSION_KEY);
+      return null;
+    }
+    webAccessToken = parsed.accessToken;
+    webRefreshToken = parsed.refreshToken;
+    return parsed as WebTokenSession;
+  } catch {
+    return null;
+  }
+}
+
+function writeWebTokenSession(pair: TokenPair) {
+  if (process.env.EXPO_OS !== "web" || typeof window === "undefined") return;
+  const session: WebTokenSession = {
+    accessToken: pair.accessToken,
+    refreshToken: pair.refreshToken,
+    expiresAt: Date.now() + WEB_TOKEN_TTL_MS,
+  };
+  window.sessionStorage.setItem(WEB_TOKEN_SESSION_KEY, JSON.stringify(session));
+}
+
+function clearWebTokenSession() {
+  if (process.env.EXPO_OS !== "web" || typeof window === "undefined") return;
+  window.sessionStorage.removeItem(WEB_TOKEN_SESSION_KEY);
+}
 
 export function setAuthExpiredHandler(handler: (() => void) | null) {
   authExpiredHandler = handler;
@@ -413,6 +454,15 @@ export type AdminPurchase = {
   paid_at: string | null;
 };
 
+export type AdminActiveUser = {
+  id: string;
+  email: string;
+  username: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type SupportTicket = {
   id: string;
   ticketNumber: string;
@@ -540,6 +590,7 @@ export function verifyAdminMfaCode(code: string) {
 export function getModerationQueue(adminMfaToken: string) {
   return request<{
     stats: AdminUserStats;
+    activeUsers: AdminActiveUser[];
     purchaseStats: AdminPurchaseStat[];
     purchases: AdminPurchase[];
     queue: ModerationQueueItem[];
@@ -1110,9 +1161,9 @@ export async function logoutAccount() {
 
 async function saveTokens(pair: TokenPair) {
   if (process.env.EXPO_OS === "web") {
-    // Deliberately avoid localStorage. Web token persistence will use secure HttpOnly cookies.
     webAccessToken = pair.accessToken;
     webRefreshToken = pair.refreshToken;
+    writeWebTokenSession(pair);
     return;
   }
   await Promise.all([
@@ -1126,12 +1177,12 @@ async function saveTokens(pair: TokenPair) {
 }
 
 async function getRefreshToken() {
-  if (process.env.EXPO_OS === "web") return webRefreshToken;
+  if (process.env.EXPO_OS === "web") return webRefreshToken || readWebTokenSession()?.refreshToken || "";
   return SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
 }
 
 async function getAccessToken() {
-  if (process.env.EXPO_OS === "web") return webAccessToken;
+  if (process.env.EXPO_OS === "web") return webAccessToken || readWebTokenSession()?.accessToken || "";
   return SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
 }
 
@@ -1139,6 +1190,7 @@ async function clearTokens() {
   if (process.env.EXPO_OS === "web") {
     webAccessToken = "";
     webRefreshToken = "";
+    clearWebTokenSession();
     return;
   }
   await Promise.all([

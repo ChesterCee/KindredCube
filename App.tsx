@@ -119,6 +119,7 @@ import {
   InstagramMediaItem,
   PUBLIC_API_URL,
   ModerationAppeal,
+  AdminActiveUser,
   AdminPurchase,
   AdminPurchaseStat,
   AdminUserStats,
@@ -4382,10 +4383,10 @@ function ProfileDetail({
   );
   const shareProfile = useCallback(() => {
     Share.share({
-      title: `Meet ${profile.name} on KindredCube`,
-      message: `I found ${profile.name}, ${profile.age}, on KindredCube. This could be a meaningful match for someone you know.`,
+      title: "KindredCube",
+      message: "I found a potential kindred on KindredCube who I think might be a good fit for companionship or a meaningful connection.\n\nJoin KindredCube: https://kindredcube.com",
     }).catch(() => undefined);
-  }, [profile.age, profile.name]);
+  }, []);
   return (
     <View
       style={{ flex: 1 }}
@@ -6249,6 +6250,7 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
   const [queue, setQueue] = useState<ModerationQueueItem[]>([]);
   const [appeals, setAppeals] = useState<ModerationAppeal[]>([]);
   const [stats, setStats] = useState<AdminUserStats | null>(null);
+  const [activeUsers, setActiveUsers] = useState<AdminActiveUser[]>([]);
   const [purchaseStats, setPurchaseStats] = useState<AdminPurchaseStat[]>([]);
   const [purchases, setPurchases] = useState<AdminPurchase[]>([]);
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
@@ -6271,6 +6273,7 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
     getModerationQueue(adminMfaToken)
       .then((result) => {
         setStats(result.stats);
+        setActiveUsers(result.activeUsers || []);
         setPurchaseStats(result.purchaseStats);
         setPurchases(result.purchases);
         setQueue(result.queue);
@@ -6278,6 +6281,19 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
         setSupportTickets(result.supportTickets || []);
       })
       .catch((caught) => {
+        const status = (caught as { status?: number })?.status;
+        if (status === 401 || status === 403) {
+          setAdminMfaToken("");
+          setStats(null);
+          setActiveUsers([]);
+          setPurchaseStats([]);
+          setPurchases([]);
+          setQueue([]);
+          setAppeals([]);
+          setSupportTickets([]);
+          onLogout();
+          return;
+        }
         setNotice(caught instanceof Error ? caught.message : "Moderation queue could not be loaded.");
       })
       .finally(() => setLoading(false));
@@ -6429,7 +6445,7 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
       };
     });
     const countedPurchases = purchases.filter((purchase) => ["paid", "succeeded", "completed"].includes(purchase.status.toLowerCase()));
-    const purchaseSource = countedPurchases.length ? countedPurchases : purchases;
+    const purchaseSource = countedPurchases;
     purchaseSource.forEach((purchase) => {
       const created = new Date(purchase.paid_at || purchase.created_at);
       const ageMs = nowForPurchaseChart.getTime() - created.getTime();
@@ -6563,6 +6579,30 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
                   ))}
                 </View>
               </View>
+              <View style={{ borderRadius: 24, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 16, gap: 12 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <View style={{ gap: 3 }}>
+                    <Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>Active users</Text>
+                    <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "800" }}>Email, username, and user ID</Text>
+                  </View>
+                  <Text selectable style={{ color: C.muted, fontSize: 11, fontWeight: "900" }}>
+                    Showing {Math.min(activeUsers.length, 10)} of {activeUsers.length}
+                  </Text>
+                </View>
+                {activeUsers.length ? activeUsers.slice(0, 10).map((user) => (
+                  <View key={user.id} style={{ borderRadius: 16, backgroundColor: "#F8F3EC", padding: 12, gap: 5 }}>
+                    <View style={{ flexDirection: desktop ? "row" : "column", justifyContent: "space-between", gap: 6 }}>
+                      <Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 13, fontWeight: "900", flex: 1 }}>{user.email || "No email"}</Text>
+                      <Text selectable numberOfLines={1} style={{ color: C.clay, fontSize: 12, fontWeight: "900" }}>@{user.username || "no-username"}</Text>
+                    </View>
+                    <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 10, fontWeight: "800" }}>User ID: {user.id}</Text>
+                  </View>
+                )) : (
+                  <View style={{ minHeight: 68, borderRadius: 16, backgroundColor: "#F8F3EC", padding: 12, justifyContent: "center" }}>
+                    <Text selectable style={{ color: C.muted, fontSize: 12, fontWeight: "800" }}>No active users returned yet.</Text>
+                  </View>
+                )}
+              </View>
             </View>
           ) : null}
           {activeSection === "purchases" ? (
@@ -6644,7 +6684,7 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
                   </View>
                 </View>
                 <Text selectable style={{ color: "rgba(255,255,255,0.62)", fontSize: 10, fontWeight: "800" }}>
-                  Scale: highest purchase point is {maxPurchasePoint}. Paid purchases are prioritized; pending activity is shown when no paid records exist.
+                  Scale: highest purchase point is {maxPurchasePoint}. Graph shows completed paid sales only.
                 </Text>
               </View>
               {purchases.slice(0, 80).map((purchase) => (
@@ -6829,7 +6869,7 @@ function ModerationQueueScreen({ onBack, onLogout }: { onBack: () => void; onLog
           {challengeSent ? (
             <>
               <TextInput value={code} onChangeText={setCode} keyboardType="number-pad" maxLength={6} placeholder="6-digit code" placeholderTextColor="#948A7F" style={{ minHeight: 48, borderRadius: 15, borderWidth: 1, borderColor: C.line, paddingHorizontal: 12, color: C.ink, fontSize: 18, fontWeight: "900", letterSpacing: 3 }} />
-              <Button compact label="Verify admin access" disabled={code.trim().length !== 6 || loading} onPress={verifyCode} />
+              <Button compact label="Verify" disabled={code.trim().length !== 6 || loading} onPress={verifyCode} />
             </>
           ) : null}
         </View>
@@ -6924,6 +6964,22 @@ function TectavisAdminPortal() {
   const allowedAdmin = "chester.chirenje@tectavis.com";
   const adminNavy = "#001d30";
   const desktop = width >= 860;
+  useEffect(() => {
+    let active = true;
+    getCurrentUser()
+      .then((user) => {
+        if (!active) return;
+        if (user.email.toLowerCase() === allowedAdmin) {
+          setAdminUser(user);
+        } else {
+          logoutAccount().catch(() => undefined);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [allowedAdmin]);
   const submitAdminSignIn = useCallback(async () => {
     if (busy || locked || !email.trim() || !password) return;
     const normalizedEmail = email.trim().toLowerCase();
@@ -22001,8 +22057,10 @@ function Qualifier({
   onExit: () => void;
   onLogin: () => void;
 }) {
-  const { height } = useWindowDimensions();
-  const compact = height < 690;
+  const { height, width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const compact = height < 720 || width < 390;
+  const veryCompact = height < 650;
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState(initialAnswers);
   const [draftBirthDate, setDraftBirthDate] = useState(new Date(1995, 0, 1));
@@ -22120,18 +22178,20 @@ function Qualifier({
     >
       <ScrollView
         {...swipeBack.panHandlers}
-        scrollEnabled={false}
+        scrollEnabled
         keyboardShouldPersistTaps="handled"
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
           flexGrow: 1,
           paddingHorizontal: 18,
-          paddingTop: compact ? 22 : 30,
-          paddingBottom: compact ? 8 : 14,
-          gap: compact ? 9 : 12,
+          paddingTop: Math.max(insets.top, Platform.OS === "android" ? 18 : 0) + (veryCompact ? 4 : 10),
+          paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 26 : 8) + (veryCompact ? 8 : 14),
+          gap: veryCompact ? 7 : compact ? 9 : 12,
         }}
       >
-        <Logo size="compact" />
+        <View style={{ alignSelf: "flex-start", transform: [{ scale: compact ? 0.9 : 1 }] }}>
+          <Logo size="compact" />
+        </View>
         <View style={{ flexDirection: "row", gap: 5 }}>
           {[0, 1, 2, 3, 4].map((item) => (
             <View
@@ -22164,8 +22224,8 @@ function Qualifier({
               color: C.ink,
               fontFamily: BRAND_FONT,
               fontWeight: "700",
-              fontSize: compact ? 25 : 29,
-              lineHeight: compact ? 27 : 32,
+              fontSize: veryCompact ? 23 : compact ? 25 : 29,
+              lineHeight: veryCompact ? 25 : compact ? 27 : 32,
               textAlign: "center",
             }}
           >
@@ -22175,8 +22235,8 @@ function Qualifier({
             numberOfLines={2}
             style={{
               color: C.muted,
-              fontSize: compact ? 12 : 13,
-              lineHeight: compact ? 16 : 18,
+              fontSize: veryCompact ? 11 : compact ? 12 : 13,
+              lineHeight: veryCompact ? 15 : compact ? 16 : 18,
               textAlign: "center",
             }}
           >
@@ -22184,7 +22244,7 @@ function Qualifier({
           </Text>
         </View>
         <View
-          style={{ flex: 1, gap: compact ? 7 : 9, justifyContent: "center" }}
+          style={{ flex: 1, gap: veryCompact ? 6 : compact ? 7 : 9, justifyContent: veryCompact ? "flex-start" : "center" }}
         >
           {step === 0 && (
             <View

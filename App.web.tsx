@@ -49,6 +49,7 @@ import {
   saveAdminLegalContent,
   saveModerationAction,
   verifyAdminMfaCode,
+  type AdminActiveUser,
   type AdminPurchase,
   type AdminPurchaseStat,
   type AdminUserStats,
@@ -402,6 +403,7 @@ function AdminPortal() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [stats, setStats] = useState<AdminUserStats | null>(null);
+  const [activeUsers, setActiveUsers] = useState<AdminActiveUser[]>([]);
   const [purchaseStats, setPurchaseStats] = useState<AdminPurchaseStat[]>([]);
   const [purchases, setPurchases] = useState<AdminPurchase[]>([]);
   const [queue, setQueue] = useState<ModerationQueueItem[]>([]);
@@ -421,7 +423,7 @@ function AdminPortal() {
 
   const clearAdminState = useCallback(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem(ADMIN_MFA_TOKEN_STORAGE_KEY);
+      window.sessionStorage.removeItem(ADMIN_MFA_TOKEN_STORAGE_KEY);
     }
     setAdminUser(null);
     setEmail("");
@@ -430,6 +432,7 @@ function AdminPortal() {
     setChallengeReady(false);
     setCode("");
     setStats(null);
+    setActiveUsers([]);
     setPurchaseStats([]);
     setPurchases([]);
     setQueue([]);
@@ -448,7 +451,7 @@ function AdminPortal() {
   useEffect(() => {
     let cancelled = false;
     const savedMfaToken = typeof window !== "undefined"
-      ? window.localStorage.getItem(ADMIN_MFA_TOKEN_STORAGE_KEY) || ""
+      ? window.sessionStorage.getItem(ADMIN_MFA_TOKEN_STORAGE_KEY) || ""
       : "";
     if (savedMfaToken) setMfaToken(savedMfaToken);
     getCurrentUser()
@@ -457,13 +460,13 @@ function AdminPortal() {
         if (user.email.toLowerCase() === adminOwnerEmail) {
           setAdminUser(user);
         } else {
-          window.localStorage.removeItem(ADMIN_MFA_TOKEN_STORAGE_KEY);
+          window.sessionStorage.removeItem(ADMIN_MFA_TOKEN_STORAGE_KEY);
           setMfaToken("");
         }
       })
       .catch(() => {
         if (cancelled) return;
-        window.localStorage.removeItem(ADMIN_MFA_TOKEN_STORAGE_KEY);
+        window.sessionStorage.removeItem(ADMIN_MFA_TOKEN_STORAGE_KEY);
         setMfaToken("");
       });
     return () => { cancelled = true; };
@@ -509,6 +512,7 @@ function AdminPortal() {
       ]);
       const pages = Array.isArray(legal.pages) ? legal.pages : [];
       setStats(moderation.stats || null);
+      setActiveUsers(Array.isArray(moderation.activeUsers) ? moderation.activeUsers : []);
       setPurchaseStats(Array.isArray(moderation.purchaseStats) ? moderation.purchaseStats : []);
       setPurchases(Array.isArray(moderation.purchases) ? moderation.purchases : []);
       setQueue(Array.isArray(moderation.queue) ? moderation.queue : []);
@@ -576,7 +580,7 @@ function AdminPortal() {
       const result = await verifyAdminMfaCode(code.trim());
       setMfaToken(result.adminMfaToken);
       if (typeof window !== "undefined") {
-        window.localStorage.setItem(ADMIN_MFA_TOKEN_STORAGE_KEY, result.adminMfaToken);
+        window.sessionStorage.setItem(ADMIN_MFA_TOKEN_STORAGE_KEY, result.adminMfaToken);
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Admin verification failed.");
@@ -717,7 +721,7 @@ function AdminPortal() {
         <Text style={{ color: C.ink, fontSize: 26, fontWeight: "900" }}>Two-factor verification</Text>
         <Text style={{ color: C.muted, lineHeight: 21 }}>A fresh Google Authenticator, Authy, or 1Password code is required before private admin data is loaded.</Text>
         <PrimaryButton label={challengeReady ? "Authenticator ready" : "Use authenticator app"} onPress={startMfa} disabled={busy} />
-        {challengeReady ? <><Field label="6-digit code" value={code} onChangeText={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" /><PrimaryButton label={busy ? "Verifying" : "Verify admin access"} onPress={verifyMfa} disabled={busy || code.length !== 6} /></> : null}
+        {challengeReady ? <><Field label="6-digit code" value={code} onChangeText={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" /><PrimaryButton label={busy ? "Verifying" : "Verify"} onPress={verifyMfa} disabled={busy || code.length !== 6} /></> : null}
         {notice ? <Text accessibilityRole="alert" style={{ color: notice.startsWith("Enter") ? C.muted : "#A13A37", fontWeight: "700" }}>{notice}</Text> : null}
         <Pressable accessibilityRole="button" onPress={logout}><Text style={{ color: C.coral, fontWeight: "800" }}>Sign out</Text></Pressable>
       </View>
@@ -823,6 +827,24 @@ function AdminPortal() {
               ))}
             </View>
           </View>
+          <View style={{ backgroundColor: C.paper, borderRadius: 24, padding: compact ? 16 : 22, gap: 12, borderWidth: 1, borderColor: C.line, boxShadow: "0 18px 45px rgba(17,27,61,.08)" } as any}>
+            <View style={{ flexDirection: compact ? "column" : "row", justifyContent: "space-between", gap: 8 }}>
+              <View>
+                <Text style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Active users</Text>
+                <Text style={{ color: C.muted, lineHeight: 20 }}>Email, username, and user ID.</Text>
+              </View>
+              <Text style={{ color: C.muted, fontSize: 12, fontWeight: "900" }}>Showing {Math.min(activeUsers.length, 10)} of {activeUsers.length}</Text>
+            </View>
+            {activeUsers.length ? activeUsers.slice(0, 10).map((user) => (
+              <View key={user.id} style={{ borderRadius: 16, backgroundColor: "#F8F3EC", padding: 12, gap: 5 }}>
+                <View style={{ flexDirection: compact ? "column" : "row", justifyContent: "space-between", gap: 8 }}>
+                  <Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 13, fontWeight: "900", flex: 1 }}>{user.email || "No email"}</Text>
+                  <Text selectable numberOfLines={1} style={{ color: C.coral, fontSize: 12, fontWeight: "900" }}>@{user.username || "no-username"}</Text>
+                </View>
+                <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 10, fontWeight: "800" }}>User ID: {user.id}</Text>
+              </View>
+            )) : <Text style={{ color: C.muted }}>No active users returned yet.</Text>}
+          </View>
           <Text style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>Reported and blocked profiles</Text>
           {queue.length ? queue.map((item) => <View key={item.profile_id} style={{ backgroundColor: C.paper, borderRadius: 20, padding: 16, gap: 8, borderWidth: 1, borderColor: C.line }}><Text style={{ color: C.ink, fontSize: 17, fontWeight: "900" }}>{item.username || item.profile_id}</Text><Text style={{ color: C.muted }}>Status: {item.account_status || "unknown"} · Reports: {item.report_count} · Blocks: {item.block_count}</Text><Text style={{ color: "#A13A37", fontWeight: "700" }}>Latest report: {item.latest_report_reason || "None"}</Text><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}><ActionButton label="Suspend" onPress={() => moderate(item.profile_id, "suspend")} /><ActionButton label="Reinstate" onPress={() => moderate(item.profile_id, "reinstate")} /><ActionButton danger label="Ban forever" onPress={() => moderate(item.profile_id, "ban")} /><ActionButton label="Close reports" onPress={() => moderate(item.profile_id, "close_reports")} /></View></View>) : <Text style={{ color: C.muted }}>No active moderation items.</Text>}
         </View> : null}
@@ -852,7 +874,6 @@ function AdminPortal() {
                     {(["premium", "kindred_pass", "wallet"] as const).map((type) => (
                       <View
                         key={type}
-                        title={`${day.label} · ${purchaseLabels[type]} completed sales: ${day[type]}`}
                         style={{
                           width: compact ? 7 : 10,
                           height: Math.max(6, (day[type] / maxPurchaseTrendValue) * 142),

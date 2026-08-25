@@ -111,7 +111,7 @@ export class PaymentsService {
     if (!sessionId.startsWith("cs_")) throw new BadRequestException("A valid Stripe Checkout session is required.");
     const session = await this.client().checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
     if (session.metadata?.user_id !== userId) throw new BadRequestException("This payment does not belong to the signed-in account.");
-    if (session.status !== "expired" && !this.checkoutSessionPaid(session) && session.mode !== "subscription") {
+    if (session.status !== "expired" && !this.checkoutSessionPaid(session)) {
       return this.summary(userId);
     }
     const eventType = session.status === "expired" ? "checkout.session.expired" : "checkout.session.completed";
@@ -149,7 +149,7 @@ export class PaymentsService {
     for (const row of pending) {
       const session = await this.client().checkout.sessions.retrieve(row.stripe_checkout_session_id, { expand: ["payment_intent"] });
       const eventType = session.status === "expired" ? "checkout.session.expired" : "checkout.session.completed";
-      if (session.status !== "expired" && !this.checkoutSessionPaid(session) && session.mode !== "subscription") continue;
+      if (session.status !== "expired" && !this.checkoutSessionPaid(session)) continue;
       await this.processWebhook({
         id: `checkout-reconcile:${session.id}:${session.status}:${session.payment_status}`,
         object: "event",
@@ -234,7 +234,7 @@ export class PaymentsService {
         await client.query(`UPDATE payment_orders SET status = 'expired', updated_at = now() WHERE user_id = $1 AND id = $2`, [userId, orderId]);
         return;
       }
-      if (!this.checkoutSessionPaid(session) && session.mode !== "subscription") return;
+      if (!this.checkoutSessionPaid(session)) return;
       const amountCents = Number(session.amount_total || session.metadata?.amount_cents || 0);
       if (Number.isInteger(amountCents) && amountCents > 0) {
         await client.query(
