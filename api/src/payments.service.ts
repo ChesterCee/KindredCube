@@ -93,7 +93,10 @@ export class PaymentsService {
       );
       const entitlements = await client.query<{ entitlement: "premium" | "kindred_pass"; expires_at: string | null }>(
         `SELECT entitlement, expires_at FROM user_entitlements
-         WHERE user_id = $1 AND active = true AND (expires_at IS NULL OR expires_at > now())`,
+         WHERE user_id = $1
+           AND active = true
+           AND (expires_at IS NULL OR expires_at > now())
+           AND (entitlement <> 'premium' OR stripe_subscription_id IS NOT NULL)`,
         [userId],
       );
       const premium = entitlements.rows.find((row) => row.entitlement === "premium");

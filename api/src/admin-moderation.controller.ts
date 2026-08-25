@@ -159,6 +159,11 @@ export class AdminModerationController {
         `SELECT purchase_type, status, count(*)::int AS count, COALESCE(sum(amount_cents), 0)::int AS amount_cents
            FROM payment_orders
           WHERE status = 'paid'
+            AND stripe_checkout_session_id IS NOT NULL
+            AND (
+              purchase_type <> 'premium'
+              OR stripe_subscription_id IS NOT NULL
+            )
           GROUP BY purchase_type, status
           ORDER BY purchase_type, status`,
         [],
@@ -181,6 +186,12 @@ export class AdminModerationController {
                 po.amount_cents, po.currency, po.created_at, po.paid_at
            FROM payment_orders po
            JOIN users u ON u.id = po.user_id
+          WHERE po.status = 'paid'
+            AND po.stripe_checkout_session_id IS NOT NULL
+            AND (
+              po.purchase_type <> 'premium'
+              OR po.stripe_subscription_id IS NOT NULL
+            )
           ORDER BY po.created_at DESC
           LIMIT 120`,
         [],
