@@ -1106,7 +1106,7 @@ const legalPages = {
     sections: [
       ["Information We Collect", "We collect account information, profile information, photos, bio, interests, occupation, education, languages, lifestyle details, relationship preferences, verification status, messages, support tickets, safety reports, device information, usage data, location information, and payment-related records such as subscription status and transaction IDs."],
       ["Identity and Selfie Verification", "Stripe Identity may process government ID verification. KindredCube does not store government identification documents submitted to Stripe. Selfie verification may use Amazon Rekognition or similar technology to compare images, reduce duplicate accounts, detect abuse, and protect the community."],
-      ["Location Information", "With permission, we may use location to support nearby matching, Ready to Meet, Global Connect, fraud prevention, and safety features. Ready to Meet is designed not to publicly display exact location."],
+      ["Location Information", "With permission, we may use location to support nearby matching, Ready to Meet, fraud prevention, safety features, and future location-aware features if introduced. Ready to Meet is designed not to publicly display exact location."],
       ["How We Use Information", "We use information to create accounts, authenticate users, match people, improve recommendations, verify identity, prevent fraud, deliver messages, process payments, provide support, moderate content, send notifications, and comply with legal obligations."],
       ["Sharing Information", "We may share information with cloud hosting providers, payment processors, identity verification providers, fraud-prevention providers, email providers, push notification providers, map providers, analytics providers, customer support tools, and legal or compliance providers."],
       ["Data Retention and Rights", "We retain information while needed to provide KindredCube, protect users, prevent fraud, resolve disputes, and comply with law. Users may update their profile, delete photos, request account deletion, request support, and exercise applicable privacy rights."],
@@ -1137,7 +1137,7 @@ const legalPages = {
   "/community-guidelines": {
     title: "KindredCube Community Guidelines",
     updated: "Last updated: August 15, 2026",
-    intro: "KindredCube exists to help adults build genuine, respectful, and meaningful relationships. These guidelines apply to profiles, photos, prompts, messages, photo comments, voice notes, Ready to Meet, Global Connect, verification, reports, support tickets, and in-person meetups.",
+    intro: "KindredCube exists to help adults build genuine, respectful, and meaningful relationships. These guidelines apply to profiles, photos, prompts, messages, photo comments, voice notes, Ready to Meet, verification, reports, support tickets, and in-person meetups. They will also apply to future international discovery features, including Global Connect if introduced.",
     sections: [
       ["Our Community Commitment", "Our community is built on respect, authenticity, safety, and accountability. Every user is responsible for helping create an environment where people can connect without fear of harassment, deception, exploitation, or abuse."],
       ["Be Authentic", "Use truthful profile information, your real age, your own identity, and photos that accurately represent you. Do not impersonate another person, use someone else's photos, use deceptive AI-generated images, misrepresent relationship status, or create duplicate accounts to bypass reports, blocks, bans, verification, safety restrictions, or payment rules."],
@@ -1148,7 +1148,7 @@ const legalPages = {
       ["Profiles, Photos, Prompts, and Media", "Profile photos should clearly and accurately represent you. Prompts, bio text, photo comments, videos, voice notes, and other media must be truthful, respectful, lawful, and safe. KindredCube may remove content that violates these Guidelines."],
       ["Messaging Rules", "Messaging should help people build genuine connections. Do not spam users, send repeated unwanted messages, threaten users, manipulate users emotionally, pressure someone to meet, or attempt to circumvent blocks."],
       ["Ready to Meet", "Ready to Meet is for voluntary, respectful, public in-person meetings. Do not misrepresent availability, stalk users, attempt to discover exact location, pressure someone into meeting, or use the feature for unsafe or deceptive purposes."],
-      ["Global Connect", "Do not use Global Connect to evade restrictions, misrepresent relocation intentions, mislead users about immigration opportunities, conduct recruitment scams, or exploit cultural or language differences for fraud."],
+      ["Future Global Connect and International Discovery", "Global Connect is not currently available in the live KindredCube app. If international discovery features are introduced in the future, do not use them to evade restrictions, misrepresent relocation intentions, mislead users about immigration opportunities, conduct recruitment scams, or exploit cultural or language differences for fraud."],
       ["Verification and Duplicate Account Prevention", "Users participating in Stripe ID verification, selfie verification, or other checks must submit their own information honestly. Do not manipulate verification photos, use another person's identity, submit fraudulent documents, use AI-generated identity images, or bypass duplicate-account detection."],
       ["Post-Meet Safety Feedback", "Post-meet feedback must be honest. Do not submit false reports, coordinate false reports, retaliate through the feedback system, or attempt to manipulate another person's safety standing."],
       ["Reporting, Blocking, and Support", "Users may report, block, or contact support. Reports and support tickets must be truthful and should not be used to harass staff, threaten users, submit knowingly false claims, or abuse the support process."],
@@ -1282,12 +1282,13 @@ function LegalPage({ slug, page }: { slug?: LegalContentPage["slug"]; page: (typ
   const { width } = useWindowDimensions();
   const compact = width < 760;
   const [serverPage, setServerPage] = useState<LegalContentPage | null>(null);
+  const [staticPage, setStaticPage] = useState<{ title?: string; updated?: string; summary?: string; blocks: RenderedLegalBlock[] } | null>(null);
   const [loadingLegal, setLoadingLegal] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoadingLegal(true);
-    if (!slug) {
+    if (!slug || slug === "privacy") {
       setServerPage(null);
       setLoadingLegal(false);
       return () => { cancelled = true; };
@@ -1305,13 +1306,50 @@ function LegalPage({ slug, page }: { slug?: LegalContentPage["slug"]; page: (typ
     return () => { cancelled = true; };
   }, [slug]);
 
-  const displayTitle = serverPage?.title || page.title;
-  const displayUpdated = serverPage?.updatedAt
-    ? `Last updated: ${new Date(serverPage.updatedAt).toLocaleDateString()}`
-    : page.updated;
-  const displaySummary = serverPage?.summary || "";
-  const blocks = serverPage?.body ? legalBodyToBlocks(serverPage.body) : fallbackLegalToBlocks(page);
-  const images = serverPage?.imageUrls || [];
+  useEffect(() => {
+    let cancelled = false;
+    setStaticPage(null);
+    if (slug !== "privacy" || typeof window === "undefined" || typeof DOMParser === "undefined") {
+      return () => { cancelled = true; };
+    }
+    fetch("/privacy/index.html", { cache: "no-store" })
+      .then((response) => response.ok ? response.text() : "")
+      .then((html) => {
+        if (cancelled || !html) return;
+        const document = new DOMParser().parseFromString(html, "text/html");
+        const article = document.querySelector("[data-legal-document]");
+        if (!article) return;
+        const title = article.querySelector("h1")?.textContent?.trim() || page.title;
+        const dates = Array.from(article.querySelectorAll(".policy-dates span"))
+          .map((node) => node.textContent?.replace(/\s+/g, " ").trim())
+          .filter(Boolean)
+          .join(" · ");
+        const blocks = Array.from(article.children)
+          .filter((node) => !node.classList.contains("policy-dates"))
+          .map((node) => {
+            const text = node.textContent?.replace(/\s+/g, " ").trim() || "";
+            if (!text || node.tagName === "H1") return null;
+            if (node.tagName === "H2") return { type: "heading", text } as const;
+            if (node.tagName === "H3") return { type: "subheading", text } as const;
+            if (node.tagName === "LI") return { type: "bullet", text } as const;
+            return { type: "paragraph", text } as const;
+          })
+          .filter(Boolean) as RenderedLegalBlock[];
+        if (blocks.length) {
+          setStaticPage({ title, updated: dates || page.updated, blocks });
+        }
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [slug, page.title, page.updated]);
+
+  const shouldUseServerPage = slug !== "privacy";
+  const activeServerPage = shouldUseServerPage ? serverPage : null;
+  const displayTitle = staticPage?.title || activeServerPage?.title || page.title;
+  const displayUpdated = staticPage?.updated || (activeServerPage?.updatedAt ? `Last updated: ${new Date(activeServerPage.updatedAt).toLocaleDateString()}` : page.updated);
+  const displaySummary = staticPage?.summary || activeServerPage?.summary || "";
+  const blocks = staticPage?.blocks || (activeServerPage?.body ? legalBodyToBlocks(activeServerPage.body) : fallbackLegalToBlocks(page));
+  const images = activeServerPage?.imageUrls || [];
 
   useEffect(() => {
     setDocumentSeo(`${displayTitle} | KindredCube`, displaySummary || page.intro);
