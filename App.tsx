@@ -20869,7 +20869,8 @@ function SignedInHome({
   const recommendationPool = realDiscoveryPeople.filter((profile) =>
     datingDirectionMatches(viewerDating, profile) &&
     !likedProfiles.includes(likeProfileKey(profile)) &&
-    !profileIsMatched(profile),
+    !profileIsMatched(profile) &&
+    !profileIsInChats(profile),
   );
   const recommendationAvailable = (profile: Profile) => {
     const hiddenUntil = dismissedRecommendationIds[likeProfileKey(profile)];
