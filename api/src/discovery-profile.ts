@@ -25,7 +25,6 @@ export async function syncDiscoveryProfile(
   const readyToMeet = readyToMeetAvailability.available === true
     && Number.isFinite(readyToMeetStartMs)
     && Number.isFinite(readyToMeetEndMs)
-    && readyToMeetStartMs <= Date.now()
     && readyToMeetEndMs > Date.now();
   const matchingData = {
     personality: text(profile.personality),

@@ -19951,7 +19951,7 @@ function SignedInHome({
   const [completedPostMeetCheckKeys, setCompletedPostMeetCheckKeys] = useState<string[]>([]);
   const [realDiscoveryPeople, setRealDiscoveryPeople] = useState<Profile[]>([]);
   const [realReadyToMeetPeople, setRealReadyToMeetPeople] = useState<Profile[]>([]);
-  const readyMeetSeenAtRef = useRef<Record<string, number>>({});
+  const readyMeetRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const incomingChatSocketRef = useRef<Socket | null>(null);
   const incomingLikesRef = useRef<IncomingLike[]>([]);
   const memberChatRef = useRef<Profile | null>(null);
@@ -20356,6 +20356,12 @@ function SignedInHome({
         socket.on("connect", publishChatPresence);
         publishChatPresence();
         appStateSubscription = AppState.addEventListener("change", publishChatPresence);
+        const scheduleReadyMeetRefresh = () => {
+          if (readyMeetRefreshTimerRef.current) clearTimeout(readyMeetRefreshTimerRef.current);
+          readyMeetRefreshTimerRef.current = setTimeout(() => {
+            refreshReadyToMeetPeople().catch(() => undefined);
+          }, 900);
+        };
         socket.on("ready-to-meet:presence", (update: { userId?: string; available?: boolean; availableAt?: string; expiresAt?: string; profile?: DiscoveryCandidate }) => {
           if (!active) return;
           if (update.userId && update.userId !== initialUser.id) {
@@ -20376,7 +20382,7 @@ function SignedInHome({
               return withoutProfile;
             });
           }
-          refreshReadyToMeetPeople().catch(() => undefined);
+          scheduleReadyMeetRefresh();
         });
         socket.on("chat:message", (message: ChatMessage) => {
           if (!active) return;
@@ -20417,6 +20423,10 @@ function SignedInHome({
       .catch(() => undefined);
     return () => {
       active = false;
+      if (readyMeetRefreshTimerRef.current) {
+        clearTimeout(readyMeetRefreshTimerRef.current);
+        readyMeetRefreshTimerRef.current = null;
+      }
       appStateSubscription?.remove();
       if (incomingChatSocketRef.current === socket) incomingChatSocketRef.current = null;
       socket?.disconnect();
@@ -20912,9 +20922,6 @@ function SignedInHome({
       merged.set(key, { ...(merged.get(key) || {}), ...profile });
     };
     realReadyToMeetPeople.forEach(addReadyProfile);
-    memberChats.forEach(addReadyProfile);
-    incomingLikes.forEach((like) => addReadyProfile(discoveryCandidateToProfile(like.profile)));
-    realDiscoveryPeople.forEach(addReadyProfile);
     return Array.from(merged.values());
   })();
   const currentReadyMeetPhotoUris = [

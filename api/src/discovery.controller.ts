@@ -164,7 +164,11 @@ export class DiscoveryController {
                 d.date_of_birth,
                 d.culture,
                 d.occupation,
-                d.matching_data,
+                d.matching_data || jsonb_build_object(
+                  'readyToMeet', true,
+                  'readyToMeetAt', ps.settings_data #>> '{readyToMeetAvailability,availableAt}',
+                  'readyToMeetExpiresAt', ps.settings_data #>> '{readyToMeetAvailability,expiresAt}'
+                ) AS matching_data,
                 d.area_latitude,
                 d.area_longitude,
                 d.recently_active_at,
@@ -174,16 +178,17 @@ export class DiscoveryController {
                 ${publicSelfieVerifiedSql("d.user_id")} AS selfie_verified
            FROM discovery_profiles d
            JOIN users u ON u.id = d.user_id
+           JOIN user_private_spaces ps ON ps.user_id = d.user_id
            LEFT JOIN user_trust_scores ts ON ts.user_id = d.user_id
           WHERE d.user_id <> $1
             AND d.visible = true
             AND u.status = 'active'
             AND u.email_verified_at IS NOT NULL
-            AND d.matching_data->>'readyToMeet' = 'true'
-            AND d.matching_data->>'readyToMeetAt' ~ '^\\d{4}-\\d{2}-\\d{2}T'
-            AND d.matching_data->>'readyToMeetExpiresAt' ~ '^\\d{4}-\\d{2}-\\d{2}T'
-            AND NULLIF(d.matching_data->>'readyToMeetAt', '')::timestamptz <= now()
-            AND NULLIF(d.matching_data->>'readyToMeetExpiresAt', '')::timestamptz > now()
+            AND ps.settings_data #>> '{readyToMeetAvailability,available}' = 'true'
+            AND ps.settings_data #>> '{readyToMeetAvailability,availableAt}' ~ '^\\d{4}-\\d{2}-\\d{2}T'
+            AND ps.settings_data #>> '{readyToMeetAvailability,expiresAt}' ~ '^\\d{4}-\\d{2}-\\d{2}T'
+            AND NULLIF(ps.settings_data #>> '{readyToMeetAvailability,availableAt}', '')::timestamptz <= now()
+            AND NULLIF(ps.settings_data #>> '{readyToMeetAvailability,expiresAt}', '')::timestamptz > now()
             AND (ts.ready_to_meet_disabled_until IS NULL OR ts.ready_to_meet_disabled_until <= now())
             AND NOT EXISTS (
               SELECT 1 FROM user_blocks b
