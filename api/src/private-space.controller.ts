@@ -170,7 +170,8 @@ export class PrivateSpaceController {
     }
     response.setHeader("Content-Type", row.mime_type);
     response.setHeader("Content-Length", String(row.size_bytes));
-    response.setHeader("Cache-Control", "private, max-age=86400");
+    response.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+    response.setHeader("ETag", `"${mediaId}"`);
     response.send(row.data);
   }
 

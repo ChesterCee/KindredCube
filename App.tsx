@@ -1156,9 +1156,9 @@ function discoveryCandidateToProfile(candidate: DiscoveryCandidate): Profile {
   const photoUris = [
     ...new Set(
       [
-        ...(candidate.photoUris || []),
-        candidate.photoUri,
         typeof matching.bestPhotoUri === "string" ? matching.bestPhotoUri : undefined,
+        candidate.photoUri,
+        ...(candidate.photoUris || []),
         ...matchingPhotos,
       ].map(cleanMediaUri).filter((uri): uri is string => uri.length > 0),
     ),
@@ -2723,7 +2723,7 @@ function ProfileImage({
   if (uri) {
     return (
       <Image
-        source={{ uri }}
+        source={cachedImageSource(uri)}
         resizeMode="cover"
         blurRadius={blurred ? 64 : 0}
         onError={() => setFailedUri(uri)}
@@ -17068,15 +17068,23 @@ function profilePhotoUris(profile: Profile) {
   return [
     ...new Set(
       [
+        typeof matching.bestPhotoUri === "string" ? matching.bestPhotoUri : undefined,
         ...(profile.photoUris || []),
         profile.photoUri,
         ...(profile.discovery?.photoUris || []),
         profile.discovery?.photoUri,
-        typeof matching.bestPhotoUri === "string" ? matching.bestPhotoUri : undefined,
         ...matchingPhotos,
       ].map(cleanMediaUri).filter((uri): uri is string => uri.length > 0),
     ),
   ];
+}
+
+function profilePrimaryPhotoUri(profile: Profile) {
+  return profilePhotoUris(profile)[0] || "";
+}
+
+function cachedImageSource(uri: string) {
+  return { uri, cache: "force-cache" as const };
 }
 
 function warmImageCache(uris: unknown[]) {
@@ -17095,7 +17103,7 @@ function warmImageCache(uris: unknown[]) {
 }
 
 function warmProfileImageCache(profiles: Profile[]) {
-  warmImageCache(profiles.flatMap((profile) => profilePhotoUris(profile)));
+  warmImageCache(profiles.map(profilePrimaryPhotoUri));
 }
 
 function warmChatImageCache(messages: ChatMessageItem[]) {
@@ -18984,7 +18992,7 @@ function ConnectFilters({
               selectable
               style={{ color: "#59359C", fontSize: 11, fontWeight: "900" }}
             >
-              PREMIUM & ELITE
+              KINDRED PASS & PREMIUM
             </Text>
           </View>
         </View>
@@ -19068,9 +19076,15 @@ function FilterChipButton({
 function ConnectFiltersTabbed({
   onClose,
   profileInterests,
+  onOpenMembershipPlans,
+  premiumActive,
+  kindredPassActive,
 }: {
   onClose: () => void;
   profileInterests: string[];
+  onOpenMembershipPlans: () => void;
+  premiumActive: boolean;
+  kindredPassActive: boolean;
 }) {
   const safeProfileInterests = Array.isArray(profileInterests) ? profileInterests : [];
   const [tab, setTab] = useState<"basic" | "advanced">("basic");
@@ -19608,7 +19622,7 @@ function ConnectFiltersTabbed({
                 selectable
                 style={{ color: "#59359C", fontSize: 11, fontWeight: "900" }}
               >
-                PREMIUM & ELITE
+                KINDRED PASS & PREMIUM
               </Text>
               <Text
                 selectable
@@ -19722,7 +19736,13 @@ function ConnectFiltersTabbed({
             ))}
             <Button
               label="Save advanced filters"
-              onPress={() => setPremiumGate(true)}
+              onPress={() => {
+                if (premiumActive || kindredPassActive) {
+                  onClose();
+                  return;
+                }
+                setPremiumGate(true);
+              }}
             />
           </View>
         )}
@@ -19766,18 +19786,21 @@ function ConnectFiltersTabbed({
                 fontWeight: "900",
               }}
             >
-              Advanced Filters are Premium
+              Advanced Filters need Kindred Pass or Premium
             </Text>
             <Text
               selectable
               style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}
             >
               You can explore and configure every Advanced Filter, but saving
-              them requires Premium or Elite.
+              them requires Kindred Pass or Premium.
             </Text>
             <Button
-              label="View Premium plans"
-              onPress={() => setPremiumGate(false)}
+              label="View Kindred Pass and Premium"
+              onPress={() => {
+                setPremiumGate(false);
+                onOpenMembershipPlans();
+              }}
             />
             <Pressable
               accessibilityRole="button"
@@ -20955,6 +20978,12 @@ function SignedInHome({
     <ConnectFiltersTabbed
       onClose={() => setFilterOpen(false)}
       profileInterests={profileInterests}
+      onOpenMembershipPlans={() => {
+        setFilterOpen(false);
+        setMembershipOptionsOpen(true);
+      }}
+      premiumActive={premiumActive}
+      kindredPassActive={kindredPassActive}
     />
   ) : tab === "profile" ? null : tab === "explore" ? (
     <ExploreRecommendations
