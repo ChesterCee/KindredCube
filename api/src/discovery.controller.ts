@@ -299,15 +299,17 @@ function activeMatchingData(matching: Record<string, unknown>): Record<string, u
 
 function candidateToResponse(candidate: DiscoveryRow, age: number, distanceKm: number | undefined, origin: string) {
   const matching = activeMatchingData(candidate.matching_data || {});
+  const photoVersion = typeof matching.photoVersion === "string" ? matching.photoVersion : "";
   const photoUris = Array.isArray(matching.photos)
     ? matching.photos
         .map((photo) => photo && typeof photo === "object" && "uri" in photo ? (photo as { uri?: unknown }).uri : undefined)
-        .map((uri) => publicMediaUri(uri, origin))
+        .map((uri) => publicMediaUri(uri, origin, photoVersion))
         .filter((uri): uri is string => uri.length > 0)
     : [];
   const bestPhotoUri = publicMediaUri(
     typeof matching.bestPhotoUri === "string" ? matching.bestPhotoUri : undefined,
     origin,
+    photoVersion,
   );
   return {
     id: candidate.user_id,
@@ -329,13 +331,17 @@ function candidateToResponse(candidate: DiscoveryRow, age: number, distanceKm: n
   };
 }
 
-function publicMediaUri(uri: unknown, origin: string) {
+function publicMediaUri(uri: unknown, origin: string, photoVersion = "") {
   if (typeof uri !== "string") return "";
   const trimmed = uri.trim();
   if (!trimmed) return "";
-  const match = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}$/i);
-  if (match?.[0]) return `${origin}${match[0]}`;
+  const match = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}/i);
+  if (match?.[0]) return `${origin}${versionedMediaPath(match[0], photoVersion)}`;
   return trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : "";
+}
+
+function versionedMediaPath(path: string, version: string) {
+  return version ? `${path}?v=${encodeURIComponent(version)}` : path;
 }
 
 function apiOrigin(request: AuthenticatedRequest) {

@@ -79,6 +79,11 @@ export class PrivateSpaceController {
     return this.database.withUser(request.user.id, async (client) => {
       const photoFingerprints = profilePhotoFingerprints(normalizedProfile);
       if (photoFingerprints.length) {
+        normalizedProfile.photoVersion = createHash("sha1").update(photoFingerprints.join("|")).digest("hex").slice(0, 16);
+      } else {
+        delete normalizedProfile.photoVersion;
+      }
+      if (photoFingerprints.length) {
         const banned = await client.query(
           `SELECT 1 FROM platform_bans
             WHERE active = true
@@ -140,10 +145,11 @@ export class PrivateSpaceController {
         [request.user.id, input.mimeType, data.length, data, sha256],
       );
       const row = result.rows[0]!;
+      const version = Date.now().toString(36);
       return {
         id: row.id,
-        uri: `${apiOrigin(request)}${profileMediaPath(row.id)}`,
-        path: profileMediaPath(row.id),
+        uri: `${apiOrigin(request)}${profileMediaPath(row.id, version)}`,
+        path: profileMediaPath(row.id, version),
         mimeType: row.mime_type,
         sizeBytes: row.size_bytes,
       };
@@ -224,8 +230,9 @@ function apiOrigin(request: AuthenticatedRequest) {
   return `${request.protocol}://${host}`;
 }
 
-function profileMediaPath(id: string) {
-  return `/v1/me/private-space/media/profile-photo/${id}`;
+function profileMediaPath(id: string, version?: string) {
+  const path = `/v1/me/private-space/media/profile-photo/${id}`;
+  return version ? `${path}?v=${encodeURIComponent(version)}` : path;
 }
 
 function normalizeProfileMediaForStorage(profile: Record<string, unknown>) {
@@ -257,9 +264,10 @@ function normalizeProfileMediaForStorage(profile: Record<string, unknown>) {
 
 function normalizeProfileMediaForResponse(profile: Record<string, unknown>, origin: string) {
   const next = { ...profile };
+  const photoVersion = typeof next.photoVersion === "string" ? next.photoVersion.trim() : "";
   const normalize = (uri: unknown) => {
     const path = mediaPathFromUri(typeof uri === "string" ? uri : "");
-    return path ? `${origin}${path}` : uri;
+    return path ? `${origin}${versionedMediaPath(path, photoVersion)}` : uri;
   };
   if (Array.isArray(next.photos)) {
     next.photos = next.photos
@@ -285,8 +293,13 @@ function normalizeProfileMediaForResponse(profile: Record<string, unknown>, orig
 function mediaPathFromUri(uri: string) {
   const trimmed = uri.trim();
   if (!trimmed) return "";
-  const match = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}$/i);
+  const match = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}/i);
   return match?.[0] || "";
+}
+
+function versionedMediaPath(path: string, version: string) {
+  if (!version) return path;
+  return `${path}?v=${encodeURIComponent(version)}`;
 }
 
 function isLocalOnlyMediaUri(uri: string) {

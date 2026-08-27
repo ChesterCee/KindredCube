@@ -192,13 +192,14 @@ export class MemberLikesController {
           const visible = row.matched || row.recipient_has_plan || new Date(row.visible_at).getTime() <= Date.now();
           const age = ageFromDate(row.date_of_birth);
           const origin = apiOrigin(request);
+          const photoVersion = typeof row.matching_data?.photoVersion === "string" ? row.matching_data.photoVersion : "";
           const photoUris = Array.isArray(row.matching_data?.photos)
             ? row.matching_data.photos
                 .map((photo) => photo && typeof photo === "object" && "uri" in photo ? (photo as { uri?: unknown }).uri : undefined)
-                .map((uri) => publicMediaUri(uri, origin))
+                .map((uri) => publicMediaUri(uri, origin, photoVersion))
                 .filter((uri): uri is string => uri.length > 0)
             : [];
-          const bestPhotoUri = publicMediaUri(row.matching_data?.bestPhotoUri, origin);
+          const bestPhotoUri = publicMediaUri(row.matching_data?.bestPhotoUri, origin, photoVersion);
           return {
             id: row.like_id,
             visible,
@@ -240,12 +241,15 @@ function ageFromDate(value: string) {
   return age;
 }
 
-function publicMediaUri(uri: unknown, origin: string) {
+function publicMediaUri(uri: unknown, origin: string, photoVersion = "") {
   if (typeof uri !== "string") return "";
   const trimmed = uri.trim();
   if (!trimmed) return "";
-  const match = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}$/i);
-  if (match?.[0]) return `${origin}${match[0]}`;
+  const match = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}/i);
+  if (match?.[0]) {
+    const versionedPath = photoVersion ? `${match[0]}?v=${encodeURIComponent(photoVersion)}` : match[0];
+    return `${origin}${versionedPath}`;
+  }
   return trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : "";
 }
 

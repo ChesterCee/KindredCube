@@ -46,6 +46,7 @@ export async function syncDiscoveryProfile(
     bio: text(profile.bio).slice(0, 2000),
     bestPhotoUri: text(profile.bestPhotoUri).slice(0, 8000),
     photos: safePhotos(profile.photos),
+    photoVersion: text(profile.photoVersion).slice(0, 32),
     readyToMeet,
     readyToMeetAt: readyToMeetAt.slice(0, 50),
     readyToMeetExpiresAt: readyToMeetExpiresAt.slice(0, 50),

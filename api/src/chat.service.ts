@@ -468,13 +468,14 @@ export class ChatService {
 
   private toConversationResponse(row: ChatConversationRow): ChatConversationResponse {
     const matching = activeMatchingData(row.matching_data || {});
+    const photoVersion = typeof matching.photoVersion === "string" ? matching.photoVersion : "";
     const photoUris = Array.isArray(matching.photos)
       ? matching.photos
           .map((photo) => photo && typeof photo === "object" && "uri" in photo ? (photo as { uri?: unknown }).uri : undefined)
-          .map(publicMediaUri)
+          .map((uri) => publicMediaUri(uri, photoVersion))
           .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
       : [];
-    const bestPhotoUri = publicMediaUri(matching.bestPhotoUri);
+    const bestPhotoUri = publicMediaUri(matching.bestPhotoUri, photoVersion);
     return {
       profile: {
         id: row.other_user_id,
@@ -540,14 +541,15 @@ function activeMatchingData(matching: Record<string, unknown>): Record<string, u
   return { ...matching, readyToMeet };
 }
 
-function publicMediaUri(uri: unknown) {
+function publicMediaUri(uri: unknown, photoVersion = "") {
   if (typeof uri !== "string") return "";
   const trimmed = uri.trim();
   if (!trimmed) return "";
-  const match = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}$/i);
+  const match = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}/i);
   if (match?.[0]) {
     const origin = (process.env.PUBLIC_API_URL || process.env.API_PUBLIC_URL || "").replace(/\/$/, "");
-    return origin ? `${origin}${match[0]}` : match[0];
+    const versionedPath = photoVersion ? `${match[0]}?v=${encodeURIComponent(photoVersion)}` : match[0];
+    return origin ? `${origin}${versionedPath}` : versionedPath;
   }
   return trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : "";
 }
