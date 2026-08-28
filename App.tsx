@@ -1154,15 +1154,18 @@ function discoveryCandidateToProfile(candidate: DiscoveryCandidate): Profile {
         )
         .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
     : [];
-  const photoUris = [
-    ...new Set(
-      [
+  const canonicalPhotoUris = matchingPhotos.length
+    ? [
+        typeof matching.bestPhotoUri === "string" ? matching.bestPhotoUri : undefined,
+        ...matchingPhotos,
+      ]
+    : [
         typeof matching.bestPhotoUri === "string" ? matching.bestPhotoUri : undefined,
         candidate.photoUri,
         ...(candidate.photoUris || []),
-        ...matchingPhotos,
-      ].map(cleanMediaUri).filter((uri): uri is string => uri.length > 0),
-    ),
+      ];
+  const photoUris = [
+    ...new Set(canonicalPhotoUris.map(cleanMediaUri).filter((uri): uri is string => uri.length > 0)),
   ];
   const instagramPhotoUris = [
     ...new Set(
@@ -17110,6 +17113,16 @@ function profilePhotoUris(profile: Profile) {
         )
         .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
     : [];
+  if (matchingPhotos.length) {
+    return [
+      ...new Set(
+        [
+          typeof matching.bestPhotoUri === "string" ? matching.bestPhotoUri : undefined,
+          ...matchingPhotos,
+        ].map(cleanMediaUri).filter((uri): uri is string => uri.length > 0),
+      ),
+    ];
+  }
   return [
     ...new Set(
       [

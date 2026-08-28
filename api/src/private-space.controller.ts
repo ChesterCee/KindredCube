@@ -83,6 +83,7 @@ export class PrivateSpaceController {
       } else {
         delete normalizedProfile.photoVersion;
       }
+      const retainedProfileMediaIds = profilePhotoMediaIds(normalizedProfile);
       if (photoFingerprints.length) {
         const banned = await client.query(
           `SELECT 1 FROM platform_bans
@@ -108,6 +109,15 @@ export class PrivateSpaceController {
           JSON.stringify(normalizedProfile),
           JSON.stringify(input.settings),
         ],
+      );
+      await client.query(
+        `UPDATE profile_media
+            SET status = 'deleted'
+          WHERE user_id = $1
+            AND media_type = 'profile_photo'
+            AND status = 'active'
+            AND NOT (id = ANY($2::uuid[]))`,
+        [request.user.id, retainedProfileMediaIds],
       );
       await syncDiscoveryProfile(client, request.user.id, normalizedProfile, input.settings);
       return {
@@ -297,6 +307,12 @@ function mediaPathFromUri(uri: string) {
   return match?.[0] || "";
 }
 
+function profilePhotoMediaIdFromUri(uri: string) {
+  const path = mediaPathFromUri(uri);
+  const match = path.match(/[0-9a-f-]{36}$/i);
+  return match?.[0] || "";
+}
+
 function versionedMediaPath(path: string, version: string) {
   if (!version) return path;
   return `${path}?v=${encodeURIComponent(version)}`;
@@ -313,6 +329,15 @@ function profilePhotoFingerprints(profile: Record<string, unknown>) {
     .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
   const best = typeof profile.bestPhotoUri === "string" ? profile.bestPhotoUri : "";
   return [...new Set([...values, best].filter(Boolean).map((value) => createHash("sha256").update(value.trim()).digest("hex")))];
+}
+
+function profilePhotoMediaIds(profile: Record<string, unknown>) {
+  const photos = Array.isArray(profile.photos) ? profile.photos : [];
+  const values = photos
+    .map((photo) => photo && typeof photo === "object" ? (photo as Record<string, unknown>).uri : undefined)
+    .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
+  const best = typeof profile.bestPhotoUri === "string" ? profile.bestPhotoUri : "";
+  return [...new Set([...values, best].map(profilePhotoMediaIdFromUri).filter((id): id is string => id.length > 0))];
 }
 
 function validatePrivatePayload(input: UpdatePrivateSpaceDto) {
