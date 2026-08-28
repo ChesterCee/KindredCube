@@ -20136,9 +20136,23 @@ function SignedInHome({
   const refreshReadyToMeetPeople = useCallback(async () => {
     const result = await getReadyToMeetCandidates();
     const profiles = result.candidates.map(discoveryCandidateToProfile);
-    setRealReadyToMeetPeople(profiles);
-    warmProfileImageCache(profiles);
-    queueHomeCacheSave({ readyToMeetPeople: profiles });
+    let mergedProfiles = profiles;
+    setRealReadyToMeetPeople((current) => {
+      const next = new Map<string, Profile>();
+      profiles.forEach((profile) => {
+        const key = likeProfileKeyValue(profile);
+        if (key) next.set(key, profile);
+      });
+      current.forEach((profile) => {
+        const key = likeProfileKeyValue(profile);
+        if (!key || next.has(key) || !profileReadyToMeetIsActive(profile)) return;
+        next.set(key, profile);
+      });
+      mergedProfiles = Array.from(next.values());
+      return mergedProfiles;
+    });
+    warmProfileImageCache(mergedProfiles);
+    queueHomeCacheSave({ readyToMeetPeople: mergedProfiles });
   }, [queueHomeCacheSave]);
   const refreshPaymentState = useCallback(async () => {
     const summary = await getPaymentSummary();
@@ -20435,12 +20449,13 @@ function SignedInHome({
                     readyToMeetExpiresAt: update.expiresAt || update.profile.matching?.readyToMeetExpiresAt,
                   },
                 });
+                warmProfileImageCache([readyProfile]);
                 return [readyProfile, ...withoutProfile];
               }
               return withoutProfile;
             });
           }
-          scheduleReadyMeetRefresh();
+          if (!update.available) scheduleReadyMeetRefresh();
         });
         socket.on("chat:message", (message: ChatMessage) => {
           if (!active) return;
