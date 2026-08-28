@@ -35,6 +35,7 @@ import {
   Heart,
   LockKeyhole,
   LogOut,
+  MapPin,
   MessageCircle,
   MessageSquare,
   Mic,
@@ -4362,6 +4363,7 @@ function ProfileDetail({
   const profileSwipeX = useRef(new Animated.Value(0)).current;
   const [profileSwipeDelta, setProfileSwipeDelta] = useState(0);
   const photoPrompts = profilePromptsForGallery(profile);
+  const publicArea = profilePublicArea(profile);
   const profileCanSwipe = !readyMeetMode && (Boolean(onLike) || Boolean(onPass));
   swipeLeftRef.current = onSwipeLeft;
   swipeRightRef.current = onSwipeRight;
@@ -4482,6 +4484,32 @@ function ProfileDetail({
           >
             <Share2 width={22} height={22} color={C.ink} strokeWidth={2.8} />
           </Pressable>
+          {publicArea ? (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                top: 14,
+                right: 14,
+                maxWidth: "62%",
+                borderRadius: 18,
+                backgroundColor: "rgba(12,18,42,0.72)",
+                borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.38)",
+                paddingHorizontal: 10,
+                paddingVertical: 7,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+                boxShadow: "0 8px 18px rgba(8,12,28,0.22)",
+              }}
+            >
+              <MapPin width={13} height={13} color="#FFFFFF" strokeWidth={3} />
+              <Text selectable={false} numberOfLines={1} style={{ color: "#FFFFFF", fontSize: 11, fontWeight: "900" }}>
+                {publicArea}
+              </Text>
+            </View>
+          ) : null}
         </View>
         {!readyMeetMode && Math.abs(profileSwipeDelta) > 20 ? (
           <View
@@ -4533,11 +4561,6 @@ function ProfileDetail({
           {profileOccupationEducationLine(profile) ? (
             <Text selectable numberOfLines={2} style={{ color: C.clay, fontSize: 12, lineHeight: 17, fontWeight: "900" }}>
               {profileOccupationEducationLine(profile)}
-            </Text>
-          ) : null}
-          {profilePublicArea(profile) ? (
-            <Text selectable numberOfLines={1} style={{ color: C.sage, fontSize: 12, lineHeight: 17, fontWeight: "900" }}>
-              📍 {profilePublicArea(profile)}
             </Text>
           ) : null}
           <VerificationBadges profile={profile} />
