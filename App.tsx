@@ -2720,14 +2720,27 @@ function ProfileImage({
 }) {
   const photos = profilePhotoUris(profile);
   const [failedUri, setFailedUri] = useState("");
+  const [localUriByRemoteUri, setLocalUriByRemoteUri] = useState<Record<string, string>>({});
   const uri = photos.find((photoUri) => photoUri !== failedUri) || "";
+  const displayUri = localUriByRemoteUri[uri] || uri;
   useEffect(() => {
     if (failedUri && !photos.includes(failedUri)) setFailedUri("");
   }, [failedUri, photos]);
+  useEffect(() => {
+    if (!uri || localUriByRemoteUri[uri]) return;
+    let active = true;
+    cacheRemoteImage(uri).then((localUri) => {
+      if (!active || !localUri || localUri === uri) return;
+      setLocalUriByRemoteUri((current) => ({ ...current, [uri]: localUri }));
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [localUriByRemoteUri, uri]);
   if (uri) {
     return (
       <Image
-        source={cachedImageSource(uri)}
+        source={cachedImageSource(displayUri)}
         resizeMode="cover"
         blurRadius={blurred ? 64 : 0}
         onError={() => setFailedUri(uri)}
@@ -5410,6 +5423,7 @@ function CompleteProfileRecommendation({
 function MessagesScreen({
   username,
   assistantAvailable,
+  assistantDeliveredAt,
   memberChat,
   memberChats,
   unreadChatIds,
@@ -5436,6 +5450,7 @@ function MessagesScreen({
 }: {
   username: string;
   assistantAvailable: boolean;
+  assistantDeliveredAt?: string;
   memberChat: Profile | null;
   memberChats?: Profile[];
   unreadChatIds?: string[];
@@ -5462,6 +5477,7 @@ function MessagesScreen({
 }) {
   const [conversationOpen, setConversationOpen] = useState(false);
   const [chatListFilter, setChatListFilter] = useState<"all" | "unread">("all");
+  const assistantTimeLabel = assistantDeliveredAt ? formatMessageListDate(assistantDeliveredAt) : "";
   const chatProfiles = memberChats && memberChats.length > 0 ?
     memberChats
     : memberChat ?
@@ -5666,7 +5682,7 @@ function MessagesScreen({
                 Amara
               </Text>
               <Text selectable style={{ color: C.muted, fontSize: 10 }}>
-                Now
+                {assistantTimeLabel || "Welcome"}
               </Text>
             </View>
             <Text numberOfLines={2} style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>
@@ -14930,6 +14946,15 @@ function formatChatTime(value?: string) {
   return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
+function formatMessageListDate(value?: string) {
+  const date = value ? new Date(value) : null;
+  if (!date || !Number.isFinite(date.getTime())) return "";
+  if (chatDayKey(value) === chatDayKey(new Date().toISOString())) {
+    return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 function privacySafeAreaCoordinate(latitude: number, longitude: number) {
   const coarseLatitude = Math.round(latitude * 20) / 20;
   const coarseLongitude = Math.round(longitude * 20) / 20;
@@ -17142,7 +17167,45 @@ function profilePrimaryPhotoUri(profile: Profile) {
 }
 
 function cachedImageSource(uri: string) {
-  return { uri, cache: "force-cache" as const };
+  return { uri: imageMemoryCache.get(uri) || uri, cache: "force-cache" as const };
+}
+
+const imageMemoryCache = new Map<string, string>();
+const imageDownloadPromises = new Map<string, Promise<string>>();
+
+function cachedImageFileUri(uri: string) {
+  const hash = stableNumber(uri).toString(36);
+  return `${LegacyFileSystem.cacheDirectory || ""}kindredcube-media-${hash}.img`;
+}
+
+async function cacheRemoteImage(uri: string) {
+  const cleanUri = cleanMediaUri(uri);
+  if (
+    process.env.EXPO_OS === "web" ||
+    !LegacyFileSystem.cacheDirectory ||
+    !/^https?:\/\//i.test(cleanUri)
+  ) {
+    return cleanUri;
+  }
+  const cached = imageMemoryCache.get(cleanUri);
+  if (cached) return cached;
+  const existingDownload = imageDownloadPromises.get(cleanUri);
+  if (existingDownload) return existingDownload;
+  const download = (async () => {
+    const fileUri = cachedImageFileUri(cleanUri);
+    const info = await LegacyFileSystem.getInfoAsync(fileUri).catch(() => null);
+    if (info?.exists) {
+      imageMemoryCache.set(cleanUri, fileUri);
+      return fileUri;
+    }
+    await LegacyFileSystem.downloadAsync(cleanUri, fileUri);
+    imageMemoryCache.set(cleanUri, fileUri);
+    return fileUri;
+  })().catch(() => cleanUri).finally(() => {
+    imageDownloadPromises.delete(cleanUri);
+  });
+  imageDownloadPromises.set(cleanUri, download);
+  return download;
 }
 
 function warmImageCache(uris: unknown[]) {
@@ -17156,6 +17219,7 @@ function warmImageCache(uris: unknown[]) {
   ]
     .slice(0, 80)
     .forEach((uri) => {
+      cacheRemoteImage(uri).catch(() => undefined);
       Image.prefetch(uri).catch(() => undefined);
     });
 }
@@ -19989,6 +20053,7 @@ function SignedInHome({
   const seenChatMessageTimesRef = useRef<Record<string, string>>({});
   const [assistantAvailable, setAssistantAvailable] = useState(false);
   const [assistantUnread, setAssistantUnread] = useState(false);
+  const [assistantDeliveredAt, setAssistantDeliveredAt] = useState("");
   const [memberChat, setMemberChat] = useState<Profile | null>(null);
   const [memberChats, setMemberChats] = useState<Profile[]>([]);
   const [cachedChatMessagesByProfileId, setCachedChatMessagesByProfileId] = useState<Record<string, ChatMessageItem[]>>({});
@@ -20907,6 +20972,7 @@ function SignedInHome({
         if (receipt.delivered) {
           setAssistantAvailable(true);
           setAssistantUnread(!receipt.read);
+          setAssistantDeliveredAt(receipt.deliveredAt || "");
           return;
         }
         deliveryTimer = setTimeout(() => {
@@ -20915,6 +20981,7 @@ function SignedInHome({
               if (!active) return;
               setAssistantAvailable(true);
               setAssistantUnread(!delivered.read);
+              setAssistantDeliveredAt(delivered.deliveredAt || new Date().toISOString());
             })
             .catch(() => undefined);
         }, 20_000);
@@ -21169,6 +21236,7 @@ function SignedInHome({
     <MessagesScreen
       username={memberUsername}
       assistantAvailable={assistantAvailable}
+      assistantDeliveredAt={assistantDeliveredAt}
       memberChat={memberChat}
       memberChats={memberChats}
       unreadChatIds={unreadChatIds}
