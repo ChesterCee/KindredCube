@@ -17012,9 +17012,7 @@ function profileSafeText(value: unknown) {
 
 function profilePublicArea(profile: Profile) {
   const matching = profile.discovery?.matching;
-  const rawLocation =
-    profileSafeText(matching?.currentLocation) ||
-    profileSafeText(matching?.hometown);
+  const rawLocation = profileSafeText(matching?.currentLocation);
   if (!rawLocation) return "";
   return rawLocation
     .split(",")
