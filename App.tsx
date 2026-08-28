@@ -4365,6 +4365,9 @@ function ProfileDetail({
   const profileCanSwipe = !readyMeetMode && (Boolean(onLike) || Boolean(onPass));
   swipeLeftRef.current = onSwipeLeft;
   swipeRightRef.current = onSwipeRight;
+  useEffect(() => {
+    warmImageCache(profileGalleryItems(profile).map((item) => item.kind === "uri" ? item.value : ""));
+  }, [profile]);
   const finishProfileSwipe = useCallback(
     (direction: "left" | "right") => {
       const callback =
@@ -4639,7 +4642,7 @@ function ProfileDetail({
                 style={{ width: 116, height: 136, borderRadius: 18, overflow: "hidden", borderWidth: 1, borderColor: C.line, backgroundColor: C.cream, position: "relative" }}
               >
                 {item.kind === "uri" ? (
-                  <Image source={{ uri: String(item.value) }} resizeMode="cover" style={{ width: 116, height: 136 }} />
+                  <Image source={cachedImageSource(String(item.value))} resizeMode="cover" style={{ width: 116, height: 136 }} />
                 ) : (
                   <Portrait index={Number(item.value)} size={136} />
                 )}
@@ -17103,7 +17106,7 @@ function warmImageCache(uris: unknown[]) {
 }
 
 function warmProfileImageCache(profiles: Profile[]) {
-  warmImageCache(profiles.map(profilePrimaryPhotoUri));
+  warmImageCache(profiles.flatMap(profilePhotoUris));
 }
 
 function warmChatImageCache(messages: ChatMessageItem[]) {
@@ -17257,7 +17260,7 @@ function ProfilePhotoGallery({
             <View key={`${profile.name}-gallery-${photo.kind}-${photo.value}-${index}`} style={{ width, height: height - insets.top - insets.bottom - 90, alignItems: "center", justifyContent: "center" }}>
               <View style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120), overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#211E1A", position: "relative" }}>
                 {photo.kind === "uri" ? (
-                  <Image source={{ uri: String(photo.value) }} resizeMode="cover" style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120) }} />
+                  <Image source={cachedImageSource(String(photo.value))} resizeMode="cover" style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120) }} />
                 ) : (
                   <Portrait index={Number(photo.value)} size={width} />
                 )}
@@ -18092,7 +18095,7 @@ function ConnectExperienceDeck({
                   }}
                 >
                   {photo.kind === "uri" ? (
-                    <Image source={{ uri: String(photo.value) }} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
+                    <Image source={cachedImageSource(String(photo.value))} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
                   ) : (
                     <Portrait index={Number(photo.value) % 18} size={210} />
                   )}
