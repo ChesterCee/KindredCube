@@ -16983,11 +16983,15 @@ function profileOccupationEducationLine(profile: Profile) {
   ].filter(Boolean).join(" • ");
 }
 
+function profileSafeText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function profilePublicArea(profile: Profile) {
   const matching = profile.discovery?.matching;
   const rawLocation =
-    textValue(matching?.currentLocation) ||
-    textValue(matching?.hometown);
+    profileSafeText(matching?.currentLocation) ||
+    profileSafeText(matching?.hometown);
   if (!rawLocation) return "";
   return rawLocation
     .split(",")
