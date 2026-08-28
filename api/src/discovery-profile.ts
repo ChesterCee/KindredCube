@@ -37,6 +37,7 @@ export async function syncDiscoveryProfile(
     details: safeDetails(profile.details),
     occupation: text(profile.occupation).slice(0, 120),
     work: text(profile.work).slice(0, 120),
+    currentLocation: publicAreaLabel(profile.currentLocation).slice(0, 120),
     hometown: text(profile.hometown).slice(0, 120),
     profileStrength: calculateProfileStrength(profile),
     minAge: Math.max(18, Math.min(100, Number(profile.minAge) || 18)),
@@ -111,6 +112,15 @@ function record(value: unknown): Record<string, unknown> {
 
 function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function publicAreaLabel(value: unknown) {
+  const location = text(value);
+  if (!location) return "";
+  return location
+    .split(",")
+    .map((part) => part.trim())
+    .find(Boolean) || "";
 }
 
 function stringList(value: unknown, maximum: number) {

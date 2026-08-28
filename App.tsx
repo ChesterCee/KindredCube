@@ -4535,6 +4535,11 @@ function ProfileDetail({
               {profileOccupationEducationLine(profile)}
             </Text>
           ) : null}
+          {profilePublicArea(profile) ? (
+            <Text selectable numberOfLines={1} style={{ color: C.sage, fontSize: 12, lineHeight: 17, fontWeight: "900" }}>
+              📍 {profilePublicArea(profile)}
+            </Text>
+          ) : null}
           <VerificationBadges profile={profile} />
           {profileBioForCard(profile) ? (
             <View style={{ paddingTop: 5, gap: 4 }}>
@@ -16976,6 +16981,18 @@ function profileOccupationEducationLine(profile: Profile) {
     profile.role ? `\u{1F4BC} ${profile.role}` : "",
     profileEducation(profile) ? `\u{1F393} ${profileEducation(profile)}` : "",
   ].filter(Boolean).join(" • ");
+}
+
+function profilePublicArea(profile: Profile) {
+  const matching = profile.discovery?.matching;
+  const rawLocation =
+    textValue(matching?.currentLocation) ||
+    textValue(matching?.hometown);
+  if (!rawLocation) return "";
+  return rawLocation
+    .split(",")
+    .map((part) => part.trim())
+    .find(Boolean) || "";
 }
 
 function profileDetailEmoji(label: string) {
