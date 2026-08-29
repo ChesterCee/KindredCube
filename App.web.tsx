@@ -308,6 +308,23 @@ function Landing({ onStart }: { onStart: () => void }) {
     >
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", maxWidth: 1320, width: "100%", alignSelf: "center", minHeight: compact ? 50 : undefined, zIndex: 4 }}>
         <Logo compact={compact} />
+        <Pressable
+          accessibilityRole="button"
+          onPress={onStart}
+          style={({ hovered, pressed }: any) => ({
+            minHeight: compact ? 42 : 48,
+            borderRadius: 16,
+            paddingHorizontal: compact ? 12 : 19,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: hovered ? C.sky : C.paper,
+            borderWidth: 1,
+            borderColor: C.line,
+            transform: [{ scale: pressed ? .98 : 1 }],
+          })}
+        >
+          <Text style={{ color: C.navy, fontSize: compact ? 12 : 14, fontWeight: "900" }}>Sign In / Register</Text>
+        </Pressable>
       </View>
       <View style={{ flex: 1, minHeight: 0, width: "100%", maxWidth: 1320, alignSelf: "center", flexDirection: compact ? "column" : "row", alignItems: "center", justifyContent: compact ? "flex-start" : "center", gap: compact ? 8 : 54, paddingTop: compact ? compactHeroOffset : 0, position: compact ? "relative" : "static" }}>
         <View style={{ width: compact ? "100%" : 520, height: visualHeight, position: compact ? "absolute" : "relative", top: compact ? compactImageTop : undefined, flexShrink: 0, marginTop: compact ? 0 : 0, transform: [{ translateX: compact ? 0 : 42 }] }}>
@@ -1031,56 +1048,77 @@ function AdminPortal() {
   );
 }
 
-function DownloadChooser({ onClose }: { onClose: () => void }) {
+function AccountChooser({ onClose, onSelect }: { onClose: () => void; onSelect: (mode: "register" | "login") => void }) {
   const { width } = useWindowDimensions();
   const compact = width < 620;
-  const option = (platform: "Android" | "Apple", icon: any, onPress: () => void, subtitle: string) => (
+  const option = (title: string, action: string, image: unknown, mode: "register" | "login") => (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Download KindredCube for ${platform}`}
-      onPress={onPress}
+      accessibilityLabel={`${action}: ${title}`}
+      onPress={() => onSelect(mode)}
       style={({ hovered, pressed }: any) => ({
         flex: 1,
         minWidth: compact ? "100%" : 190,
-        minHeight: compact ? 128 : 190,
+        minHeight: compact ? 132 : 208,
         borderRadius: 24,
         borderWidth: 1,
         borderColor: hovered ? "rgba(52,87,213,.35)" : C.line,
         backgroundColor: hovered ? C.sky : C.paper,
         alignItems: "center",
         justifyContent: "center",
-        gap: 8,
-        padding: 18,
+        gap: compact ? 7 : 10,
+        padding: compact ? 14 : 22,
         transform: [{ scale: pressed ? .98 : 1 }],
       })}
     >
-      <Image source={icon} accessibilityLabel={`${platform} icon`} resizeMode="contain" style={{ width: compact ? 54 : 70, height: compact ? 54 : 70 }} />
-      <Text style={{ color: C.ink, fontSize: compact ? 18 : 21, fontWeight: "900" }}>{platform}</Text>
-      <Text style={{ color: C.muted, textAlign: "center", fontSize: 12 }}>{subtitle}</Text>
+      <Image
+        accessibilityIgnoresInvertColors
+        source={image as any}
+        resizeMode="contain"
+        style={{ width: compact ? 58 : 92, height: compact ? 58 : 92 }}
+      />
+      <Text selectable style={{ color: C.muted, textAlign: "center", fontSize: 13, fontWeight: "700" }}>{title}</Text>
+      <Text style={{ color: C.ink, fontSize: compact ? 20 : 24, fontWeight: "900" }}>{action}</Text>
     </Pressable>
   );
   return (
     <View style={{ position: "absolute", inset: 0, zIndex: 60, backgroundColor: "rgba(9,15,37,.62)", alignItems: "center", justifyContent: "center", padding: 16 } as any}>
-      <Pressable accessibilityLabel="Close downloads" onPress={onClose} style={{ position: "absolute", inset: 0 } as any} />
-      <View style={{ width: "100%", maxWidth: 600, maxHeight: "92vh", borderRadius: 30, backgroundColor: C.paper, padding: compact ? 20 : 30, gap: compact ? 14 : 20, boxShadow: "0 32px 90px rgba(5,10,30,.34)" } as any}>
+      <Pressable accessibilityLabel="Close account options" onPress={onClose} style={{ position: "absolute", inset: 0 } as any} />
+      <View style={{ width: "100%", maxWidth: 600, maxHeight: "92vh", borderRadius: 30, backgroundColor: C.paper, padding: compact ? 18 : 30, gap: compact ? 12 : 20, boxShadow: "0 32px 90px rgba(5,10,30,.34)" } as any}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}><Logo compact /><Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: C.sky, alignItems: "center", justifyContent: "center" }}><X size={20} color={C.navy} /></Pressable></View>
-        <View style={{ gap: 6 }}><Text style={{ color: C.ink, fontSize: compact ? 24 : 31, fontWeight: "900" }}>Continue on mobile</Text><Text style={{ color: C.muted, fontSize: 15, lineHeight: 22 }}>The KindredCube application is currently available for download on mobile devices only.</Text></View>
+        <View style={{ gap: 6 }}><Text selectable style={{ color: C.ink, fontSize: compact ? 24 : 31, fontWeight: "900" }}>Your journey to finding your kindred starts here.</Text><Text selectable style={{ color: C.muted, fontSize: 15, lineHeight: 22 }}>Shared values, real connection.</Text></View>
         <View style={{ flexDirection: compact ? "column" : "row", gap: 12 }}>
-          {option("Android", require("./assets/android.svg"), () => { window.location.href = "/downloads/kindredcube.apk"; }, "Download the Android app")}
-          {option("Apple", require("./assets/apple.svg"), () => { window.open("https://apps.apple.com/app/idYOUR_APP_ID", "_blank", "noopener,noreferrer"); }, "Open the Apple App Store")}
+          {option("New to KindredCube?", "Register", require("./assets/kindredcube-new-user.png"), "register")}
+          {option("Already on KindredCube?", "Sign In", require("./assets/kindredcube-returning-user.png"), "login")}
         </View>
       </View>
     </View>
   );
 }
 
-function MainWebApp() {
-  const [downloadsOpen, setDownloadsOpen] = useState(false);
+function MainWebApp({
+  startOnAccountChooser = false,
+  startAuthMode = null,
+}: {
+  startOnAccountChooser?: boolean;
+  startAuthMode?: "register" | "login" | null;
+}) {
+  const [chooserOpen, setChooserOpen] = useState(startOnAccountChooser);
+  const [authOpen, setAuthOpen] = useState(Boolean(startAuthMode));
+  const [authMode, setAuthMode] = useState<"login" | "register">(startAuthMode || "register");
+  const [user, setUser] = useState<AuthenticatedUser | null>(null);
+  const chooseMode = (mode: "login" | "register") => {
+    setAuthMode(mode);
+    setChooserOpen(false);
+    setAuthOpen(true);
+  };
+  const logout = () => logoutAccount().finally(() => setUser(null));
   return (
     <View style={{ flex: 1, minHeight: "100vh" } as any}>
       <StatusBar style="dark" />
-      <Landing onStart={() => setDownloadsOpen(true)} />
-      {downloadsOpen ? <DownloadChooser onClose={() => setDownloadsOpen(false)} /> : null}
+      {user ? <Dashboard user={user} onLogout={logout} /> : <Landing onStart={() => { window.location.href = "/sign-in-register"; }} />}
+      {chooserOpen && !user ? <AccountChooser onClose={() => setChooserOpen(false)} onSelect={chooseMode} /> : null}
+      {authOpen && !user ? <AuthPanel key={authMode} initialMode={authMode} onComplete={(next) => { setUser(next); setAuthOpen(false); }} onClose={() => setAuthOpen(false)} /> : null}
     </View>
   );
 }
@@ -1400,7 +1438,15 @@ function LegalPage({ slug, page }: { slug?: LegalContentPage["slug"]; page: (typ
 
 export default function App() {
   const browserPath = typeof window !== "undefined" ? window.location.pathname.replace(/\/+$/, "") || "/" : "/";
+  const authMode =
+    typeof window !== "undefined" && window.location.search.includes("auth=login")
+      ? "login"
+      : typeof window !== "undefined" && window.location.search.includes("auth=register")
+        ? "register"
+        : null;
   if (browserPath === "/tectavis") return <AdminPortal />;
+  if (browserPath === "/sign-in-register" || browserPath === "/download") return <MainWebApp startOnAccountChooser />;
+  if (authMode) return <MainWebApp startAuthMode={authMode} />;
   if (browserPath === "/privacy-policy") return <LegalPage slug="privacy" page={legalPages["/privacy"]} />;
   if (browserPath === "/about") return <AboutPage />;
   if (browserPath in legalPages) {
