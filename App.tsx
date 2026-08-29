@@ -20258,24 +20258,12 @@ function SignedInHome({
   }, [queueHomeCacheSave]);
   const refreshReadyToMeetPeople = useCallback(async () => {
     const result = await getReadyToMeetCandidates();
-    const profiles = result.candidates.map(discoveryCandidateToProfile);
-    let mergedProfiles = profiles;
-    setRealReadyToMeetPeople((current) => {
-      const next = new Map<string, Profile>();
-      profiles.forEach((profile) => {
-        const key = likeProfileKeyValue(profile);
-        if (key) next.set(key, profile);
-      });
-      current.forEach((profile) => {
-        const key = likeProfileKeyValue(profile);
-        if (!key || next.has(key) || !profileReadyToMeetIsActive(profile)) return;
-        next.set(key, profile);
-      });
-      mergedProfiles = Array.from(next.values());
-      return mergedProfiles;
-    });
-    warmProfileImageCache(mergedProfiles);
-    queueHomeCacheSave({ readyToMeetPeople: mergedProfiles });
+    const profiles = result.candidates
+      .map(discoveryCandidateToProfile)
+      .filter(profileReadyToMeetIsActive);
+    setRealReadyToMeetPeople(profiles);
+    warmProfileImageCache(profiles);
+    queueHomeCacheSave({ readyToMeetPeople: profiles });
   }, [queueHomeCacheSave]);
   const refreshPaymentState = useCallback(async () => {
     const summary = await getPaymentSummary();
@@ -20555,7 +20543,7 @@ function SignedInHome({
           if (readyMeetRefreshTimerRef.current) clearTimeout(readyMeetRefreshTimerRef.current);
           readyMeetRefreshTimerRef.current = setTimeout(() => {
             refreshReadyToMeetPeople().catch(() => undefined);
-          }, 900);
+          }, 350);
         };
         socket.on("ready-to-meet:presence", (update: { userId?: string; available?: boolean; availableAt?: string; expiresAt?: string; profile?: DiscoveryCandidate }) => {
           if (!active) return;
@@ -20577,8 +20565,8 @@ function SignedInHome({
               }
               return withoutProfile;
             });
+            scheduleReadyMeetRefresh();
           }
-          if (!update.available) scheduleReadyMeetRefresh();
         });
         socket.on("chat:message", (message: ChatMessage) => {
           if (!active) return;
