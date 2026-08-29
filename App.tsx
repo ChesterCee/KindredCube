@@ -2720,23 +2720,11 @@ function ProfileImage({
 }) {
   const photos = profilePhotoUris(profile);
   const [failedUri, setFailedUri] = useState("");
-  const [localUriByRemoteUri, setLocalUriByRemoteUri] = useState<Record<string, string>>({});
   const uri = photos.find((photoUri) => photoUri !== failedUri) || "";
-  const displayUri = localUriByRemoteUri[uri] || uri;
+  const displayUri = useCachedImageUri(uri);
   useEffect(() => {
     if (failedUri && !photos.includes(failedUri)) setFailedUri("");
   }, [failedUri, photos]);
-  useEffect(() => {
-    if (!uri || localUriByRemoteUri[uri]) return;
-    let active = true;
-    cacheRemoteImage(uri).then((localUri) => {
-      if (!active || !localUri || localUri === uri) return;
-      setLocalUriByRemoteUri((current) => ({ ...current, [uri]: localUri }));
-    }).catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [localUriByRemoteUri, uri]);
   if (uri) {
     return (
       <Image
@@ -4686,7 +4674,7 @@ function ProfileDetail({
                 style={{ width: 116, height: 136, borderRadius: 18, overflow: "hidden", borderWidth: 1, borderColor: C.line, backgroundColor: C.cream, position: "relative" }}
               >
                 {item.kind === "uri" ? (
-                  <Image source={cachedImageSource(String(item.value))} resizeMode="cover" style={{ width: 116, height: 136 }} />
+                  <CachedRemoteImage uri={String(item.value)} resizeMode="cover" style={{ width: 116, height: 136 }} />
                 ) : (
                   <Portrait index={Number(item.value)} size={136} />
                 )}
@@ -9189,8 +9177,8 @@ function ProfileHubScreen({
             }}
           >
             {profilePhotoUri ? (
-              <Image
-                source={{ uri: profilePhotoUri }}
+              <CachedRemoteImage
+                uri={profilePhotoUri}
                 resizeMode="cover"
                 style={{ width: 78, height: 78 }}
               />
@@ -17171,15 +17159,26 @@ function profilePrimaryPhotoUri(profile: Profile) {
 }
 
 function cachedImageSource(uri: string) {
-  return { uri: imageMemoryCache.get(uri) || uri, cache: "force-cache" as const };
+  const cleanUri = cleanMediaUri(uri);
+  return { uri: imageMemoryCache.get(cleanUri) || cleanUri, cache: "force-cache" as const };
 }
 
 const imageMemoryCache = new Map<string, string>();
 const imageDownloadPromises = new Map<string, Promise<string>>();
 
+function cachedImageExtension(uri: string) {
+  const cleanPath = cleanMediaUri(uri).split("?")[0]?.toLowerCase() || "";
+  if (cleanPath.endsWith(".png")) return "png";
+  if (cleanPath.endsWith(".webp")) return "webp";
+  if (cleanPath.endsWith(".gif")) return "gif";
+  if (cleanPath.endsWith(".jpeg")) return "jpg";
+  if (cleanPath.endsWith(".jpg")) return "jpg";
+  return "jpg";
+}
+
 function cachedImageFileUri(uri: string) {
   const hash = stableNumber(uri).toString(36);
-  return `${LegacyFileSystem.cacheDirectory || ""}kindredcube-media-${hash}.img`;
+  return `${LegacyFileSystem.cacheDirectory || ""}kindredcube-media-v2-${hash}.${cachedImageExtension(uri)}`;
 }
 
 async function cacheRemoteImage(uri: string) {
@@ -17230,6 +17229,56 @@ function warmImageCache(uris: unknown[]) {
 
 function warmProfileImageCache(profiles: Profile[]) {
   warmImageCache(profiles.flatMap(profilePhotoUris));
+}
+
+function useCachedImageUri(uri: string) {
+  const cleanUri = cleanMediaUri(uri);
+  const [resolvedUri, setResolvedUri] = useState(() => imageMemoryCache.get(cleanUri) || cleanUri);
+
+  useEffect(() => {
+    setResolvedUri(imageMemoryCache.get(cleanUri) || cleanUri);
+    if (!cleanUri) return;
+    let active = true;
+    cacheRemoteImage(cleanUri)
+      .then((localUri) => {
+        if (active && localUri) setResolvedUri(localUri);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [cleanUri]);
+
+  return resolvedUri;
+}
+
+function CachedRemoteImage({
+  uri,
+  style,
+  resizeMode = "cover",
+  blurRadius = 0,
+  accessibilityLabel,
+  onError,
+}: {
+  uri: string;
+  style: any;
+  resizeMode?: "cover" | "contain" | "stretch" | "repeat" | "center";
+  blurRadius?: number;
+  accessibilityLabel?: string;
+  onError?: () => void;
+}) {
+  const displayUri = useCachedImageUri(uri);
+  if (!displayUri) return null;
+  return (
+    <Image
+      accessibilityLabel={accessibilityLabel}
+      source={cachedImageSource(displayUri)}
+      resizeMode={resizeMode}
+      blurRadius={blurRadius}
+      onError={onError}
+      style={style}
+    />
+  );
 }
 
 function warmChatImageCache(messages: ChatMessageItem[]) {
@@ -17383,7 +17432,7 @@ function ProfilePhotoGallery({
             <View key={`${profile.name}-gallery-${photo.kind}-${photo.value}-${index}`} style={{ width, height: height - insets.top - insets.bottom - 90, alignItems: "center", justifyContent: "center" }}>
               <View style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120), overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#211E1A", position: "relative" }}>
                 {photo.kind === "uri" ? (
-                  <Image source={cachedImageSource(String(photo.value))} resizeMode="cover" style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120) }} />
+                  <CachedRemoteImage uri={String(photo.value)} resizeMode="cover" style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120) }} />
                 ) : (
                   <Portrait index={Number(photo.value)} size={width} />
                 )}
@@ -18218,7 +18267,7 @@ function ConnectExperienceDeck({
                   }}
                 >
                   {photo.kind === "uri" ? (
-                    <Image source={cachedImageSource(String(photo.value))} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
+                    <CachedRemoteImage uri={String(photo.value)} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
                   ) : (
                     <Portrait index={Number(photo.value) % 18} size={210} />
                   )}
@@ -20149,11 +20198,16 @@ function SignedInHome({
       normalizedPhotos
         .map((photo) => cleanMediaUri(photo?.uri))
         .find((uri) => uri.length > 0) || "";
-    setProfilePhotoUri(
+    const primaryProfilePhotoUri =
       typeof normalizedProfile.bestPhotoUri === "string" && normalizedProfile.bestPhotoUri.trim() ?
         resolveServerMediaUri(normalizedProfile.bestPhotoUri)
-        : firstSavedPhotoUri,
-    );
+        : firstSavedPhotoUri;
+    setProfilePhotoUri(primaryProfilePhotoUri);
+    warmImageCache([
+      primaryProfilePhotoUri,
+      typeof normalizedProfile.bestPhotoUri === "string" ? normalizedProfile.bestPhotoUri : "",
+      ...normalizedPhotos.map((photo) => photo?.uri),
+    ]);
     const recalculatedProfileStrength = calculateProfileStrengthValue(
       normalizedProfile,
       identityVerificationStatus,
@@ -21663,8 +21717,8 @@ function SignedInHome({
                     }}
                   >
                     {profilePhotoUri ? (
-                      <Image
-                        source={{ uri: profilePhotoUri }}
+                      <CachedRemoteImage
+                        uri={profilePhotoUri}
                         resizeMode="cover"
                         style={{ width: 30, height: 30 }}
                       />
