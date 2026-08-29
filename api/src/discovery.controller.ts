@@ -183,7 +183,6 @@ export class DiscoveryController {
           WHERE d.user_id <> $1
             AND d.visible = true
             AND u.status = 'active'
-            AND u.email_verified_at IS NOT NULL
             AND ps.settings_data #>> '{readyToMeetAvailability,available}' = 'true'
             AND ps.settings_data #>> '{readyToMeetAvailability,availableAt}' ~ '^\\d{4}-\\d{2}-\\d{2}T'
             AND ps.settings_data #>> '{readyToMeetAvailability,expiresAt}' ~ '^\\d{4}-\\d{2}-\\d{2}T'
@@ -205,7 +204,6 @@ export class DiscoveryController {
           const distanceKm = areaDistance(viewer, candidate);
           return { candidate, age, distanceKm };
         })
-        .filter(({ distanceKm }) => distanceKm === undefined || distanceKm <= 48.3)
         .map(({ candidate, age, distanceKm }) => candidateToResponse(candidate, age, distanceKm, apiOrigin(request)));
       return { candidates };
     });

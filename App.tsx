@@ -15058,7 +15058,8 @@ function ReadyToMeetFeature({
   const [paywall, setPaywall] = useState(false);
   const [unlockingChat, setUnlockingChat] = useState(false);
   const [readyMeetFilterOpen, setReadyMeetFilterOpen] = useState(false);
-  const [readyMeetDistanceMiles, setReadyMeetDistanceMiles] = useState<10 | 15 | 20 | 30 | 50>(30);
+  const [readyMeetDistanceMiles, setReadyMeetDistanceMiles] = useState<10 | 15 | 20 | 30 | 50>(50);
+  const [readyMeetDistanceFilterActive, setReadyMeetDistanceFilterActive] = useState(false);
   const [readyMeetGenderFilter, setReadyMeetGenderFilter] = useState<"all" | "men" | "women">("all");
   const [availableToMeet, setAvailableToMeet] = useState(false);
   const [availabilitySaved, setAvailabilitySaved] = useState(false);
@@ -15189,7 +15190,7 @@ function ReadyToMeetFeature({
       if (currentUserReadyProfile && (profile.id || profile.name) === (currentUserReadyProfile.id || currentUserReadyProfile.name)) return false;
       if (!readyGenderAllowed(profile)) return false;
       const distanceKm = profile.discovery?.distanceKm;
-      return typeof distanceKm !== "number" || distanceKm <= distanceLimitKm;
+      return !readyMeetDistanceFilterActive || typeof distanceKm !== "number" || distanceKm <= distanceLimitKm;
     }),
   ];
   const readyPeopleTotal = readyPeople.length;
@@ -15377,7 +15378,10 @@ function ReadyToMeetFeature({
                         key={miles}
                         accessibilityRole="button"
                         accessibilityState={{ selected: activeDistance }}
-                        onPress={() => setReadyMeetDistanceMiles(miles)}
+                        onPress={() => {
+                          setReadyMeetDistanceMiles(miles);
+                          setReadyMeetDistanceFilterActive(true);
+                        }}
                         style={{ minHeight: 34, borderRadius: 17, backgroundColor: activeDistance ? "#1685E5" : "#0B1020", borderWidth: 1, borderColor: activeDistance ? "#60A8F1" : "rgba(255,255,255,0.14)", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" }}
                       >
                         <Text style={{ color: C.paper, fontSize: 12, fontWeight: "900" }}>{miles} mi</Text>
