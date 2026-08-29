@@ -15135,6 +15135,10 @@ function ReadyToMeetFeature({
   useEffect(() => {
     if (!expanded) return;
     onRefreshPeople?.();
+    const timer = setInterval(() => {
+      onRefreshPeople?.();
+    }, 5_000);
+    return () => clearInterval(timer);
   }, [expanded, onRefreshPeople]);
   useEffect(() => {
     if (!expanded || coordinates) return;
@@ -20587,28 +20591,11 @@ function SignedInHome({
             refreshReadyToMeetPeople().catch(() => undefined);
           }, 350);
         };
+        socket.on("connect", scheduleReadyMeetRefresh);
+        socket.on("chat:ready", scheduleReadyMeetRefresh);
         socket.on("ready-to-meet:presence", (update: { userId?: string; available?: boolean; availableAt?: string; expiresAt?: string; profile?: DiscoveryCandidate }) => {
           if (!active) return;
-          if (update.userId && update.userId !== initialUser.id) {
-            setRealReadyToMeetPeople((current) => {
-              const withoutProfile = current.filter((profile) => profile.id !== update.userId);
-              if (update.available && update.profile) {
-                const readyProfile = discoveryCandidateToProfile({
-                  ...update.profile,
-                  matching: {
-                    ...(update.profile.matching || {}),
-                    readyToMeet: true,
-                    readyToMeetAt: update.availableAt || update.profile.matching?.readyToMeetAt,
-                    readyToMeetExpiresAt: update.expiresAt || update.profile.matching?.readyToMeetExpiresAt,
-                  },
-                });
-                warmProfileImageCache([readyProfile]);
-                return [readyProfile, ...withoutProfile];
-              }
-              return withoutProfile;
-            });
-            scheduleReadyMeetRefresh();
-          }
+          scheduleReadyMeetRefresh();
         });
         socket.on("chat:message", (message: ChatMessage) => {
           if (!active) return;
