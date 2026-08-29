@@ -128,11 +128,15 @@ export class ChatService {
   async listConversations(userId: string) {
     return this.database.withUser(userId, async (client) => {
       const result = await client.query<ChatConversationRow>(
-        `WITH message_pairs AS (
+         `WITH message_pairs AS (
            SELECT CASE WHEN sender_id = $1 THEN recipient_id ELSE sender_id END AS other_user_id,
                   created_at AS last_message_at
              FROM chat_messages
             WHERE (sender_id = $1 OR recipient_id = $1)
+              AND (
+                (sender_id = $1 AND deleted_for_sender_at IS NULL)
+                OR (recipient_id = $1 AND deleted_for_recipient_at IS NULL)
+              )
               AND created_at >= now() - interval '3 months'
          ),
          active_matches AS (
@@ -166,7 +170,7 @@ export class ChatService {
                SELECT other_user_id, last_message_at FROM active_matches
              ) conversations
             WHERE last_message_at >= now() - interval '3 months'
-            ORDER BY other_user_id, last_message_at DESC
+           ORDER BY other_user_id, last_message_at DESC
          )
          SELECT latest.other_user_id,
                 latest.last_message_at,
@@ -204,9 +208,13 @@ export class ChatService {
               ORDER BY cm.created_at DESC
               LIMIT 1
            ) last_message ON true
+          LEFT JOIN hidden_chat_conversations hidden
+            ON hidden.user_id = $1
+           AND hidden.other_user_id = latest.other_user_id
           WHERE u.status = 'active'
             AND u.email_verified_at IS NOT NULL
             AND d.visible = true
+            AND (hidden.hidden_at IS NULL OR latest.last_message_at > hidden.hidden_at)
             AND NOT EXISTS (
               SELECT 1 FROM user_blocks b
                WHERE (b.blocker_id = $1 AND b.blocked_profile_id = latest.other_user_id::text)
@@ -360,6 +368,28 @@ export class ChatService {
         [messageId, userId],
       );
       if (!result.rowCount) throw new ForbiddenException("This message cannot be deleted.");
+      return { deleted: true };
+    });
+  }
+
+  async deleteConversationForMe(userId: string, otherUserId: string) {
+    if (!isUuid(otherUserId) || otherUserId === userId) throw new BadRequestException("A valid chat member is required.");
+    return this.database.withUser(userId, async (client) => {
+      await client.query(
+        `INSERT INTO hidden_chat_conversations (user_id, other_user_id, hidden_at)
+         VALUES ($1, $2, now())
+         ON CONFLICT (user_id, other_user_id)
+         DO UPDATE SET hidden_at = EXCLUDED.hidden_at`,
+        [userId, otherUserId],
+      );
+      await client.query(
+        `UPDATE chat_messages
+            SET deleted_for_sender_at = CASE WHEN sender_id = $1 AND recipient_id = $2 THEN COALESCE(deleted_for_sender_at, now()) ELSE deleted_for_sender_at END,
+                deleted_for_recipient_at = CASE WHEN recipient_id = $1 AND sender_id = $2 THEN COALESCE(deleted_for_recipient_at, now()) ELSE deleted_for_recipient_at END
+          WHERE (sender_id = $1 AND recipient_id = $2)
+             OR (sender_id = $2 AND recipient_id = $1)`,
+        [userId, otherUserId],
+      );
       return { deleted: true };
     });
   }

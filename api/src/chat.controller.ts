@@ -44,6 +44,11 @@ export class ChatController {
     return this.chats.listMessages(request.user.id, profileId);
   }
 
+  @Delete(":profileId")
+  deleteConversationForMe(@Req() request: AuthenticatedRequest, @Param("profileId") profileId: string) {
+    return this.chats.deleteConversationForMe(request.user.id, profileId);
+  }
+
   @Post("messages")
   async send(@Req() request: AuthenticatedRequest, @Body() input: SendChatMessageDto) {
     const message = await this.chats.sendMessage(request.user.id, input.recipientId, input.kind, input.payload);

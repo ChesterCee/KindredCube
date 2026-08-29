@@ -1086,6 +1086,14 @@ export function deleteChatMessageForMe(messageId: string) {
   );
 }
 
+export function deleteChatConversationForMe(profileId: string) {
+  return request<{ deleted: true }>(
+    `/v1/chats/${encodeURIComponent(profileId)}`,
+    { method: "DELETE" },
+    true,
+  );
+}
+
 export function submitPostMeetCheck(input: {
   otherUserId: string;
   meetingStartedAt: string;

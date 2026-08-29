@@ -103,6 +103,7 @@ import {
   searchMapPlaces,
   searchGifs,
   saveReadyToMeetAvailability,
+  deleteChatConversationForMe,
   deleteChatMessageForMe,
   editChatMessage,
   reactToChatMessage,
@@ -152,6 +153,7 @@ import {
 } from "react-native-safe-area-context";
 import {
   Animated,
+  Alert,
   AppState,
   Image,
   Keyboard,
@@ -1093,6 +1095,8 @@ function isLocalOnlyMediaUri(uri: string) {
 function resolveServerMediaUri(uri: string) {
   const trimmed = uri.trim();
   if (!trimmed) return "";
+  const mediaPath = trimmed.match(/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}(?:\?[^#\s]*)?/i)?.[0];
+  if (mediaPath) return PUBLIC_API_URL ? `${PUBLIC_API_URL}${mediaPath}` : mediaPath;
   if (trimmed.startsWith("/v1/")) return PUBLIC_API_URL ? `${PUBLIC_API_URL}${trimmed}` : trimmed;
   return trimmed;
 }
@@ -5418,6 +5422,7 @@ function MessagesScreen({
   currentUserId,
   activeMemberChat,
   onOpenMemberChat,
+  onDeleteMemberChat,
   onProfilePress,
   onCloseMemberChat,
   onBlockMember,
@@ -5445,6 +5450,7 @@ function MessagesScreen({
   currentUserId?: string;
   activeMemberChat: Profile | null;
   onOpenMemberChat: (profile: Profile) => void;
+  onDeleteMemberChat: (profile: Profile) => Promise<void>;
   onProfilePress?: (profile: Profile) => void;
   onCloseMemberChat: () => void;
   onBlockMember: (profile: Profile, reason?: MemberReportReason, details?: string) => void;
@@ -5580,6 +5586,25 @@ function MessagesScreen({
           key={chatProfile.id || chatProfile.name}
           accessibilityLabel={`Open chat with ${chatProfile.name}`}
           onPress={() => onOpenMemberChat(chatProfile)}
+          onLongPress={() => {
+            Alert.alert(
+              "Delete chat?",
+              `Remove your chat with ${chatProfile.name} from this phone and your chat list?`,
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Delete",
+                  style: "destructive",
+                  onPress: () => {
+                    onDeleteMemberChat(chatProfile).catch(() => {
+                      Alert.alert("Could not delete chat", "Please try again.");
+                    });
+                  },
+                },
+              ],
+            );
+          }}
+          delayLongPress={420}
           style={{ minHeight: 82, borderRadius: 22, backgroundColor: unread ? "#FFF7DF" : C.paper, borderWidth: 1.5, borderColor: unread ? "#F0A000" : C.line, padding: 13, flexDirection: "row", alignItems: "center", gap: 12 }}
         >
           <View style={{ width: 56, height: 56, borderRadius: 28, overflow: "hidden", borderWidth: unread ? 3 : 2, borderColor: unread ? "#F0A000" : C.pink }}>
@@ -17197,9 +17222,12 @@ async function cacheRemoteImage(uri: string) {
   const download = (async () => {
     const fileUri = cachedImageFileUri(cleanUri);
     const info = await LegacyFileSystem.getInfoAsync(fileUri).catch(() => null);
-    if (info?.exists) {
+    if (info?.exists && (!("size" in info) || typeof info.size !== "number" || info.size > 0)) {
       imageMemoryCache.set(cleanUri, fileUri);
       return fileUri;
+    }
+    if (info?.exists) {
+      await LegacyFileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => undefined);
     }
     await LegacyFileSystem.downloadAsync(cleanUri, fileUri);
     imageMemoryCache.set(cleanUri, fileUri);
@@ -20485,6 +20513,20 @@ function SignedInHome({
     setTab("chats");
     setFilterOpen(false);
   }, [memberChats]);
+  const deleteMemberChat = useCallback(async (profile: Profile) => {
+    const profileId = profile.id;
+    if (!profileId) return;
+    await deleteChatConversationForMe(profileId);
+    const key = likeProfileKey(profile);
+    setMemberChats((current) => {
+      const next = current.filter((item) => likeProfileKey(item) !== key);
+      queueHomeCacheSave({ memberChats: next, memberChat: next[0] || null });
+      return next;
+    });
+    setUnreadChatIds((current) => current.filter((item) => item !== key && item !== profileId));
+    setMemberChat((current) => current && likeProfileKey(current) === key ? null : current);
+    setActiveMemberChat((current) => current && likeProfileKey(current) === key ? null : current);
+  }, [queueHomeCacheSave]);
   const findKnownChatProfile = useCallback((profileId: string) => {
     const incomingProfile = incomingLikesRef.current
       .map((like) => discoveryCandidateToProfile(like.profile))
@@ -21289,6 +21331,7 @@ function SignedInHome({
       currentUserId={initialUser?.id}
       activeMemberChat={activeMemberChat}
       onOpenMemberChat={(profile) => openMemberChat(profile)}
+      onDeleteMemberChat={deleteMemberChat}
       onProfilePress={(profile) => {
         setSelectedMemberProfile(profile);
         setTab("chats");
