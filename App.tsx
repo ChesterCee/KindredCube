@@ -17234,6 +17234,30 @@ function warmProfileImageCache(profiles: Profile[]) {
   warmImageCache(profiles.flatMap(profilePhotoUris).map(thumbnailMediaUri));
 }
 
+async function preloadCriticalProfileImages(uris: unknown[], maxWaitMs = 6_000) {
+  const criticalUris = [
+    ...new Set(
+      uris
+        .map(cleanMediaUri)
+        .filter((uri): uri is string => uri.length > 0 && /^https?:\/\//i.test(uri))
+        .map(thumbnailMediaUri),
+    ),
+  ].slice(0, 40);
+  if (!criticalUris.length) return;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<void>((resolve) => {
+    timeout = setTimeout(resolve, maxWaitMs);
+  });
+  const preloadPromise = Promise.allSettled(
+    criticalUris.map(async (uri) => {
+      const cachedUri = await cacheRemoteImage(uri);
+      if (cachedUri === uri) await Image.prefetch(uri).catch(() => false);
+    }),
+  ).then(() => undefined);
+  await Promise.race([preloadPromise, timeoutPromise]);
+  if (timeout) clearTimeout(timeout);
+}
+
 function useCachedImageUri(uri: string) {
   const cleanUri = cleanMediaUri(uri);
   const [resolvedUri, setResolvedUri] = useState(() => imageMemoryCache.get(cleanUri) || cleanUri);
@@ -20100,6 +20124,7 @@ function SignedInHome({
     {},
   );
   const [privateSpaceLoaded, setPrivateSpaceLoaded] = useState(false);
+  const [startupMediaReady, setStartupMediaReady] = useState(false);
   const [privateSpaceLoadError, setPrivateSpaceLoadError] = useState("");
   const [privateSpaceReloadKey, setPrivateSpaceReloadKey] = useState(0);
   const [identityVerificationStatus, setIdentityVerificationStatus] = useState<IdentityVerificationStatus>("not_started");
@@ -20154,6 +20179,7 @@ function SignedInHome({
   const realDiscoveryPeopleRef = useRef<Profile[]>([]);
   const realReadyToMeetPeopleRef = useRef<Profile[]>([]);
   const homeCacheRef = useRef<Partial<HomeStartupCache>>({});
+  const startupMediaUserRef = useRef("");
   const homeCacheSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   incomingLikesRef.current = incomingLikes;
   memberChatRef.current = memberChat;
@@ -20273,6 +20299,7 @@ function SignedInHome({
     setRealDiscoveryPeople(profiles);
     warmProfileImageCache(profiles);
     queueHomeCacheSave({ discoveryPeople: profiles });
+    return profiles;
   }, [queueHomeCacheSave]);
   const refreshReadyToMeetPeople = useCallback(async () => {
     const result = await getReadyToMeetCandidates();
@@ -20282,6 +20309,7 @@ function SignedInHome({
     setRealReadyToMeetPeople(profiles);
     warmProfileImageCache(profiles);
     queueHomeCacheSave({ readyToMeetPeople: profiles });
+    return profiles;
   }, [queueHomeCacheSave]);
   const refreshPaymentState = useCallback(async () => {
     const summary = await getPaymentSummary();
@@ -20875,11 +20903,57 @@ function SignedInHome({
   }, [applyPrivateSpaceSnapshot, initialUser?.id, privateSpaceReloadKey, queueHomeCacheSave]);
   useEffect(() => {
     if (!privateSpaceLoaded) return;
-    refreshDiscoveryPeople().catch(() => setRealDiscoveryPeople([]));
-    refreshReadyToMeetPeople().catch(() => undefined);
-    refreshIncomingLikes().catch(() => undefined);
-    refreshChatConversations().catch(() => undefined);
-  }, [privateSpaceLoaded, refreshChatConversations, refreshDiscoveryPeople, refreshIncomingLikes, refreshReadyToMeetPeople]);
+    const userId = initialUser?.id || "member";
+    if (startupMediaUserRef.current === userId) return;
+    startupMediaUserRef.current = userId;
+    setStartupMediaReady(false);
+    let active = true;
+    const startupSafetyTimer = setTimeout(() => {
+      if (active) setStartupMediaReady(true);
+    }, 8_000);
+    void (async () => {
+      const [discoveryProfiles, readyProfiles, likes, chatProfiles] = await Promise.all([
+        refreshDiscoveryPeople().catch(() => {
+          setRealDiscoveryPeople([]);
+          return [] as Profile[];
+        }),
+        refreshReadyToMeetPeople().catch(() => [] as Profile[]),
+        refreshIncomingLikes().catch(() => [] as IncomingLike[]),
+        refreshChatConversations().catch(() => [] as Profile[]),
+      ]);
+      if (!active) return;
+      const privatePhotos = Array.isArray(privateProfileRef.current.photos)
+        ? (privateProfileRef.current.photos as Array<{ uri?: unknown }>).map((photo) => photo?.uri)
+        : [];
+      const ownBestPhoto = typeof privateProfileRef.current.bestPhotoUri === "string"
+        ? privateProfileRef.current.bestPhotoUri
+        : "";
+      const likedProfilesForPreload = likes
+        .slice(0, 8)
+        .map((like) => discoveryCandidateToProfile(like.profile));
+      await preloadCriticalProfileImages([
+        ownBestPhoto,
+        ...privatePhotos,
+        ...chatProfiles.slice(0, 12).flatMap(profilePhotoUris),
+        ...readyProfiles.slice(0, 8).flatMap(profilePhotoUris),
+        ...discoveryProfiles.slice(0, 8).flatMap(profilePhotoUris),
+        ...likedProfilesForPreload.flatMap(profilePhotoUris),
+      ]);
+      if (active) {
+        clearTimeout(startupSafetyTimer);
+        setStartupMediaReady(true);
+      }
+    })().catch(() => {
+      if (active) {
+        clearTimeout(startupSafetyTimer);
+        setStartupMediaReady(true);
+      }
+    });
+    return () => {
+      active = false;
+      clearTimeout(startupSafetyTimer);
+    };
+  }, [initialUser?.id, privateSpaceLoaded, refreshChatConversations, refreshDiscoveryPeople, refreshIncomingLikes, refreshReadyToMeetPeople]);
   useEffect(() => {
     if (!privateSpaceLoaded) return;
     const timer = setInterval(() => {
@@ -21093,11 +21167,11 @@ function SignedInHome({
       if (amaraReadSaveRef.current === save) amaraReadSaveRef.current = null;
     });
   }, []);
-  if (!privateSpaceLoaded) {
+  if (!privateSpaceLoaded || !startupMediaReady) {
     return (
       <WelcomeLoadingScreen
-        title="Loading your saved profile"
-        message="Restoring your photos and profile information…"
+        title={privateSpaceLoaded ? "Preparing your photos" : "Loading your saved profile"}
+        message={privateSpaceLoaded ? "Loading your conversations and nearby profiles…" : "Restoring your photos and profile information…"}
         error={privateSpaceLoadError}
         onRetry={() => setPrivateSpaceReloadKey((value) => value + 1)}
       />
@@ -21240,7 +21314,9 @@ function SignedInHome({
           privateSettings.readyToMeetAvailability as { available?: boolean; availableAt?: string; expiresAt?: string }
           : undefined
       }
-      onRefreshReadyToMeetPeople={refreshReadyToMeetPeople}
+      onRefreshReadyToMeetPeople={async () => {
+        await refreshReadyToMeetPeople();
+      }}
       onReadyToMeetAvailabilitySave={async (availability) => {
         const saved = await saveReadyToMeetAvailability(availability);
         privateProfileRef.current = saved.profile;
