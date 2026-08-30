@@ -2694,14 +2694,13 @@ function ProfileImage({
   const photos = profilePhotoUris(profile);
   const [failedUri, setFailedUri] = useState("");
   const uri = photos.find((photoUri) => photoUri !== failedUri) || "";
-  const displayUri = useCachedImageUri(thumbnailMediaUri(uri));
   useEffect(() => {
     if (failedUri && !photos.includes(failedUri)) setFailedUri("");
   }, [failedUri, photos]);
   if (uri) {
     return (
-      <Image
-        source={cachedImageSource(displayUri)}
+      <CachedRemoteImage
+        uri={uri}
         resizeMode="cover"
         blurRadius={blurred ? 64 : 0}
         onError={() => setFailedUri(uri)}
@@ -17163,11 +17162,6 @@ function thumbnailMediaUri(uri: string) {
   return `${cleanUri}${separator}thumb=1`;
 }
 
-function cachedImageSource(uri: string) {
-  const cleanUri = cleanMediaUri(uri);
-  return { uri: imageMemoryCache.get(cleanUri) || cleanUri, cache: "force-cache" as const };
-}
-
 const imageMemoryCache = new Map<string, string>();
 const imageDownloadPromises = new Map<string, Promise<string>>();
 
@@ -17242,10 +17236,10 @@ function warmProfileImageCache(profiles: Profile[]) {
 
 function useCachedImageUri(uri: string) {
   const cleanUri = cleanMediaUri(uri);
-  const [resolvedUri, setResolvedUri] = useState(cleanUri);
+  const [resolvedUri, setResolvedUri] = useState(() => imageMemoryCache.get(cleanUri) || cleanUri);
 
   useEffect(() => {
-    setResolvedUri(cleanUri);
+    setResolvedUri(imageMemoryCache.get(cleanUri) || cleanUri);
     if (!cleanUri) return;
     let active = true;
     cacheRemoteImage(cleanUri)
