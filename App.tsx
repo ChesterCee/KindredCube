@@ -20179,7 +20179,6 @@ function SignedInHome({
   const realDiscoveryPeopleRef = useRef<Profile[]>([]);
   const realReadyToMeetPeopleRef = useRef<Profile[]>([]);
   const homeCacheRef = useRef<Partial<HomeStartupCache>>({});
-  const startupMediaUserRef = useRef("");
   const homeCacheSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   incomingLikesRef.current = incomingLikes;
   memberChatRef.current = memberChat;
@@ -20903,9 +20902,6 @@ function SignedInHome({
   }, [applyPrivateSpaceSnapshot, initialUser?.id, privateSpaceReloadKey, queueHomeCacheSave]);
   useEffect(() => {
     if (!privateSpaceLoaded) return;
-    const userId = initialUser?.id || "member";
-    if (startupMediaUserRef.current === userId) return;
-    startupMediaUserRef.current = userId;
     setStartupMediaReady(false);
     let active = true;
     const startupSafetyTimer = setTimeout(() => {
@@ -20953,7 +20949,7 @@ function SignedInHome({
       active = false;
       clearTimeout(startupSafetyTimer);
     };
-  }, [initialUser?.id, privateSpaceLoaded, refreshChatConversations, refreshDiscoveryPeople, refreshIncomingLikes, refreshReadyToMeetPeople]);
+  }, [initialUser?.id, privateSpaceLoaded]);
   useEffect(() => {
     if (!privateSpaceLoaded) return;
     const timer = setInterval(() => {
