@@ -9,9 +9,17 @@ async function main() {
   const pool = new Pool({ connectionString });
   try {
     const migrationDirectory = join(process.cwd(), "migrations");
-    const migrations = (await readdir(migrationDirectory))
+    const availableMigrations = (await readdir(migrationDirectory))
       .filter((file) => file.endsWith(".sql"))
       .sort();
+    const requestedMigrations = process.argv.slice(2).map((file) => file.trim()).filter(Boolean);
+    const migrations = requestedMigrations.length
+      ? requestedMigrations
+      : availableMigrations;
+    const missingMigrations = migrations.filter((file) => !availableMigrations.includes(file));
+    if (missingMigrations.length) {
+      throw new Error(`Migration file not found: ${missingMigrations.join(", ")}`);
+    }
     for (const migration of migrations) {
       const sql = await readFile(join(migrationDirectory, migration), "utf8");
       await pool.query(sql);
