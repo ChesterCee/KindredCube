@@ -17225,13 +17225,17 @@ function warmImageCache(uris: unknown[]) {
   ]
     .slice(0, 80)
     .forEach((uri) => {
-      cacheRemoteImage(uri).catch(() => undefined);
-      Image.prefetch(uri).catch(() => undefined);
+      cacheRemoteImage(uri)
+        .then((cachedUri) => {
+          if (cachedUri === uri) return Image.prefetch(uri).catch(() => false);
+          return true;
+        })
+        .catch(() => undefined);
     });
 }
 
 function warmProfileImageCache(profiles: Profile[]) {
-  warmImageCache(profiles.flatMap(profilePhotoUris).map(thumbnailMediaUri));
+  warmImageCache(profiles.map(profilePrimaryPhotoUri).map(thumbnailMediaUri));
 }
 
 async function preloadCriticalProfileImages(uris: unknown[], maxWaitMs = 6_000) {
@@ -20930,10 +20934,10 @@ function SignedInHome({
       await preloadCriticalProfileImages([
         ownBestPhoto,
         ...privatePhotos,
-        ...chatProfiles.slice(0, 12).flatMap(profilePhotoUris),
-        ...readyProfiles.slice(0, 8).flatMap(profilePhotoUris),
-        ...discoveryProfiles.slice(0, 8).flatMap(profilePhotoUris),
-        ...likedProfilesForPreload.flatMap(profilePhotoUris),
+        ...chatProfiles.slice(0, 12).map(profilePrimaryPhotoUri),
+        ...readyProfiles.slice(0, 8).map(profilePrimaryPhotoUri),
+        ...discoveryProfiles.slice(0, 8).map(profilePrimaryPhotoUri),
+        ...likedProfilesForPreload.map(profilePrimaryPhotoUri),
       ]);
       if (active) {
         clearTimeout(startupSafetyTimer);
