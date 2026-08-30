@@ -174,6 +174,10 @@ import {
 const BRAND_FONT = Platform.select({ ios: "AvenirNext-DemiBold", android: "sans-serif-medium", default: "sans-serif" });
 const APP_FONT = Platform.select({ ios: "Avenir Next", android: "sans-serif", default: "sans-serif" });
 
+function countWords(value: string) {
+  return value.trim() ? value.trim().split(/\s+/u).length : 0;
+}
+
 WebBrowser.maybeCompleteAuthSession();
 
 const LOCATION_PERMISSION_ASKED_KEY = "kindredcube.locationPermissionAsked";
@@ -11206,7 +11210,9 @@ function EditableProfileScreen({
         {bioEditing ? <><TextInput
           multiline
           value={bioDraft}
-          onChangeText={setBioDraft}
+          onChangeText={(value) => {
+            if (countWords(value) <= 200) setBioDraft(value);
+          }}
           placeholder="Tell people about yourself..."
           placeholderTextColor="#948A7F"
           style={{
@@ -11221,6 +11227,9 @@ function EditableProfileScreen({
             lineHeight: 20,
           }}
         />
+        <Text selectable style={{ color: countWords(bioDraft) >= 200 ? C.clay : C.muted, fontSize: 11, textAlign: "right" }}>
+          {countWords(bioDraft)} / 200 words
+        </Text>
         <Button
           compact
           label="Save bio"

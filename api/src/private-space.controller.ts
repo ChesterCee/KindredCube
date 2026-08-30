@@ -445,6 +445,16 @@ function validatePrivatePayload(input: UpdatePrivateSpaceDto) {
   if (Array.isArray(input.profile.photos) && input.profile.photos.length > 9) {
     throw new BadRequestException("A profile can contain at most 9 photos.");
   }
+  if (input.profile.bio !== undefined && typeof input.profile.bio !== "string") {
+    throw new BadRequestException("Bio must be text.");
+  }
+  if (typeof input.profile.bio === "string" && countWords(input.profile.bio) > 200) {
+    throw new BadRequestException("Bio can contain at most 200 words.");
+  }
+}
+
+function countWords(value: string) {
+  return value.trim() ? value.trim().split(/\s+/u).length : 0;
 }
 
 function inspectJson(value: unknown, depth: number) {
