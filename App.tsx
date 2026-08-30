@@ -17156,6 +17156,13 @@ function profilePrimaryPhotoUri(profile: Profile) {
   return profilePhotoUris(profile)[0] || "";
 }
 
+function thumbnailMediaUri(uri: string) {
+  const cleanUri = cleanMediaUri(uri);
+  if (!/\/v1\/me\/private-space\/media\/profile-photo\/[0-9a-f-]{36}/i.test(cleanUri)) return cleanUri;
+  const separator = cleanUri.includes("?") ? "&" : "?";
+  return `${cleanUri}${separator}thumb=1`;
+}
+
 function cachedImageSource(uri: string) {
   const cleanUri = cleanMediaUri(uri);
   return { uri: imageMemoryCache.get(cleanUri) || cleanUri, cache: "force-cache" as const };
@@ -17166,6 +17173,7 @@ const imageDownloadPromises = new Map<string, Promise<string>>();
 
 function cachedImageExtension(uri: string) {
   const cleanPath = cleanMediaUri(uri).split("?")[0]?.toLowerCase() || "";
+  if (/[?&]thumb=1(?:&|$)/i.test(cleanMediaUri(uri))) return "webp";
   if (cleanPath.endsWith(".png")) return "png";
   if (cleanPath.endsWith(".webp")) return "webp";
   if (cleanPath.endsWith(".gif")) return "gif";
@@ -17229,15 +17237,15 @@ function warmImageCache(uris: unknown[]) {
 }
 
 function warmProfileImageCache(profiles: Profile[]) {
-  warmImageCache(profiles.flatMap(profilePhotoUris));
+  warmImageCache(profiles.flatMap(profilePhotoUris).map(thumbnailMediaUri));
 }
 
 function useCachedImageUri(uri: string) {
   const cleanUri = cleanMediaUri(uri);
-  const [resolvedUri, setResolvedUri] = useState(() => imageMemoryCache.get(cleanUri) || cleanUri);
+  const [resolvedUri, setResolvedUri] = useState(cleanUri);
 
   useEffect(() => {
-    setResolvedUri(imageMemoryCache.get(cleanUri) || cleanUri);
+    setResolvedUri(cleanUri);
     if (!cleanUri) return;
     let active = true;
     cacheRemoteImage(cleanUri)
@@ -17260,6 +17268,7 @@ function CachedRemoteImage({
   blurRadius = 0,
   accessibilityLabel,
   onError,
+  preferThumbnail = true,
 }: {
   uri: string;
   style: any;
@@ -17267,16 +17276,30 @@ function CachedRemoteImage({
   blurRadius?: number;
   accessibilityLabel?: string;
   onError?: () => void;
+  preferThumbnail?: boolean;
 }) {
-  const displayUri = useCachedImageUri(uri);
+  const remoteUri = preferThumbnail ? thumbnailMediaUri(uri) : cleanMediaUri(uri);
+  const displayUri = useCachedImageUri(remoteUri);
+  const [forceRemoteUri, setForceRemoteUri] = useState(false);
+  useEffect(() => {
+    setForceRemoteUri(false);
+  }, [remoteUri]);
+  const imageUri = forceRemoteUri ? remoteUri : displayUri;
   if (!displayUri) return null;
   return (
     <Image
       accessibilityLabel={accessibilityLabel}
-      source={cachedImageSource(displayUri)}
+      source={{ uri: imageUri, cache: "force-cache" }}
       resizeMode={resizeMode}
       blurRadius={blurRadius}
-      onError={onError}
+      onError={() => {
+        if (!forceRemoteUri && imageUri !== remoteUri) {
+          imageMemoryCache.delete(remoteUri);
+          setForceRemoteUri(true);
+          return;
+        }
+        onError?.();
+      }}
       style={style}
     />
   );
@@ -17433,7 +17456,7 @@ function ProfilePhotoGallery({
             <View key={`${profile.name}-gallery-${photo.kind}-${photo.value}-${index}`} style={{ width, height: height - insets.top - insets.bottom - 90, alignItems: "center", justifyContent: "center" }}>
               <View style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120), overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#211E1A", position: "relative" }}>
                 {photo.kind === "uri" ? (
-                  <CachedRemoteImage uri={String(photo.value)} resizeMode="cover" style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120) }} />
+                  <CachedRemoteImage uri={String(photo.value)} resizeMode="cover" preferThumbnail={false} style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120) }} />
                 ) : (
                   <Portrait index={Number(photo.value)} size={width} />
                 )}
@@ -20208,7 +20231,7 @@ function SignedInHome({
       primaryProfilePhotoUri,
       typeof normalizedProfile.bestPhotoUri === "string" ? normalizedProfile.bestPhotoUri : "",
       ...normalizedPhotos.map((photo) => photo?.uri),
-    ]);
+    ].map(cleanMediaUri).filter((uri): uri is string => uri.length > 0).map(thumbnailMediaUri));
     const recalculatedProfileStrength = calculateProfileStrengthValue(
       normalizedProfile,
       identityVerificationStatus,

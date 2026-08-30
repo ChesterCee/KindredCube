@@ -6,6 +6,15 @@ ALTER TABLE profile_media ENABLE ROW LEVEL SECURITY;
 ALTER TABLE profile_media FORCE ROW LEVEL SECURITY;
 
 ALTER TABLE profile_media
+  ADD COLUMN IF NOT EXISTS thumbnail_mime_type text;
+
+ALTER TABLE profile_media
+  ADD COLUMN IF NOT EXISTS thumbnail_size_bytes integer;
+
+ALTER TABLE profile_media
+  ADD COLUMN IF NOT EXISTS thumbnail_data bytea;
+
+ALTER TABLE profile_media
   DROP CONSTRAINT IF EXISTS profile_media_media_type_check;
 
 ALTER TABLE profile_media
@@ -40,6 +49,16 @@ ALTER TABLE profile_media
 ALTER TABLE profile_media
   ADD CONSTRAINT profile_media_size_bytes_check
   CHECK (size_bytes > 0 AND size_bytes <= 52428800);
+
+ALTER TABLE profile_media
+  DROP CONSTRAINT IF EXISTS profile_media_thumbnail_size_bytes_check;
+
+ALTER TABLE profile_media
+  ADD CONSTRAINT profile_media_thumbnail_size_bytes_check
+  CHECK (
+    thumbnail_size_bytes IS NULL
+    OR (thumbnail_size_bytes > 0 AND thumbnail_size_bytes <= 524288)
+  );
 
 DROP POLICY IF EXISTS profile_media_insert_owner ON profile_media;
 CREATE POLICY profile_media_insert_owner ON profile_media

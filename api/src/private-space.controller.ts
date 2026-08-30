@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Param, Post, Put, Req, Res, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Param, Post, Put, Query, Req, Res, UseGuards } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { IsIn, IsInt, IsObject, IsString, Max, Min } from "class-validator";
 import { Response } from "express";
+import sharp from "sharp";
 import { DatabaseService } from "./database.service";
 import { AccessTokenGuard, AuthenticatedRequest } from "./auth/auth.guard";
 import { syncDiscoveryProfile } from "./discovery-profile";
@@ -130,7 +131,7 @@ export class PrivateSpaceController {
   @Post("media/profile-photo")
   @Throttle({ default: { limit: 600, ttl: 60_000 } })
   @UseGuards(AccessTokenGuard)
-  uploadProfilePhoto(@Req() request: AuthenticatedRequest, @Body() input: ProfilePhotoUploadDto) {
+  async uploadProfilePhoto(@Req() request: AuthenticatedRequest, @Body() input: ProfilePhotoUploadDto) {
     if (typeof input.imageBase64 !== "string" || !/^[A-Za-z0-9+/=]+$/.test(input.imageBase64)) {
       throw new BadRequestException("Profile photo data is invalid.");
     }
@@ -139,6 +140,7 @@ export class PrivateSpaceController {
       throw new BadRequestException("Profile photo must be 8 MB or less.");
     }
     const sha256 = createHash("sha256").update(data).digest("hex");
+    const thumbnail = await createProfilePhotoThumbnail(data);
     return this.database.withUser(request.user.id, async (client) => {
       const banned = await client.query(
         `SELECT 1 FROM platform_bans
@@ -149,10 +151,29 @@ export class PrivateSpaceController {
       );
       if (banned.rowCount) throw new ForbiddenException("This account cannot use KindredCube.");
       const result = await client.query<{ id: string; mime_type: string; size_bytes: number }>(
-        `INSERT INTO profile_media (user_id, media_type, mime_type, size_bytes, data, sha256)
-         VALUES ($1, 'profile_photo', $2, $3, $4, $5)
+        `INSERT INTO profile_media (
+            user_id,
+            media_type,
+            mime_type,
+            size_bytes,
+            data,
+            sha256,
+            thumbnail_mime_type,
+            thumbnail_size_bytes,
+            thumbnail_data
+          )
+         VALUES ($1, 'profile_photo', $2, $3, $4, $5, $6, $7, $8)
          RETURNING id, mime_type, size_bytes`,
-        [request.user.id, input.mimeType, data.length, data, sha256],
+        [
+          request.user.id,
+          input.mimeType,
+          data.length,
+          data,
+          sha256,
+          thumbnail?.mimeType || null,
+          thumbnail?.data.length || null,
+          thumbnail?.data || null,
+        ],
       );
       const row = result.rows[0]!;
       const version = Date.now().toString(36);
@@ -169,10 +190,18 @@ export class PrivateSpaceController {
   @Get("media/profile-photo/:mediaId")
   async readProfilePhoto(
     @Param("mediaId") mediaId: string,
+    @Query("thumb") thumb: string | undefined,
     @Res() response: Response,
   ) {
-    const result = await this.database.query<{ mime_type: string; data: Buffer; size_bytes: number }>(
-      `SELECT mime_type, data, size_bytes
+    const result = await this.database.query<{
+      mime_type: string;
+      data: Buffer;
+      size_bytes: number;
+      thumbnail_mime_type: string | null;
+      thumbnail_data: Buffer | null;
+      thumbnail_size_bytes: number | null;
+    }>(
+      `SELECT mime_type, data, size_bytes, thumbnail_mime_type, thumbnail_data, thumbnail_size_bytes
          FROM profile_media
         WHERE id = $1
           AND status = 'active'
@@ -184,11 +213,27 @@ export class PrivateSpaceController {
       response.status(404).send("Not found");
       return;
     }
-    response.setHeader("Content-Type", row.mime_type);
-    response.setHeader("Content-Length", String(row.size_bytes));
+    const generatedThumbnail = thumb === "1" && !row.thumbnail_data
+      ? await createProfilePhotoThumbnail(row.data)
+      : null;
+    const useThumbnail = thumb === "1" && (
+      (row.thumbnail_data && row.thumbnail_mime_type && row.thumbnail_size_bytes) ||
+      generatedThumbnail
+    );
+    const data = useThumbnail
+      ? row.thumbnail_data || generatedThumbnail!.data
+      : row.data;
+    const mimeType = useThumbnail
+      ? row.thumbnail_mime_type || generatedThumbnail!.mimeType
+      : row.mime_type;
+    const sizeBytes = useThumbnail
+      ? row.thumbnail_size_bytes || generatedThumbnail!.data.length
+      : row.size_bytes;
+    response.setHeader("Content-Type", mimeType);
+    response.setHeader("Content-Length", String(sizeBytes));
     response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-    response.setHeader("ETag", `"${mediaId}"`);
-    response.send(row.data);
+    response.setHeader("ETag", `"${mediaId}${useThumbnail ? "-thumb" : ""}"`);
+    response.send(data);
   }
 
   @Post("media/chat")
@@ -320,6 +365,19 @@ function versionedMediaPath(path: string, version: string) {
 
 function isLocalOnlyMediaUri(uri: string) {
   return /^file:|^content:|^ph:|^assets-library:|^blob:/i.test(uri.trim());
+}
+
+async function createProfilePhotoThumbnail(data: Buffer) {
+  try {
+    const thumbnail = await sharp(data)
+      .rotate()
+      .resize(360, 360, { fit: "cover", position: "attention" })
+      .webp({ quality: 74, effort: 4 })
+      .toBuffer();
+    return { mimeType: "image/webp", data: thumbnail };
+  } catch {
+    return null;
+  }
 }
 
 function profilePhotoFingerprints(profile: Record<string, unknown>) {
