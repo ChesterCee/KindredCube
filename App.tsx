@@ -21170,8 +21170,8 @@ function SignedInHome({
   if (!privateSpaceLoaded || !startupMediaReady) {
     return (
       <WelcomeLoadingScreen
-        title={privateSpaceLoaded ? "Preparing your photos" : "Loading your saved profile"}
-        message={privateSpaceLoaded ? "Loading your conversations and nearby profiles…" : "Restoring your photos and profile information…"}
+        title={privateSpaceLoaded ? "Hang tight, preparing your profile" : "Loading your saved profile"}
+        message={privateSpaceLoaded ? "Loading nearby profiles…" : "Restoring your photos and profile information…"}
         error={privateSpaceLoadError}
         onRetry={() => setPrivateSpaceReloadKey((value) => value + 1)}
       />
