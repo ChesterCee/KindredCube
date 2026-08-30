@@ -33,6 +33,10 @@ export class DatabaseService implements OnModuleDestroy {
   async withUser<T>(userId: string, work: (client: PoolClient) => Promise<T>): Promise<T> {
     return this.transaction(async (client) => {
       await client.query("SELECT set_config('app.user_id', $1, true)", [userId]);
+      const context = await client.query<{ user_id: string }>("SELECT current_setting('app.user_id', true) AS user_id");
+      if (context.rows[0]?.user_id !== userId) {
+        throw new Error("Could not prepare secure user database context.");
+      }
       return work(client);
     });
   }
@@ -41,4 +45,3 @@ export class DatabaseService implements OnModuleDestroy {
     await this.pool.end();
   }
 }
-

@@ -1367,38 +1367,32 @@ function WelcomeLoadingScreen({
   error?: string;
   onRetry?: () => void;
 }) {
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const progress = useRef(new Animated.Value(0)).current;
-  const [showLoadingDetails, setShowLoadingDetails] = useState(false);
-  const [gifReady, setGifReady] = useState(false);
-  const gifDetailsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mediaWidth = Math.min(width * 0.92, 430);
-  const mediaHeight = Math.min(height * 0.68, mediaWidth * (1920 / 1080));
+  const heartbeat = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    return () => {
-      if (gifDetailsTimerRef.current) clearTimeout(gifDetailsTimerRef.current);
-    };
-  }, []);
-
-  const revealLoadingDetailsAfterGif = useCallback(() => {
-    if (gifDetailsTimerRef.current) return;
-    setGifReady(true);
-    gifDetailsTimerRef.current = setTimeout(() => setShowLoadingDetails(true), 1200);
-  }, []);
-
-  useEffect(() => {
-    const animation = Animated.loop(
+    const progressAnimation = Animated.loop(
       Animated.sequence([
         Animated.timing(progress, { toValue: 1, duration: 1200, useNativeDriver: true }),
         Animated.timing(progress, { toValue: 0, duration: 0, useNativeDriver: true }),
       ]),
     );
-    animation.start();
+    const heartbeatAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heartbeat, { toValue: 1.08, duration: 210, useNativeDriver: true }),
+        Animated.timing(heartbeat, { toValue: 1, duration: 210, useNativeDriver: true }),
+        Animated.timing(heartbeat, { toValue: 1.08, duration: 210, useNativeDriver: true }),
+        Animated.timing(heartbeat, { toValue: 1, duration: 520, useNativeDriver: true }),
+      ]),
+    );
+    progressAnimation.start();
+    heartbeatAnimation.start();
     return () => {
-      animation.stop();
+      progressAnimation.stop();
+      heartbeatAnimation.stop();
     };
-  }, [progress]);
+  }, [heartbeat, progress]);
 
   const translateX = progress.interpolate({
     inputRange: [0, 1],
@@ -1417,79 +1411,54 @@ function WelcomeLoadingScreen({
       }}
     >
       <StatusBar style="dark" translucent={false} backgroundColor={C.cream} />
+      <Animated.View style={{ transform: [{ scale: heartbeat }] }}>
+        <Logo size="regular" align="center" />
+      </Animated.View>
       <View
         style={{
-          width: mediaWidth,
-          height: mediaHeight,
-          borderRadius: 15,
+          width: Math.min(width - 76, 280),
+          height: 7,
+          borderRadius: 999,
+          backgroundColor: "#E3D8C8",
           overflow: "hidden",
-          backgroundColor: C.cream,
         }}
       >
-        <Image
-          accessibilityLabel="KindredCube welcome artwork"
-          source={require("./assets/kindredcube-welcome-loader-poster.png")}
-          resizeMode="cover"
-          style={{ position: "absolute", width: "100%", height: "100%" }}
-        />
-        <Image
-          accessibilityLabel="KindredCube welcome animation"
-          source={require("./assets/kindredcube-welcome-loader.gif")}
-          resizeMode="cover"
-          onLoad={revealLoadingDetailsAfterGif}
-          onLoadEnd={revealLoadingDetailsAfterGif}
-          style={{ width: "100%", height: "100%", opacity: gifReady ? 1 : 0 }}
+        <Animated.View
+          style={{
+            width: 120,
+            height: "100%",
+            borderRadius: 999,
+            backgroundColor: KINDREDCUBE_ORANGE,
+            transform: [{ translateX }],
+          }}
         />
       </View>
-      {showLoadingDetails || error ? (
-        <>
-          <View
-            style={{
-              width: Math.min(width - 76, 280),
-              height: 7,
-              borderRadius: 999,
-              backgroundColor: "#E3D8C8",
-              overflow: "hidden",
-            }}
-          >
-            <Animated.View
-              style={{
-                width: 120,
-                height: "100%",
-                borderRadius: 999,
-                backgroundColor: KINDREDCUBE_ORANGE,
-                transform: [{ translateX }],
-              }}
-            />
-          </View>
-          <View style={{ minHeight: 76, alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <Text
-              selectable
-              style={{
-                color: error ? "#9C3225" : C.ink,
-                fontSize: 19,
-                fontWeight: "900",
-                textAlign: "center",
-              }}
-            >
-              {error ? "Your profile is still safe" : title}
-            </Text>
-            <Text
-              accessibilityRole={error ? "alert" : undefined}
-              selectable
-              style={{
-                color: error ? "#9C3225" : C.muted,
-                fontSize: 13,
-                lineHeight: 19,
-                textAlign: "center",
-              }}
-            >
-              {error || message}
-            </Text>
-            {error && onRetry ? <Button compact label="Try loading again" onPress={onRetry} /> : null}
-          </View>
-        </>
-      ) : null}
+      <View style={{ minHeight: 76, alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <Text
+          selectable
+          style={{
+            color: error ? "#9C3225" : C.ink,
+            fontSize: 19,
+            fontWeight: "900",
+            textAlign: "center",
+          }}
+        >
+          {error ? "Your profile is still safe" : title}
+        </Text>
+        <Text
+          accessibilityRole={error ? "alert" : undefined}
+          selectable
+          style={{
+            color: error ? "#9C3225" : C.muted,
+            fontSize: 13,
+            lineHeight: 19,
+            textAlign: "center",
+          }}
+        >
+          {error || message}
+        </Text>
+        {error && onRetry ? <Button compact label="Try loading again" onPress={onRetry} /> : null}
+      </View>
     </View>
   );
 }
