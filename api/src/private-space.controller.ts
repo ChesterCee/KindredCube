@@ -194,6 +194,7 @@ export class PrivateSpaceController {
     @Res() response: Response,
   ) {
     const result = await this.database.query<{
+      user_id: string;
       mime_type: string;
       data: Buffer;
       size_bytes: number;
@@ -201,7 +202,7 @@ export class PrivateSpaceController {
       thumbnail_data: Buffer | null;
       thumbnail_size_bytes: number | null;
     }>(
-      `SELECT mime_type, data, size_bytes, thumbnail_mime_type, thumbnail_data, thumbnail_size_bytes
+      `SELECT user_id, mime_type, data, size_bytes, thumbnail_mime_type, thumbnail_data, thumbnail_size_bytes
          FROM profile_media
         WHERE id = $1
           AND status = 'active'
@@ -216,6 +217,21 @@ export class PrivateSpaceController {
     const generatedThumbnail = thumb === "1" && !row.thumbnail_data
       ? await createProfilePhotoThumbnail(row.data)
       : null;
+    if (generatedThumbnail) {
+      await this.database.withUser(row.user_id, async (client) => {
+        await client.query(
+          `UPDATE profile_media
+              SET thumbnail_mime_type = $2,
+                  thumbnail_size_bytes = $3,
+                  thumbnail_data = $4
+            WHERE id = $1
+              AND user_id = $5
+              AND status = 'active'
+              AND thumbnail_data IS NULL`,
+          [mediaId, generatedThumbnail.mimeType, generatedThumbnail.data.length, generatedThumbnail.data, row.user_id],
+        );
+      }).catch(() => undefined);
+    }
     const useThumbnail = thumb === "1" && (
       (row.thumbnail_data && row.thumbnail_mime_type && row.thumbnail_size_bytes) ||
       generatedThumbnail

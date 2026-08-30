@@ -5860,8 +5860,8 @@ function MemberPhotoView({
   size?: number;
 }) {
   return photo.uri ? (
-    <Image
-      source={{ uri: photo.uri }}
+    <CachedRemoteImage
+      uri={photo.uri}
       resizeMode="cover"
       style={{ width: size, height: size }}
     />
