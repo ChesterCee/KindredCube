@@ -2694,7 +2694,7 @@ function ProfileImage({
   const photos = profilePhotoUris(profile);
   const [failedUri, setFailedUri] = useState("");
   const uri = photos.find((photoUri) => photoUri !== failedUri) || "";
-  const displayUri = useCachedImageUri(uri);
+  const displayUri = useCachedImageUri(thumbnailMediaUri(uri));
   useEffect(() => {
     if (failedUri && !photos.includes(failedUri)) setFailedUri("");
   }, [failedUri, photos]);
@@ -20587,7 +20587,38 @@ function SignedInHome({
         socket.on("chat:ready", scheduleReadyMeetRefresh);
         socket.on("ready-to-meet:presence", (update: { userId?: string; available?: boolean; availableAt?: string; expiresAt?: string; profile?: DiscoveryCandidate }) => {
           if (!active) return;
-          scheduleReadyMeetRefresh();
+          const userId = typeof update.userId === "string" ? update.userId : "";
+          if (!userId) {
+            scheduleReadyMeetRefresh();
+            return;
+          }
+          if (update.available !== true) {
+            setRealReadyToMeetPeople((current) => {
+              const next = current.filter((profile) => profile.id !== userId);
+              queueHomeCacheSave({ readyToMeetPeople: next });
+              return next;
+            });
+            return;
+          }
+          if (!update.profile || update.profile.id !== userId) {
+            scheduleReadyMeetRefresh();
+            return;
+          }
+          const incomingProfile = discoveryCandidateToProfile(update.profile);
+          const primaryThumbnailUri = thumbnailMediaUri(profilePrimaryPhotoUri(incomingProfile));
+          void (async () => {
+            if (primaryThumbnailUri) await cacheRemoteImage(primaryThumbnailUri);
+            if (!active) return;
+            setRealReadyToMeetPeople((current) => {
+              const next = [
+                incomingProfile,
+                ...current.filter((profile) => profile.id !== userId),
+              ].filter(profileReadyToMeetIsActive);
+              queueHomeCacheSave({ readyToMeetPeople: next });
+              return next;
+            });
+            warmProfileImageCache([incomingProfile]);
+          })();
         });
         socket.on("chat:message", (message: ChatMessage) => {
           if (!active) return;
@@ -20636,7 +20667,7 @@ function SignedInHome({
       if (incomingChatSocketRef.current === socket) incomingChatSocketRef.current = null;
       socket?.disconnect();
     };
-  }, [findKnownChatProfile, initialUser?.id, promoteChatProfile, refreshChatConversations, refreshReadyToMeetPeople]);
+  }, [findKnownChatProfile, initialUser?.id, promoteChatProfile, queueHomeCacheSave, refreshChatConversations, refreshReadyToMeetPeople]);
   const profilePaidChatId = (profile: Profile) => profile.id || `profile-${profile.name.toLowerCase()}`;
   const readyMeetPassActive = readyMeetPassExpiresAt ? new Date(readyMeetPassExpiresAt).getTime() > Date.now() : false;
   const requestPaidMemberChat = useCallback((profile: Profile) => {
