@@ -90,36 +90,26 @@ export class PostMeetChecksController {
     if (Number.isNaN(meetingStartedAt.getTime())) {
       throw new BadRequestException("Meeting time is invalid.");
     }
-    const venue = typeof venueValue === "string" ? venueValue.trim() : "";
-    const normalizedVenue = normalizeVenue(venue);
     return this.database.withUser(request.user.id, async (client) => {
       const own = await client.query<{ id: string; counted_for_trust_at: Date | null }>(
         `SELECT id, counted_for_trust_at
            FROM post_meet_checks
           WHERE user_id = $1
             AND other_user_id = $2
-            AND (
-              meeting_started_at BETWEEN $3::timestamptz - interval '30 days'
-                                      AND $3::timestamptz + interval '30 days'
-              OR ($4 <> '' AND lower(regexp_replace(trim(venue), '\\s+', ' ', 'g')) = $4)
-            )
+            AND meeting_started_at = $3::timestamptz
           ORDER BY ABS(EXTRACT(EPOCH FROM (meeting_started_at - $3::timestamptz))) ASC
           LIMIT 1`,
-        [request.user.id, otherUserId, meetingStartedAt, normalizedVenue],
+        [request.user.id, otherUserId, meetingStartedAt],
       );
       const other = await client.query<{ id: string }>(
         `SELECT id
            FROM post_meet_checks
           WHERE user_id = $2
             AND other_user_id = $1
-            AND (
-              meeting_started_at BETWEEN $3::timestamptz - interval '30 days'
-                                      AND $3::timestamptz + interval '30 days'
-              OR ($4 <> '' AND lower(regexp_replace(trim(venue), '\\s+', ' ', 'g')) = $4)
-            )
+            AND meeting_started_at = $3::timestamptz
           ORDER BY ABS(EXTRACT(EPOCH FROM (meeting_started_at - $3::timestamptz))) ASC
           LIMIT 1`,
-        [request.user.id, otherUserId, meetingStartedAt, normalizedVenue],
+        [request.user.id, otherUserId, meetingStartedAt],
       );
       let counted = Boolean(own.rows[0]?.counted_for_trust_at);
       if (own.rows[0] && other.rows[0] && !counted) {
@@ -313,10 +303,6 @@ function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(value);
 }
 
-function normalizeVenue(value: string) {
-  return value.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
 async function activateTrustScoreIfBothSubmitted(
   client: PoolClient,
   userId: string,
@@ -335,8 +321,7 @@ async function activateTrustScoreIfBothSubmitted(
       WHERE ((user_id = $1 AND other_user_id = $2) OR (user_id = $2 AND other_user_id = $1))
         AND met = true
         AND trust_score IS NOT NULL
-        AND meeting_started_at BETWEEN $3::timestamptz - interval '36 hours'
-                                   AND $3::timestamptz + interval '36 hours'
+        AND meeting_started_at = $3::timestamptz
       ORDER BY ABS(EXTRACT(EPOCH FROM (meeting_started_at - $3::timestamptz))) ASC`,
     [userId, otherUserId, meetingStartedAt],
   );

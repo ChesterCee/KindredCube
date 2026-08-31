@@ -147,6 +147,7 @@ import {
   IncomingLike,
 } from "./src/auth-client";
 import { MatchingSignals, rankMatches } from "./src/matching";
+import { meetingEndTime } from "./src/meeting-time";
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -13275,12 +13276,10 @@ function ReadyMeetChat({
   const declined = proposal?.status === "declined";
   const currentPostMeetKey = postMeetCheckKey(proposal);
   const meetingEnd = accepted ?
-    proposal.scheduledAt + proposal.durationMinutes * 60_000
+    meetingEndTime(proposal.scheduledAt, proposal.durationMinutes)
     : Number.POSITIVE_INFINITY;
   const meetingEnded = accepted && now >= meetingEnd;
-  const meetingIsStale = accepted && meetingEnd < now - 7 * 24 * 60 * 60 * 1000;
   const postMeetDue = meetingEnded &&
-    !meetingIsStale &&
     !postMeetSubmitted &&
     !postMeetStatusChecking &&
     Boolean(currentPostMeetKey) &&
@@ -13289,6 +13288,11 @@ function ReadyMeetChat({
   const activeAccepted = accepted && !meetingEnded && !postMeetSubmitted;
   const activeAcceptedBeforeDue = activeAccepted;
   const postMeetNeedsAction = postMeetDue || needsPostMeetAcknowledgement;
+  // Ordinary chat refreshes must not reset the meeting/check state.
+  const latestMeetingEvent = JSON.stringify(chatMessages.filter((item) =>
+    !item.unsentAt && ((item.kind === "meeting_proposal" && item.meetingProposal) ||
+      (item.kind === "meeting_response" && item.meetingResponse)),
+  ).slice(-1)[0] || null);
   const typingMode = keyboardVisible && !proposalOpen && !gifOpen;
   const hasPriorChat = chatMessages.some((item) =>
     ["text", "gif", "image", "audio", "video"].includes(item.kind) &&
@@ -13412,8 +13416,22 @@ function ReadyMeetChat({
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000);
-    return () => clearInterval(timer);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") setNow(Date.now());
+    });
+    return () => {
+      clearInterval(timer);
+      subscription.remove();
+    };
   }, []);
+  useEffect(() => {
+    if (!Number.isFinite(meetingEnd)) return;
+    setNow(Date.now());
+    const remaining = meetingEnd - Date.now();
+    if (remaining <= 0) return;
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(remaining, 2_147_483_647));
+    return () => clearTimeout(timer);
+  }, [meetingEnd]);
   useEffect(() => {
     if (!postMeetThanksVisible) return;
     const timer = setTimeout(() => setPostMeetThanksVisible(false), 5_000);
@@ -13437,8 +13455,6 @@ function ReadyMeetChat({
     setPostMeetMissedReasonOpen(false);
     setPostMeetMissedReason("");
     setPostMeetPromptPreviewVisible(true);
-    const timer = setTimeout(() => setPostMeetPromptPreviewVisible(false), 7_000);
-    return () => clearTimeout(timer);
   }, [postMeetNeedsAction, postMeetOutcomeOpen, postMeetOpen, currentPostMeetKey]);
   useEffect(() => {
     if (!postMeetNeedsAction) {
@@ -13466,11 +13482,7 @@ function ReadyMeetChat({
     };
   }, []);
   useEffect(() => {
-    const meetingMessages = chatMessages.filter((item) =>
-      (item.kind === "meeting_proposal" && item.meetingProposal) ||
-      (item.kind === "meeting_response" && item.meetingResponse),
-    );
-    const latest = meetingMessages[meetingMessages.length - 1];
+    const latest = JSON.parse(latestMeetingEvent) as ChatMessageItem | null;
     if (!latest) return;
     if (latest.kind === "meeting_proposal" && latest.meetingProposal) {
       const nextProposal: MeetProposal = {
@@ -13481,13 +13493,6 @@ function ReadyMeetChat({
         longitude: latest.meetingProposal.longitude,
         status: "pending",
       };
-      if (completedPostMeetKeys.includes(postMeetCheckKey(nextProposal))) {
-        setPostMeetSubmitted(true);
-        setPostMeetOpen(false);
-        setPostMeetThanksVisible(false);
-        setProposal(null);
-        return;
-      }
       setPostMeetSubmitted(false);
       setPostMeetStatusCheckedKey("");
       setProposal(nextProposal);
@@ -13503,14 +13508,7 @@ function ReadyMeetChat({
         longitude: latest.meetingResponse.proposal.longitude,
         status: latest.meetingResponse.status,
       };
-      if (completedPostMeetKeys.includes(postMeetCheckKey(nextProposal))) {
-        setPostMeetSubmitted(true);
-        setPostMeetOpen(false);
-        setPostMeetThanksVisible(false);
-        setProposal(null);
-        return;
-      }
-      if (postMeetSubmitted) return;
+      setPostMeetSubmitted(false);
       setProposal(nextProposal);
       setPostMeetStatusCheckedKey("");
       setProposalOpen(false);
@@ -13519,29 +13517,11 @@ function ReadyMeetChat({
         setDeclinedMeetingNoticeVisible(true);
       }
     }
-  }, [chatMessages, completedPostMeetKeys, postMeetCheckKey, postMeetSubmitted]);
+  }, [latestMeetingEvent, profile.id]);
   useEffect(() => {
     if (!profile.id || !proposal?.scheduledAt) return;
     let active = true;
     const key = postMeetCheckKey(proposal);
-    const proposalMeetingEnd = proposal.scheduledAt + proposal.durationMinutes * 60_000;
-    if (proposal.status === "accepted" && proposalMeetingEnd < Date.now() - 7 * 24 * 60 * 60 * 1000) {
-      if (key) {
-        markPostMeetCheckCompleted(key);
-      }
-      setPostMeetSubmitted(true);
-      setPostMeetOpen(false);
-      setPostMeetThanksVisible(false);
-      setProposal(null);
-      return;
-    }
-    if (key && completedPostMeetKeys.includes(key)) {
-      setPostMeetSubmitted(true);
-      setPostMeetOpen(false);
-      setPostMeetThanksVisible(false);
-      setProposal(null);
-      return;
-    }
     setPostMeetStatusChecking(true);
     setPostMeetStatusCheckedKey("");
     getPostMeetCheckStatus({
@@ -13576,7 +13556,7 @@ function ReadyMeetChat({
     return () => {
       active = false;
     };
-  }, [completedPostMeetKeys, markPostMeetCheckCompleted, postMeetCheckKey, profile.id, proposal]);
+  }, [markPostMeetCheckCompleted, postMeetCheckKey, profile.id, proposal]);
   useEffect(() => {
     if (!proposalOpen) {
       setVenueSuggestions([]);
@@ -14360,7 +14340,7 @@ function ReadyMeetChat({
       {proposal && scheduled && !typingMode && (
         proposal.status === "pending" ||
         (proposal.status === "declined" && declinedMeetingNoticeVisible) ||
-        (proposal.status === "accepted" && (proposalDetailsExpanded || postMeetPromptPreviewVisible || postMeetOutcomeOpen))
+        (proposal.status === "accepted" && (postMeetNeedsAction || proposalDetailsExpanded || postMeetPromptPreviewVisible || postMeetOutcomeOpen))
       ) ? (
         <Pressable
           accessibilityRole="button"
@@ -14590,7 +14570,9 @@ function ReadyMeetChat({
                 {item.kind === "meeting_response" && item.meetingResponse ? (
                   <View style={{ width: 230, gap: 5 }}>
                     <Text selectable style={{ color: bubbleTextColor, fontSize: 14, fontWeight: "900" }}>
-                      {item.meetingResponse.status === "accepted" ? "Meeting accepted" : "Meeting declined"}
+                      {item.meetingResponse.status !== "accepted" ? "Meeting declined"
+                        : now >= meetingEndTime(item.meetingResponse.proposal.scheduledAt, item.meetingResponse.proposal.durationMinutes)
+                          ? "Meeting ended" : "Meeting accepted"}
                     </Text>
                     <Text selectable style={{ color: softTextColor, fontSize: 10, lineHeight: 14 }}>
                       {item.meetingResponse.proposal.venue}
