@@ -32,6 +32,7 @@ import { ChatRealtimeService } from "./chat-realtime.service";
 import { ChatService } from "./chat.service";
 import { PushNotificationsController } from "./push-notifications.controller";
 import { PushNotificationsService } from "./push-notifications.service";
+import { NotificationWorkerService } from "./notification-worker.service";
 import { PostMeetChecksController } from "./post-meet-checks.controller";
 import { SupportController, SupportEmailRepliesController } from "./support.controller";
 import { InstagramController } from "./instagram.controller";
@@ -85,6 +86,7 @@ import { InstagramController } from "./instagram.controller";
     ChatRealtimeService,
     ChatGateway,
     PushNotificationsService,
+    NotificationWorkerService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })

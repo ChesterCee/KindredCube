@@ -98,7 +98,7 @@ export class PushNotificationsService {
     return { queued: true };
   }
 
-  async sendMessageNotification(recipientId: string, senderId: string, messageId: string) {
+  async sendMessageNotification(recipientId: string, senderId: string, messageId: string, meetingStatus?: "accepted" | "declined") {
     await this.database.withUser(recipientId, async (client) => {
       if (await notificationsDisabled(client, recipientId, "newMessages")) {
         this.logger.warn(`Message push skipped because recipient ${recipientId} disabled new message notifications.`);
@@ -129,8 +129,8 @@ export class PushNotificationsService {
       const badgeCount = await notificationBadgeCount(client, recipientId);
       const messages: ExpoPushMessage[] = tokens.rows.map((row) => ({
         to: row.token,
-        title: `New message from ${senderName}`,
-        body: pushBodyForChatKind(messageKind),
+        title: meetingStatus === "accepted" ? "Meeting accepted" : `New message from ${senderName}`,
+        body: meetingStatus === "accepted" ? `${senderName} accepted your meeting proposal.` : pushBodyForChatKind(messageKind),
         sound: "default",
         priority: "high",
         channelId: "messages",
@@ -183,6 +183,41 @@ export class PushNotificationsService {
       );
     });
   }
+
+  async sendScheduledNotification(job: { user_id: string; other_user_id: string | null; kind: string; meeting_started_at: Date | null }): Promise<"sent" | "skipped" | "retry"> {
+    return this.database.withUser(job.user_id, async (client) => {
+      const user = await client.query("SELECT id FROM users WHERE id = $1 AND status = 'active'", [job.user_id]);
+      if (!user.rowCount || await notificationsDisabled(client, job.user_id, job.kind === 'post_meet' ? 'meetingReminders' : 'marketing')) return 'skipped';
+      if (job.kind === 'post_meet') {
+        const submitted = await client.query("SELECT id FROM post_meet_checks WHERE user_id = $1 AND other_user_id = $2 AND meeting_started_at = $3", [job.user_id, job.other_user_id, job.meeting_started_at]);
+        const blocked = await client.query("SELECT 1 FROM user_blocks WHERE (blocker_id = $1::uuid AND blocked_profile_id = $2::text) OR (blocker_id = $2::uuid AND blocked_profile_id = $1::text)", [job.user_id, job.other_user_id]);
+        if (submitted.rowCount || blocked.rowCount) return 'skipped';
+      } else {
+        const inactive = await client.query("SELECT 1 FROM notification_activity WHERE user_id = $1 AND last_active_at <= now() - interval '7 days'", [job.user_id]);
+        if (!inactive.rowCount) return 'skipped';
+      }
+      const tokens = await activePushTokens(client, job.user_id);
+      if (!tokens.rowCount) return 'skipped';
+      const postMeet = job.kind === 'post_meet';
+      const badge = await notificationBadgeCount(client, job.user_id);
+      const data: Record<string, string> = { type: postMeet ? 'post_meet' : 'inactivity', destination: postMeet ? 'chat' : 'explore' };
+      if (postMeet && job.other_user_id) {
+        data.profileId = job.other_user_id;
+        data.senderId = job.other_user_id;
+      }
+      const sent = await sendExpoPush(tokens.rows.map<ExpoPushMessage>((row) => ({
+        to: row.token,
+        title: postMeet ? "How did your meetup go?" : "Your next connection could be waiting",
+        body: postMeet ? "Your scheduled meeting has ended. Complete your private post-meet check." : "Come back to KindredCube and discover someone who shares your values.",
+        sound: 'default',
+        priority: postMeet ? 'high' : 'normal',
+        channelId: 'messages',
+        badge: postMeet ? Math.max(1, badge) : badge,
+        data,
+      })), this.logger);
+      return sent ? 'sent' : 'retry';
+    });
+  }
 }
 
 function pushBodyForChatKind(kind: string) {
@@ -209,7 +244,7 @@ function summarizePushPlatforms(tokens: Array<{ platform: string }>) {
 async function notificationsDisabled(
   client: PoolClient,
   userId: string,
-  key: "newMessages" | "newAdmirers" | "newMatches",
+  key: "newMessages" | "newAdmirers" | "newMatches" | "meetingReminders" | "marketing",
 ) {
   const preferences = await client.query<{ settings_data: Record<string, unknown> }>(
     `SELECT settings_data
@@ -270,13 +305,14 @@ async function notificationBadgeCount(client: PoolClient, userId: string) {
   return Number(result.rows[0]?.count || 0);
 }
 
-async function sendExpoPush(messages: ExpoPushMessage[], logger: Logger) {
-  if (!messages.length) return;
+async function sendExpoPush(messages: ExpoPushMessage[], logger: Logger): Promise<boolean> {
+  if (!messages.length) return false;
   if (messages.length > 1) {
+    let accepted = false;
     for (const message of messages) {
-      await sendExpoPush([message], logger);
+      accepted = await sendExpoPush([message], logger) || accepted;
     }
-    return;
+    return accepted;
   }
   try {
     const response = await fetch("https://exp.host/--/api/v2/push/send", {
@@ -287,11 +323,12 @@ async function sendExpoPush(messages: ExpoPushMessage[], logger: Logger) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(messages[0]),
+      signal: AbortSignal.timeout(15_000),
     });
     const body = await response.text();
     if (!response.ok) {
       logger.warn(`Expo push request failed with ${response.status}: ${body.slice(0, 500)}`);
-      return;
+      return false;
     }
     try {
       const parsed = JSON.parse(body) as { data?: Array<{ status?: string; id?: string; message?: string; details?: unknown }> | { status?: string; id?: string; message?: string; details?: unknown } };
@@ -309,12 +346,15 @@ async function sendExpoPush(messages: ExpoPushMessage[], logger: Logger) {
           });
         }, 15_000);
       }
+      return ticketIds.length > 0;
     } catch {
       logger.warn(`Expo push returned an unreadable response: ${body.slice(0, 500)}`);
+      return false;
     }
   } catch (error) {
     logger.warn(`Expo push delivery threw before completion: ${error instanceof Error ? error.message : String(error)}`);
     // Push delivery should never fail the saved chat message.
+    return false;
   }
 }
 

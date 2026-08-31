@@ -44,4 +44,10 @@ export class DatabaseService implements OnModuleDestroy {
   async onModuleDestroy() {
     await this.pool.end();
   }
+
+  async recordActivity(userId: string) {
+    await this.query(`INSERT INTO notification_activity(user_id,last_active_at) VALUES ($1,now())
+      ON CONFLICT (user_id) DO UPDATE SET last_active_at = now()
+      WHERE notification_activity.last_active_at < now() - interval '1 minute'`, [userId]);
+  }
 }

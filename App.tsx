@@ -147,7 +147,7 @@ import {
   IncomingLike,
 } from "./src/auth-client";
 import { MatchingSignals, rankMatches } from "./src/matching";
-import { meetingEndTime } from "./src/meeting-time";
+import { meetingEndTime, withMeetingDate, withMeetingTime } from "./src/meeting-time";
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -333,7 +333,7 @@ const C = {
 type IdentityVerificationMethod = "stripe_identity" | "video_selfie" | "";
 type NotificationNavigationTarget = {
   id: string;
-  type: "chat" | "liked" | "chats";
+  type: "chat" | "liked" | "chats" | "explore";
   profileId?: string;
 };
 
@@ -380,6 +380,7 @@ function notificationTargetFromData(data: Record<string, unknown>): Notification
     if (!profileId) return null;
     return { id, type: "chat", profileId };
   }
+  if (destination === "explore") return { id, type: "explore" };
   if (type === "like" || destination === "liked") return { id, type: "liked" };
   if (type === "match" || destination === "chats") return { id, type: "chats" };
   return null;
@@ -7412,6 +7413,7 @@ function SecurityPrivacySettingsPage({
 
 type NotificationPreferenceKey =
   | "newMessages"
+  | "meetingReminders"
   | "newAdmirers"
   | "newMatches"
   | "expiringMatches"
@@ -7422,6 +7424,7 @@ type NotificationPreferenceKey =
 
 const defaultNotificationPreferences: Record<NotificationPreferenceKey, boolean> = {
   newMessages: true,
+  meetingReminders: true,
   newAdmirers: true,
   newMatches: true,
   expiringMatches: true,
@@ -7439,6 +7442,7 @@ const notificationPreferenceGroups: Array<{
     title: "Message notifications",
     items: [
       { key: "newMessages", label: "New messages", description: "Messages from your connections." },
+      { key: "meetingReminders", label: "Post-meet reminders", description: "A private check-in when your scheduled meeting ends." },
     ],
   },
   {
@@ -7459,7 +7463,7 @@ const notificationPreferenceGroups: Array<{
     title: "Other notifications",
     items: [
       { key: "kindredEvents", label: "KindredCube events", description: "Events and app updates." },
-      { key: "marketing", label: "Marketing communications", description: "Offers, launches, and product news." },
+      { key: "marketing", label: "Marketing communications", description: "Occasional return reminders, offers, launches, and product news." },
       { key: "vibration", label: "Enable app vibration", description: "Use vibration for important in-app alerts." },
     ],
   },
@@ -13312,7 +13316,8 @@ function ReadyMeetChat({
   const openTopMeetingAction = () => {
     Keyboard.dismiss();
     setMediaMenuOpen(false);
-    if (postMeetNeedsAction) {
+    setNow(Date.now());
+    if (postMeetNeedsAction || (accepted && Date.now() >= meetingEnd && !postMeetSubmitted)) {
       setMeetingPromptNotice("You had a meeting last time. To activate a new meeting, please tell us about the last meeting.");
       setPostMeetOutcomeOpen(true);
       setPostMeetMissedReasonOpen(false);
@@ -14303,31 +14308,18 @@ function ReadyMeetChat({
           </View>
           {dateOpen ? <DateTimePicker value={scheduledAt} mode="date" minimumDate={new Date()} onChange={(event, value) => {
             if (event.type !== "dismissed" && value) {
-              setScheduledAt((current) => {
-                const next = new Date(current);
-                next.setFullYear(value.getFullYear(), value.getMonth(), value.getDate());
-                if (next.getTime() <= Date.now()) return new Date(Date.now() + 60 * 60 * 1000);
-                return next;
-              });
+              setScheduledAt((current) => withMeetingDate(current, value));
             }
             if (process.env.EXPO_OS !== "ios") setDateOpen(false);
           }} /> : null}
           {timeOpen ? <DateTimePicker value={scheduledAt} mode="time" onChange={(event, value) => {
             if (event.type !== "dismissed" && value) {
-              setScheduledAt((current) => {
-                const next = new Date(current);
-                next.setHours(value.getHours(), value.getMinutes(), 0, 0);
-                if (next.getTime() <= Date.now()) {
-                  const tomorrow = new Date(next);
-                  tomorrow.setDate(tomorrow.getDate() + 1);
-                  return tomorrow;
-                }
-                return next;
-              });
+              setScheduledAt((current) => withMeetingTime(current, value));
             }
             if (process.env.EXPO_OS !== "ios") setTimeOpen(false);
           }} /> : null}
           <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>Roughly how long?</Text>
+          {scheduledAt.getTime() <= now ? <Text accessibilityRole="alert" style={{ color: "#9C3225", fontSize: 12 }}>That date and time have passed. Choose a future time or change the date; your date will not be changed automatically.</Text> : null}
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>{[30, 45, 60, 90, 120].map((minutes) => <Pressable key={minutes} onPress={() => setDurationMinutes(minutes)} style={{ borderRadius: 18, borderWidth: 1, borderColor: durationMinutes === minutes ? C.sage : C.line, backgroundColor: durationMinutes === minutes ? "#E7F2EA" : C.paper, paddingHorizontal: 12, paddingVertical: 8 }}><Text style={{ color: durationMinutes === minutes ? C.sage : C.ink, fontSize: 11, fontWeight: "900" }}>{minutes < 60 ? `${minutes} min` : `${minutes / 60} hr`}</Text></Pressable>)}</View>
           {proposalError ? <Text accessibilityRole="alert" selectable style={{ color: "#9C3225", fontSize: 11, fontWeight: "800" }}>{proposalError}</Text> : null}
           <Button compact label={proposalSaving ? "Finding meeting place..." : "Send proposal"} disabled={proposalSaving || !venue.trim() || scheduledAt.getTime() <= Date.now()} onPress={sendProposal} />
@@ -20697,7 +20689,7 @@ function SignedInHome({
   const handledNotificationResponsesRef = useRef<Set<string>>(new Set());
   const pendingNotificationChatProfileIdRef = useRef("");
   const [pendingNotificationTarget, setPendingNotificationTarget] = useState<{
-    type: "chat" | "liked" | "chats";
+    type: "chat" | "liked" | "chats" | "explore";
     profileId?: string;
   } | null>(null);
   useEffect(() => {
@@ -20752,7 +20744,7 @@ function SignedInHome({
       setFilterOpen(false);
       setTab("liked");
       refreshIncomingLikes().catch(() => undefined);
-    } else if (pendingNotificationTarget.type === "chats") {
+    } else if (pendingNotificationTarget.type === "chats" || pendingNotificationTarget.type === "explore") {
       setPendingNotificationTarget(null);
       setActiveMemberChat(null);
       setSelectedMemberProfile(null);
@@ -20760,13 +20752,17 @@ function SignedInHome({
       setProfileEditing(false);
       setMembershipOptionsOpen(false);
       setFilterOpen(false);
-      setTab("chats");
+      setTab(pendingNotificationTarget.type);
       refreshChatConversations(true).catch(() => undefined);
     }
   }, [pendingNotificationTarget, privateSpaceLoaded, refreshChatConversations, refreshIncomingLikes]);
   const openNotificationTarget = useCallback(async (data: Record<string, unknown>) => {
     const type = typeof data.type === "string" ? data.type : "";
     const destination = typeof data.destination === "string" ? data.destination : "";
+    if (destination === "explore") {
+      setPendingNotificationTarget({ type: "explore" });
+      return;
+    }
     if (type === "chat_message" || destination === "chat") {
       const senderId =
         typeof data.senderId === "string" ? data.senderId

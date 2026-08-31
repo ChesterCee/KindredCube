@@ -85,7 +85,9 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
         this.logger.log(`Skipped push for ${message.id}; recipient ${message.recipientId} is active in foreground.`);
         return;
       }
-      this.push.sendMessageNotification(message.recipientId, message.senderId, message.id).catch(() => undefined);
+      if (!message.editedAt && !message.unsentAt) {
+        this.push.sendMessageNotification(message.recipientId, message.senderId, message.id, message.meetingResponse?.status).catch(() => undefined);
+      }
     });
     this.unsubscribeReadyToMeet = this.realtime.onReadyToMeetPresence((update) => {
       this.server.emit("ready-to-meet:presence", update);

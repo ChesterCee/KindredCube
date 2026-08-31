@@ -192,6 +192,7 @@ export class TokenService {
       [claims.sid, claims.sub],
     );
     if (!session.rowCount) throw new UnauthorizedException("Session is no longer valid.");
+    await this.database.recordActivity(claims.sub);
     return claims;
   }
 

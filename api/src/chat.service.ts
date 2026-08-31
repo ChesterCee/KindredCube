@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Inject, Injectable } from "@ne
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { PoolClient } from "pg";
 import { DatabaseService } from "./database.service";
+import { schedulePostMeet } from "./notification-schedule";
 
 export type ChatContentKind = "text" | "gif" | "image" | "audio" | "video" | "meeting_proposal" | "meeting_response";
 
@@ -251,7 +252,10 @@ export class ChatService {
             AND read_at IS NULL`,
         [userId, otherUserId],
       );
-      return { messages: result.rows.map((row) => this.toResponse(row)) };
+      const messages = result.rows.map((row) => this.toResponse(row));
+      // Catch up recent accepted meetings saved before the worker was deployed.
+      for (const message of messages) await schedulePostMeet(client, message);
+      return { messages };
     });
   }
 
@@ -284,7 +288,9 @@ export class ChatService {
              OR (liker_id = $2 AND liked_user_id = $1)`,
         [userId, recipientId],
       );
-      return this.toResponse(result.rows[0]!);
+      const message = this.toResponse(result.rows[0]!);
+      await schedulePostMeet(client, message);
+      return message;
     });
   }
 

@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { meetingEndTime } from "../../src/meeting-time";
+import { meetingEndTime, withMeetingDate, withMeetingTime } from "../../src/meeting-time";
 
 describe("post-meet timing", () => {
+  it("never silently changes the chosen date when a past time is selected", () => {
+    const current = new Date(2026, 7, 30, 14, 0);
+    const next = withMeetingTime(current, new Date(2026, 7, 31, 12, 45));
+    expect(next.getDate()).toBe(30);
+    expect(next.getHours()).toBe(12);
+    expect(next.getMinutes()).toBe(45);
+    expect(current.getHours()).toBe(14);
+  });
+  it("preserves the selected time when changing the date", () => {
+    const next = withMeetingDate(new Date(2026, 7, 31, 12, 45), new Date(2026, 7, 30));
+    expect(next.getDate()).toBe(30);
+    expect(next.getHours()).toBe(12);
+    expect(next.getMinutes()).toBe(45);
+  });
   const start = Date.parse("2026-08-30T12:45:00+02:00");
   it.each([30, 45, 60])("opens at the end of a %i-minute meeting, not before", (duration) => {
     const end = meetingEndTime(start, duration);

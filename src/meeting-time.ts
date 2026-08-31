@@ -1,4 +1,16 @@
 /** Meeting timestamps are epoch milliseconds; accept legacy ISO/numeric strings too. */
+export function withMeetingTime(current: Date, selected: Date): Date {
+  const next = new Date(current);
+  next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+  return next;
+}
+
+export function withMeetingDate(current: Date, selected: Date): Date {
+  const next = new Date(current);
+  next.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+  return next;
+}
+
 export function meetingEndTime(scheduledAt: unknown, durationMinutes: unknown): number {
   const start = typeof scheduledAt === "number" ? scheduledAt
     : typeof scheduledAt === "string" && scheduledAt.trim()
