@@ -14,6 +14,7 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
+      "buildNumber": "9",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "KindredCube needs microphone access when you choose to record and send a voice note.",
         "LSApplicationQueriesSchemes": [
