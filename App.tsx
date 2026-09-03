@@ -32,6 +32,7 @@ import {
   Eye,
   EyeOff,
   FileText,
+  Globe2,
   Heart,
   LockKeyhole,
   LogOut,
@@ -60,7 +61,7 @@ import {
   Wine,
   X,
 } from "lucide-react-native";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import MapView, { Marker } from "./src/platform-map";
 import {
@@ -1332,22 +1333,29 @@ function suggestedRange(age: number) {
   return { minAge: Math.max(18, age - 15), maxAge: Math.min(80, age + 10) };
 }
 
+const DesktopSidebarContentContext = createContext(false);
+
 function Logo({
   size = "regular",
   align = "left",
+  transparent = false,
 }: {
-  size?: "regular" | "compact";
+  size?: "regular" | "compact" | "sidebar";
   align?: "center" | "left";
+  transparent?: boolean;
 }) {
+  const hiddenInsideDesktopShell = useContext(DesktopSidebarContentContext);
   const { width } = useWindowDimensions();
-  const logoWidth = Math.min(size === "compact" ? 170 : 190, width - 40);
+  if (hiddenInsideDesktopShell) return null;
+  const preferredWidth = size === "sidebar" ? 218 : size === "compact" ? 170 : 190;
+  const logoWidth = Math.min(preferredWidth, width - 40);
   const logoHeight = logoWidth / (1659 / 399);
   return (
     <View
       style={{
         width: logoWidth,
         height: logoHeight,
-        backgroundColor: C.cream,
+        backgroundColor: transparent ? "transparent" : C.cream,
         alignSelf: align === "left" ? "flex-start" : "center",
       }}
     >
@@ -3130,6 +3138,18 @@ function ProfileVerificationBadgeIcons({
   if (!badges.length) return null;
   const meetupBadge = badges.find((badge) => badge.shortLabel === "Meetup");
   const identityBadge = badges.find((badge) => badge.shortLabel !== "Meetup");
+  const VerificationMark = ({ color, label }: { color: string; label: string }) => (
+    <View accessibilityLabel={label} style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <BadgeCheck width={size} height={size} color={color} fill={color} stroke={color} />
+      <Check
+        width={size * 0.48}
+        height={size * 0.48}
+        color="#FFFFFF"
+        strokeWidth={3.4}
+        style={{ position: "absolute" }}
+      />
+    </View>
+  );
   if (meetupBadge && identityBadge) {
     return (
       <View
@@ -3140,53 +3160,15 @@ function ProfileVerificationBadgeIcons({
           position: "relative",
         }}
       >
-        <BadgeCheck
-          width={size}
-          height={size}
-          color={meetupBadge.color}
-          fill={meetupBadge.color}
-          stroke={stroke}
-          style={{
-            position: "absolute",
-            left: 0,
-            top: size * 0.3,
-            shadowColor: "#000",
-            shadowOpacity: 0.18,
-            shadowRadius: 2,
-            shadowOffset: { width: 0, height: 1 },
-          }}
-        />
-        <BadgeCheck
-          width={size}
-          height={size}
-          color={identityBadge.color}
-          fill={identityBadge.color}
-          stroke={stroke}
-          style={{
-            position: "absolute",
-            left: size * 0.62,
-            top: 0,
-            shadowColor: "#000",
-            shadowOpacity: 0.22,
-            shadowRadius: 2.5,
-            shadowOffset: { width: 0, height: 1 },
-          }}
-        />
+        <View style={{ position: "absolute", left: 0, top: size * 0.3 }}><VerificationMark color={meetupBadge.color} label={meetupBadge.label} /></View>
+        <View style={{ position: "absolute", left: size * 0.62, top: 0 }}><VerificationMark color={identityBadge.color} label={identityBadge.label} /></View>
       </View>
     );
   }
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
       {badges.map((badge) => (
-        <BadgeCheck
-          key={badge.label}
-          accessibilityLabel={badge.label}
-          width={size}
-          height={size}
-          color={badge.color}
-          fill={badge.color}
-          stroke={stroke}
-        />
+        <VerificationMark key={badge.label} color={badge.color} label={badge.label} />
       ))}
     </View>
   );
@@ -4320,6 +4302,9 @@ function ProfileDetail({
   hasCommentPlan = false,
   onOpenWallet,
   onPhotoComment,
+  superLikeIncluded = false,
+  onSuperLike,
+  desktopWeb = false,
 }: {
   profile: Profile;
   onBack: () => void;
@@ -4336,14 +4321,21 @@ function ProfileDetail({
   hasCommentPlan?: boolean;
   onOpenWallet?: () => void;
   onPhotoComment?: (profile: Profile, photoIndex: number) => Promise<boolean>;
+  superLikeIncluded?: boolean;
+  onSuperLike?: () => Promise<boolean> | boolean;
+  desktopWeb?: boolean;
 }) {
   const { width: profileScreenWidth } = useWindowDimensions();
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
+  const [desktopPhotoIndex, setDesktopPhotoIndex] = useState(0);
   const swipeLeftRef = useRef(onSwipeLeft);
   const swipeRightRef = useRef(onSwipeRight);
   const profileTouchStart = useRef<{ x: number; y: number } | null>(null);
   const profileSwipeX = useRef(new Animated.Value(0)).current;
   const [profileSwipeDelta, setProfileSwipeDelta] = useState(0);
+  const [superLikeGate, setSuperLikeGate] = useState(false);
+  const [superLikeBusy, setSuperLikeBusy] = useState(false);
+  const [superLikeNotice, setSuperLikeNotice] = useState("");
   const photoPrompts = profilePromptsForGallery(profile);
   const publicArea = profilePublicArea(profile);
   const profileCanSwipe = !readyMeetMode && (Boolean(onLike) || Boolean(onPass));
@@ -4352,6 +4344,15 @@ function ProfileDetail({
   useEffect(() => {
     warmImageCache(profileGalleryItems(profile).map((item) => item.kind === "uri" ? item.value : ""));
   }, [profile]);
+  const additionalProfilePhotos = profileGalleryItems(profile).slice(1);
+  useEffect(() => {
+    setDesktopPhotoIndex(0);
+    if (!desktopWeb || additionalProfilePhotos.length < 2) return;
+    const timer = setInterval(() => {
+      setDesktopPhotoIndex((current) => (current + 1) % additionalProfilePhotos.length);
+    }, 4200);
+    return () => clearInterval(timer);
+  }, [desktopWeb, profile, additionalProfilePhotos.length]);
   const finishProfileSwipe = useCallback(
     (direction: "left" | "right") => {
       const callback =
@@ -4411,10 +4412,13 @@ function ProfileDetail({
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={{
-        paddingHorizontal: 20,
-        paddingTop: 16,
+        paddingHorizontal: desktopWeb ? 32 : 20,
+        paddingTop: desktopWeb ? 24 : 16,
         paddingBottom: readyMeetMode && onConnect ? 116 : profileCanSwipe ? 112 : 30,
         gap: 15,
+        width: "100%",
+        maxWidth: desktopWeb ? 1080 : undefined,
+        alignSelf: "center",
       }}
     >
       {!readyMeetMode ? <Logo size="compact" /> : null}
@@ -4431,21 +4435,30 @@ function ProfileDetail({
       <View
         style={{
           borderRadius: 28,
-          overflow: "hidden",
-          backgroundColor: C.paper,
-          borderWidth: 1,
+          overflow: desktopWeb ? "visible" : "hidden",
+          backgroundColor: desktopWeb ? "transparent" : C.paper,
+          borderWidth: desktopWeb ? 0 : 1,
           borderColor: C.line,
+          width: "100%",
+          maxWidth: desktopWeb ? 980 : undefined,
+          alignSelf: "center",
+          flexDirection: desktopWeb ? "row" : "column",
+          minHeight: desktopWeb ? 560 : undefined,
+          gap: desktopWeb ? 24 : 0,
+          marginBottom: desktopWeb ? 76 : 0,
         }}
       >
-        <View style={{ position: "relative" }}>
+        <View style={{ width: desktopWeb ? 510 : "100%", gap: desktopWeb ? 72 : 0 }}>
+        <View style={{ position: "relative", flexShrink: 0, width: desktopWeb ? 510 : undefined, height: desktopWeb ? 510 : undefined, alignSelf: desktopWeb ? "flex-start" : undefined }}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Enlarge ${profile.name}'s photo`}
             onPress={() => setGalleryIndex(0)}
+            style={{ borderRadius: desktopWeb ? 5 : 0, overflow: "hidden", boxShadow: desktopWeb ? "0 20px 48px rgba(24,27,48,0.2)" : undefined }}
           >
-            <ProfileImage profile={profile} size={profileScreenWidth - 40} />
+            <ProfileImage profile={profile} size={desktopWeb ? 510 : profileScreenWidth - 40} />
           </Pressable>
-          <Pressable
+          {!desktopWeb ? <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Share ${profile.name}'s profile`}
             onPress={shareProfile}
@@ -4465,7 +4478,7 @@ function ProfileDetail({
             }}
           >
             <Share2 width={22} height={22} color={C.ink} strokeWidth={2.8} />
-          </Pressable>
+          </Pressable> : null}
           {publicArea ? (
             <View
               pointerEvents="none"
@@ -4492,6 +4505,51 @@ function ProfileDetail({
               </Text>
             </View>
           ) : null}
+          {desktopWeb ? (
+            <View pointerEvents="none" style={{ position: "absolute", left: 24, right: 104, bottom: 24, gap: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                <Text selectable style={{ color: C.paper, fontFamily: BRAND_FONT, fontSize: 28, fontWeight: "900", textShadowColor: "rgba(0,0,0,0.82)", textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 }}>{profile.name}, {profile.age}</Text>
+                <ProfileVerificationBadgeIcons profile={profile} size={19} stacked />
+              </View>
+              {profileOccupationEducationLine(profile) ? <Text selectable numberOfLines={2} style={{ color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "800", textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 }}>{profileOccupationEducationLine(profile)}</Text> : null}
+              <VerificationBadges profile={profile} />
+            </View>
+          ) : null}
+          {desktopWeb ? (
+            <>
+              <View style={{ position: "absolute", right: 18, bottom: 18, gap: 14, alignItems: "center" }}>
+                <Pressable accessibilityRole="button" accessibilityLabel={onLike ? `Like ${profile.name}` : `Open chat with ${profile.name}`} accessibilityState={{ selected: liked }} onPress={() => onLike ? finishProfileSwipe("right") : onConnect?.()} style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: liked ? "#FCE5EE" : C.pink, borderWidth: 5, borderColor: C.paper, alignItems: "center", justifyContent: "center", boxShadow: "0 12px 28px rgba(236,45,117,0.28)" }}>
+                  <Heart width={31} height={31} color={liked ? C.pink : C.paper} fill={liked ? C.pink : C.paper} strokeWidth={2.5} />
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel={onPass ? `Pass on ${profile.name}` : "Back"} onPress={() => onPass ? finishProfileSwipe("left") : onBack()} style={{ width: 62, height: 62, borderRadius: 31, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, alignItems: "center", justifyContent: "center", boxShadow: "0 10px 24px rgba(25,31,55,0.18)" }}>
+                  <X width={29} height={29} color="#8A8F9C" strokeWidth={3} />
+                </Pressable>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel={onSuperLike ? "Super Like" : "Super Like unavailable because you are already connected"} accessibilityState={{ disabled: !onSuperLike }} disabled={!onSuperLike || superLikeBusy} onPress={async () => {
+                if (!onSuperLike) return;
+                if (!superLikeIncluded) {
+                  setSuperLikeNotice("");
+                  setSuperLikeGate(true);
+                  return;
+                }
+                setSuperLikeBusy(true);
+                try { await onSuperLike(); } finally { setSuperLikeBusy(false); }
+              }} style={{ position: "absolute", left: 216, bottom: -55, width: 78, height: 78, borderRadius: 39, backgroundColor: "#FFF3CC", borderWidth: 5, borderColor: C.paper, alignItems: "center", justifyContent: "center", opacity: onSuperLike ? 1 : 0.42, boxShadow: "0 12px 28px rgba(207,151,0,0.26)" }}>
+                <Star width={34} height={34} color="#C58A00" fill="#F2C94C" strokeWidth={2.5} />
+              </Pressable>
+            </>
+          ) : null}
+        </View>
+        {desktopWeb ? <View style={{ width: 510, gap: 12 }}>
+          <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>More photos of {profile.name}</Text>
+          {additionalProfilePhotos.length ? <View style={{ alignItems: "center", gap: 12 }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`View ${profile.name}'s photo ${desktopPhotoIndex + 2} full screen`} onPress={() => setGalleryIndex(desktopPhotoIndex + 1)} style={{ width: 510, height: 350, borderRadius: 5, overflow: "hidden", backgroundColor: C.line, boxShadow: "0 18px 42px rgba(25,31,55,0.18)" }}>
+              {additionalProfilePhotos[desktopPhotoIndex]?.kind === "uri" ? <CachedRemoteImage uri={String(additionalProfilePhotos[desktopPhotoIndex]?.value)} resizeMode="contain" style={{ width: 510, height: 350 }} /> : <Portrait index={Number(additionalProfilePhotos[desktopPhotoIndex]?.value || 0)} size={350} />}
+              <View pointerEvents="none" style={{ position: "absolute", right: 14, bottom: 14, borderRadius: 16, backgroundColor: "rgba(9,13,30,0.72)", paddingHorizontal: 11, paddingVertical: 7 }}><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>Click to view full size</Text></View>
+            </Pressable>
+            {additionalProfilePhotos.length > 1 ? <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>{additionalProfilePhotos.map((_, index) => <Pressable key={`desktop-photo-dot-${index}`} accessibilityRole="button" accessibilityLabel={`Show photo ${index + 2}`} onPress={() => setDesktopPhotoIndex(index)} style={{ width: index === desktopPhotoIndex ? 22 : 8, height: 8, borderRadius: 4, backgroundColor: index === desktopPhotoIndex ? C.pink : "#D9D4CD" }} />)}</View> : null}
+          </View> : <Text selectable style={{ color: C.muted, fontSize: 12 }}>No additional photos yet.</Text>}
+        </View> : null}
         </View>
         {!readyMeetMode && Math.abs(profileSwipeDelta) > 20 ? (
           <View
@@ -4515,7 +4573,7 @@ function ProfileDetail({
             </Text>
           </View>
         ) : null}
-        {profileCanSwipe ? (
+        {profileCanSwipe && !desktopWeb ? (
           <View
             pointerEvents="none"
             style={{ backgroundColor: "#F7F3ED", paddingHorizontal: 14, paddingVertical: 10 }}
@@ -4525,8 +4583,8 @@ function ProfileDetail({
             </Text>
           </View>
         ) : null}
-        <View style={{ padding: 16, gap: 7 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <View style={{ padding: desktopWeb ? 30 : 16, gap: desktopWeb ? 15 : 7, flex: desktopWeb ? 1 : undefined, justifyContent: desktopWeb ? "flex-start" : undefined, backgroundColor: desktopWeb ? C.paper : "transparent", borderRadius: desktopWeb ? 5 : 0, borderWidth: desktopWeb ? 1 : 0, borderColor: C.line, boxShadow: desktopWeb ? "0 14px 38px rgba(25,31,55,0.09)" : undefined }}>
+          {!desktopWeb ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <Text
               selectable
               style={{
@@ -4539,33 +4597,47 @@ function ProfileDetail({
               {profile.name}, {profile.age}
             </Text>
             <ProfileVerificationBadgeIcons profile={profile} size={19} stacked />
-          </View>
-          {profileOccupationEducationLine(profile) ? (
+          </View> : null}
+          {!desktopWeb && profileOccupationEducationLine(profile) ? (
             <Text selectable numberOfLines={2} style={{ color: C.clay, fontSize: 12, lineHeight: 17, fontWeight: "900" }}>
               {profileOccupationEducationLine(profile)}
             </Text>
           ) : null}
-          <VerificationBadges profile={profile} />
+          {!desktopWeb ? <VerificationBadges profile={profile} /> : null}
           {profileBioForCard(profile) ? (
             <View style={{ paddingTop: 5, gap: 4 }}>
-              <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>
-                Bio
+              <Text selectable style={{ color: C.ink, fontSize: desktopWeb ? 19 : 12, fontWeight: "900" }}>
+                {desktopWeb ? "About me" : "Bio"}
               </Text>
               <Text
                 selectable
                 style={{
-                  color: C.sage,
-                  fontSize: 13,
-                  lineHeight: 19,
+                  color: desktopWeb ? C.ink : C.sage,
+                  fontSize: desktopWeb ? 14 : 13,
+                  lineHeight: desktopWeb ? 22 : 19,
                 }}
               >
                 {profileBioForCard(profile)}
               </Text>
             </View>
           ) : null}
+          {desktopWeb && profileMoreAboutBasics(profile).length ? <View style={{ marginTop: 4, paddingTop: 15, borderTopWidth: 1, borderTopColor: C.line, gap: 9 }}><Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>More about {profile.name}</Text>{profileMoreAboutBasics(profile).slice(0, 6).map(([label, value]) => (
+            <View key={`${label}-${value}`} style={{ flexDirection: "row", justifyContent: "space-between", gap: 16 }}><Text selectable style={{ color: C.ink, fontSize: 12, lineHeight: 18, fontWeight: "900" }}>{profileDetailEmoji(label)} {label}</Text><Text selectable style={{ color: C.ink, fontSize: 12, lineHeight: 18, fontWeight: "900", textAlign: "right", flex: 1 }}>{profileDetailDisplayValue(label, value)}</Text></View>
+          ))}</View> : null}
+          {desktopWeb && profileGoalsForCard(profile).length ? <View style={{ marginTop: 4, paddingTop: 15, borderTopWidth: 1, borderTopColor: C.line, gap: 9 }}><Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>Searching for</Text>{profileGoalsForCard(profile).map((goal) => <View key={goal} style={{ alignSelf: "flex-start", borderRadius: 15, backgroundColor: "#F7F3ED", borderWidth: 1, borderColor: C.line, paddingHorizontal: 10, paddingVertical: 7 }}><Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "800" }}>{goalEmoji(goal)} {goal}</Text></View>)}</View> : null}
+          {desktopWeb && profileInterestsForCard(profile).length ? <View style={{ marginTop: 4, paddingTop: 15, borderTopWidth: 1, borderTopColor: C.line, gap: 9 }}><Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>Interests</Text><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>{profileInterestsForCard(profile).map((interest) => <View key={interest} style={{ borderRadius: 15, backgroundColor: "#FFF4F7", borderWidth: 1, borderColor: "#F4C7D5", paddingHorizontal: 10, paddingVertical: 7 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "800" }}>{interestEmoji(interest)} {interest}</Text></View>)}</View></View> : null}
+          {desktopWeb && profileLanguagesForCard(profile).length ? <View style={{ marginTop: 4, paddingTop: 15, borderTopWidth: 1, borderTopColor: C.line, gap: 9 }}>
+            <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>Languages</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {profileLanguagesForCard(profile).map((language) => <View key={language} style={{ borderRadius: 15, backgroundColor: "#F7F3ED", borderWidth: 1, borderColor: C.line, paddingHorizontal: 10, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 7 }}>
+                {languageFlagCode(language) ? <Image source={{ uri: `https://flagcdn.com/w40/${languageFlagCode(language)}.png` }} resizeMode="cover" style={{ width: 22, height: 15, borderRadius: 2 }} /> : <Text style={{ fontSize: 13 }}>{languageFlagEmoji(language)}</Text>}
+                <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "800" }}>{language}</Text>
+              </View>)}
+            </View>
+          </View> : null}
         </View>
       </View>
-      <View
+      {!desktopWeb ? <View
         style={{
           borderRadius: 21,
           backgroundColor: C.paper,
@@ -4606,8 +4678,8 @@ function ProfileDetail({
             </View>
           ))}
         </View>
-      </View>
-      <View style={{ borderRadius: 21, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 14, gap: 10 }}>
+      </View> : null}
+      {!desktopWeb ? <View style={{ borderRadius: 21, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 14, gap: 10 }}>
         <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>
           Searching for
         </Text>
@@ -4620,8 +4692,8 @@ function ProfileDetail({
             </View>
           ))}
         </View>
-      </View>
-      <View style={{ borderRadius: 21, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 14, gap: 10 }}>
+      </View> : null}
+      {!desktopWeb ? <View style={{ borderRadius: 21, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 14, gap: 10 }}>
         <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>
           Interests
         </Text>
@@ -4634,12 +4706,18 @@ function ProfileDetail({
             </View>
           ))}
         </View>
-      </View>
-      <View style={{ borderRadius: 21, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 14, gap: 10 }}>
+      </View> : null}
+      <View style={{ display: desktopWeb ? "none" : "flex", width: desktopWeb ? "auto" : "100%", maxWidth: desktopWeb ? 620 : undefined, alignSelf: "center", borderRadius: desktopWeb ? 0 : 21, backgroundColor: desktopWeb ? "transparent" : C.paper, borderWidth: desktopWeb ? 0 : 1, borderColor: C.line, padding: desktopWeb ? 0 : 14, gap: 10 }}>
         <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>
           More photos of {profile.name}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+        {desktopWeb && additionalProfilePhotos.length ? <View style={{ alignItems: "center", gap: 12 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`View ${profile.name}'s photo ${desktopPhotoIndex + 2} full screen`} onPress={() => setGalleryIndex(desktopPhotoIndex + 1)} style={{ width: 520, height: 330, borderRadius: 24, overflow: "hidden", backgroundColor: C.line, boxShadow: "0 18px 42px rgba(25,31,55,0.18)" }}>
+            {additionalProfilePhotos[desktopPhotoIndex]?.kind === "uri" ? <CachedRemoteImage uri={String(additionalProfilePhotos[desktopPhotoIndex]?.value)} resizeMode="cover" style={{ width: 520, height: 330 }} /> : <Portrait index={Number(additionalProfilePhotos[desktopPhotoIndex]?.value || 0)} size={520} />}
+            <View pointerEvents="none" style={{ position: "absolute", right: 14, bottom: 14, borderRadius: 16, backgroundColor: "rgba(9,13,30,0.72)", paddingHorizontal: 11, paddingVertical: 7 }}><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>Click to view full size</Text></View>
+          </Pressable>
+          {additionalProfilePhotos.length > 1 ? <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>{additionalProfilePhotos.map((_, index) => <Pressable key={`photo-dot-${index}`} accessibilityRole="button" accessibilityLabel={`Show photo ${index + 2}`} onPress={() => setDesktopPhotoIndex(index)} style={{ width: index === desktopPhotoIndex ? 22 : 8, height: 8, borderRadius: 4, backgroundColor: index === desktopPhotoIndex ? C.pink : "#D9D4CD" }} />)}</View> : null}
+        </View> : desktopWeb ? <Text selectable style={{ color: C.muted, fontSize: 12 }}>No additional photos yet.</Text> : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
           {profileGalleryItems(profile).slice(1).map((item, photoIndex) => {
             const galleryIndexForPhoto = photoIndex + 1;
             const savedPrompt = photoPrompts[photoIndex] || null;
@@ -4649,10 +4727,10 @@ function ProfileDetail({
                 accessibilityRole="button"
                 accessibilityLabel={`Enlarge ${profile.name}'s photo ${galleryIndexForPhoto + 1}`}
                 onPress={() => setGalleryIndex(galleryIndexForPhoto)}
-                style={{ width: 116, height: 136, borderRadius: 18, overflow: "hidden", borderWidth: 1, borderColor: C.line, backgroundColor: C.cream, position: "relative" }}
+                style={{ width: desktopWeb ? 190 : 116, height: desktopWeb ? 228 : 136, borderRadius: 18, overflow: "hidden", borderWidth: 1, borderColor: C.line, backgroundColor: C.cream, position: "relative" }}
               >
                 {item.kind === "uri" ? (
-                  <CachedRemoteImage uri={String(item.value)} resizeMode="cover" style={{ width: 116, height: 136 }} />
+                  <CachedRemoteImage uri={String(item.value)} resizeMode="cover" style={{ width: desktopWeb ? 190 : 116, height: desktopWeb ? 228 : 136 }} />
                 ) : (
                   <Portrait index={Number(item.value)} size={136} />
                 )}
@@ -4684,19 +4762,18 @@ function ProfileDetail({
               </Pressable>
             );
           })}
-        </ScrollView>
+        </ScrollView>}
       </View>
-      {profileLanguagesForCard(profile).length ? (
-        <View style={{ borderRadius: 21, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 14, gap: 10 }}>
+      {!desktopWeb && profileLanguagesForCard(profile).length ? (
+        <View style={{ width: "100%", maxWidth: desktopWeb ? 980 : undefined, alignSelf: desktopWeb ? "center" : undefined, borderRadius: 21, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: desktopWeb ? 18 : 14, gap: 10 }}>
           <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>
             Languages
           </Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {profileLanguagesForCard(profile).map((language) => (
-              <View key={language} style={{ borderRadius: 15, backgroundColor: "#F7F3ED", borderWidth: 1, borderColor: C.line, paddingHorizontal: 10, paddingVertical: 7 }}>
-                <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "800" }}>
-                  {languageFlagEmoji(language)} {language}
-                </Text>
+              <View key={language} style={{ borderRadius: 15, backgroundColor: "#F7F3ED", borderWidth: 1, borderColor: C.line, paddingHorizontal: 10, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 7 }}>
+                {desktopWeb && languageFlagCode(language) ? <Image source={{ uri: `https://flagcdn.com/w40/${languageFlagCode(language)}.png` }} resizeMode="cover" style={{ width: 22, height: 15, borderRadius: 2 }} /> : <Text style={{ fontSize: 13 }}>{languageFlagEmoji(language)}</Text>}
+                <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "800" }}>{language}</Text>
               </View>
             ))}
           </View>
@@ -4707,7 +4784,7 @@ function ProfileDetail({
           {onReport ? <Pressable accessibilityRole="button" onPress={() => onReport(profile, "Safety concern", "Reported from profile footer.")} style={{ minHeight: 34, borderRadius: 17, borderWidth: 1, borderColor: "#E5B8AE", backgroundColor: "#FFF7F4", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" }}>
             <Text style={{ color: "#9C3225", fontSize: 11, fontWeight: "900" }}>Report</Text>
           </Pressable> : null}
-          {onBlock ? <Pressable accessibilityRole="button" onPress={() => onBlock(profile, undefined, "")} style={{ minHeight: 34, borderRadius: 17, borderWidth: 1, borderColor: C.line, alignItems: "center", justifyContent: "center", backgroundColor: C.paper, paddingHorizontal: 12 }}>
+          {onBlock ? <Pressable accessibilityRole="button" onPress={() => onBlock(profile, "Safety concern", "Blocked from profile footer.")} style={{ minHeight: 34, borderRadius: 17, borderWidth: 1, borderColor: C.line, alignItems: "center", justifyContent: "center", backgroundColor: C.paper, paddingHorizontal: 12 }}>
               <Text style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Block</Text>
             </Pressable> : null}
         </View>
@@ -4717,6 +4794,7 @@ function ProfileDetail({
       <ProfilePhotoGallery
         profile={profile}
         initialIndex={galleryIndex}
+        desktopWeb={desktopWeb}
         walletBalance={walletBalance}
         hasCommentPlan={hasCommentPlan}
         onOpenWallet={onOpenWallet}
@@ -4724,8 +4802,36 @@ function ProfileDetail({
         onClose={() => setGalleryIndex(null)}
       />
     ) : null}
+    <Modal visible={superLikeGate} transparent animationType="fade" onRequestClose={() => !superLikeBusy && setSuperLikeGate(false)}>
+      <View style={{ flex: 1, backgroundColor: "rgba(20,18,16,0.58)", alignItems: "center", justifyContent: "center", padding: 22 }}>
+        <View style={{ width: "100%", maxWidth: 430, borderRadius: 24, backgroundColor: C.paper, padding: 22, gap: 14, boxShadow: "0 20px 54px rgba(0,0,0,0.28)" }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close Super Like confirmation" disabled={superLikeBusy} onPress={() => setSuperLikeGate(false)} style={{ alignSelf: "flex-end" }}><X width={24} height={24} color={C.ink} /></Pressable>
+          <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: "#FFF3CC", alignItems: "center", justifyContent: "center" }}><Star width={31} height={31} color="#C58A00" fill="#F2C94C" /></View>
+          <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 28, fontWeight: "900" }}>Send a Super Like?</Text>
+          <Text selectable style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>A Super Like costs $2.50. Your wallet balance is {formatMoney(walletBalance)}. The charge is made only after you confirm.</Text>
+          {superLikeNotice ? <Text selectable style={{ color: "#A23A2A", fontSize: 12, fontWeight: "800" }}>{superLikeNotice}</Text> : null}
+          <Button disabled={superLikeBusy} label={superLikeBusy ? "Sending Super Like..." : walletBalance >= 2.5 ? "Use Wallet · $2.50" : "Load Wallet"} onPress={async () => {
+            if (walletBalance < 2.5) {
+              setSuperLikeGate(false);
+              onOpenWallet?.();
+              return;
+            }
+            if (!onSuperLike) return;
+            setSuperLikeBusy(true);
+            setSuperLikeNotice("");
+            try {
+              const sent = await onSuperLike();
+              if (sent) setSuperLikeGate(false);
+              else setSuperLikeNotice("The wallet charge could not be completed. Please try again.");
+            } catch {
+              setSuperLikeNotice("The wallet charge could not be completed. Please try again.");
+            } finally { setSuperLikeBusy(false); }
+          }} />
+        </View>
+      </View>
+    </Modal>
     </Animated.View>
-    {profileCanSwipe ? (
+    {profileCanSwipe && !desktopWeb ? (
       <View
         style={{
           position: "absolute",
@@ -5861,15 +5967,17 @@ let profileScrollOffset = 0;
 function MemberPhotoView({
   photo,
   size,
+  height,
 }: {
   photo: MemberPhoto;
   size?: number;
+  height?: number;
 }) {
   return photo.uri ? (
     <CachedRemoteImage
       uri={photo.uri}
       resizeMode="cover"
-      style={{ width: size, height: size }}
+      style={{ width: size, height: height ?? size }}
     />
   ) : (
     <Portrait index={photo.portrait || 0} size={size} />
@@ -9055,6 +9163,7 @@ function ProfileHubScreen({
   onDeleteAccount,
   premiumActive,
   kindredPassActive,
+  desktopWeb = false,
 }: {
   balance: number;
   profile: Profile;
@@ -9070,6 +9179,7 @@ function ProfileHubScreen({
   onDeleteAccount?: (reasons: string[], details: string) => Promise<void>;
   premiumActive: boolean;
   kindredPassActive: boolean;
+  desktopWeb?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const [activePlan, setActivePlan] = useState<
@@ -9109,14 +9219,37 @@ function ProfileHubScreen({
       </Text>
     </View>
   );
+  const PlanArtwork = ({ kind }: { kind: "wallet" | "pass" | "premium" }) => {
+    if (!desktopWeb) return null;
+    const palette = kind === "wallet"
+      ? { primary: "#FF4F87", secondary: "#FFB3CB", wash: "rgba(255,79,135,0.14)" }
+      : kind === "pass"
+        ? { primary: "#6B3FC5", secondary: "#BDA9DF", wash: "rgba(107,63,197,0.14)" }
+        : { primary: "#D99A00", secondary: "#FFD65B", wash: "rgba(217,154,0,0.15)" };
+    return (
+      <View pointerEvents="none" style={{ position: "absolute", right: 22, top: 20, bottom: 20, width: 190, alignItems: "center", justifyContent: "center" }}>
+        <View style={{ position: "absolute", width: 142, height: 142, borderRadius: 71, backgroundColor: palette.wash }} />
+        <View style={{ width: 98, height: 78, borderRadius: 22, backgroundColor: palette.primary, alignItems: "center", justifyContent: "center", transform: [{ rotate: "-5deg" }], shadowColor: palette.primary, shadowOpacity: 0.3, shadowRadius: 18, shadowOffset: { width: 0, height: 9 } }}>
+          {kind === "wallet" ? <Wallet width={48} height={48} color="#FFFFFF" strokeWidth={2.2} /> : null}
+          {kind === "pass" ? <ShieldCheck width={50} height={50} color="#FFFFFF" strokeWidth={2.2} /> : null}
+          {kind === "premium" ? <Star width={52} height={52} color="#FFFFFF" fill={palette.secondary} strokeWidth={2.2} /> : null}
+        </View>
+        <View style={{ position: "absolute", left: 12, top: 18 }}><Heart width={20} height={20} color={palette.secondary} fill={palette.secondary} /></View>
+        <View style={{ position: "absolute", right: 9, top: 39 }}><Star width={18} height={18} color={palette.secondary} fill={palette.secondary} /></View>
+        <View style={{ position: "absolute", left: 27, bottom: 20 }}><Star width={13} height={13} color={palette.primary} fill={palette.primary} /></View>
+        <View style={{ position: "absolute", right: 24, bottom: 13 }}><Heart width={15} height={15} color={palette.primary} fill={palette.primary} /></View>
+      </View>
+    );
+  };
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={{
-        paddingHorizontal: 18,
-        paddingTop: appHeaderTopPadding(insets),
+        paddingHorizontal: desktopWeb ? 34 : 18,
+        paddingTop: desktopWeb ? 30 : appHeaderTopPadding(insets),
         paddingBottom: 36,
-        gap: 15,
+        gap: desktopWeb ? 20 : 15,
+        alignItems: desktopWeb ? "center" : undefined,
       }}
     >
       <Logo size="compact" />
@@ -9147,7 +9280,7 @@ function ProfileHubScreen({
           >
             <CircleHelp width={22} height={22} color={C.ink} />
           </Pressable>
-          <Pressable
+          {!desktopWeb ? <Pressable
             accessibilityRole="button"
             accessibilityLabel="Open settings"
             onPress={onSettings}
@@ -9163,11 +9296,11 @@ function ProfileHubScreen({
             }}
           >
             <Settings width={22} height={22} color={C.ink} />
-          </Pressable>
+          </Pressable> : null}
         </View>
       </View>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 14, paddingRight: 98 }}>
-        <View style={{ width: 82, height: 82 }}>
+      <View style={{ width: "100%", maxWidth: desktopWeb ? 980 : undefined, flexDirection: "row", alignItems: "center", gap: desktopWeb ? 20 : 14, paddingRight: desktopWeb ? 24 : 98, padding: desktopWeb ? 10 : undefined, borderRadius: 0, backgroundColor: "transparent", borderWidth: 0 }}>
+        <View style={{ width: 82, height: 82, borderRadius: 41, backgroundColor: desktopWeb ? "rgba(255,255,255,0.72)" : "transparent", boxShadow: desktopWeb ? "0 14px 32px rgba(25,31,55,0.22)" : undefined }}>
           <View
             style={{
               width: 78,
@@ -9222,7 +9355,7 @@ function ProfileHubScreen({
             >
               {displayName}
             </Text>
-            <ProfileVerificationBadgeIcons profile={hubProfile} size={21} stacked />
+            <ProfileVerificationBadgeIcons profile={hubProfile} size={21} stroke={desktopWeb ? "transparent" : C.paper} stacked />
           </View>
           <Text selectable style={{ color: C.muted, fontSize: 11 }}>
             {hubVerificationSummary ||
@@ -9258,10 +9391,13 @@ function ProfileHubScreen({
         accessibilityRole="tablist"
         style={{
           flexDirection: "row",
-          borderRadius: 22,
+          width: desktopWeb ? "100%" : "100%",
+          maxWidth: desktopWeb ? 720 : undefined,
+          alignSelf: desktopWeb ? "center" : undefined,
+          borderRadius: desktopWeb ? 16 : 22,
           backgroundColor: "#EDE6DB",
-          padding: 4,
-          gap: 4,
+          padding: desktopWeb ? 6 : 4,
+          gap: desktopWeb ? 7 : 4,
         }}
       >
         {[
@@ -9282,11 +9418,11 @@ function ProfileHubScreen({
               }
               style={{
                 flex: 1,
-                minHeight: 42,
-                borderRadius: 18,
+                minHeight: desktopWeb ? 46 : 42,
+                borderRadius: desktopWeb ? 12 : 18,
                 backgroundColor: tabBackground,
-                borderWidth: active ? 2 : 0,
-                borderColor: active ? C.paper : "transparent",
+                borderWidth: active ? 2 : 1,
+                borderColor: active ? C.paper : "rgba(255,255,255,0.38)",
                 alignItems: "center",
                 justifyContent: "center",
                 flexDirection: "row",
@@ -9313,10 +9449,15 @@ function ProfileHubScreen({
       {activePlan === "wallet" ? (
       <View
         style={{
-          borderRadius: 24,
+          width: "100%",
+          maxWidth: desktopWeb ? 720 : undefined,
+          borderRadius: desktopWeb ? 18 : 24,
           backgroundColor: C.ink,
           padding: 17,
+          paddingRight: desktopWeb ? 230 : 17,
           gap: 12,
+          position: "relative",
+          overflow: "hidden",
         }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 11 }}>
@@ -9374,17 +9515,23 @@ function ProfileHubScreen({
         <Benefit dark label="Photo comments" />
         <Benefit dark label="Ready to Meet" />
         <Benefit dark label="Reveal selected people in Liked You" />
+        <PlanArtwork kind="wallet" />
       </View>
       ) : null}
       {activePlan === "premium" ? (
       <View
         style={{
-          borderRadius: 24,
+          width: "100%",
+          maxWidth: desktopWeb ? 720 : undefined,
+          borderRadius: desktopWeb ? 18 : 24,
           backgroundColor: "#FFF1B8",
           borderWidth: 1,
           borderColor: "#E3C450",
           padding: 17,
+          paddingRight: desktopWeb ? 230 : 17,
           gap: 12,
+          position: "relative",
+          overflow: "hidden",
         }}
       >
         <View
@@ -9423,17 +9570,23 @@ function ProfileHubScreen({
           finally { setPlanBusy(""); }
         }} />
         {activePlan === "premium" && planNotices.premium ? <Text selectable style={{ color: C.sage, fontSize: 11, fontWeight: "900", textAlign: "center" }}>{planNotices.premium}</Text> : null}
+        <PlanArtwork kind="premium" />
       </View>
       ) : null}
       {activePlan === "pass" ? (
       <View
         style={{
-          borderRadius: 24,
+          width: "100%",
+          maxWidth: desktopWeb ? 720 : undefined,
+          borderRadius: desktopWeb ? 18 : 24,
           backgroundColor: "#F3EDF9",
           borderWidth: 1,
           borderColor: "#BDA9DF",
           padding: 17,
+          paddingRight: desktopWeb ? 230 : 17,
           gap: 12,
+          position: "relative",
+          overflow: "hidden",
         }}
       >
         <View
@@ -9481,6 +9634,7 @@ function ProfileHubScreen({
           finally { setPlanBusy(""); }
         }} />
         {activePlan === "pass" && planNotices.kindred_pass ? <Text selectable style={{ color: "#59359C", fontSize: 11, fontWeight: "900", textAlign: "center" }}>{planNotices.kindred_pass}</Text> : null}
+        <PlanArtwork kind="pass" />
       </View>
       ) : null}
     </ScrollView>
@@ -9503,6 +9657,7 @@ function EditableProfileScreen({
   verificationMethod,
   onVerificationStatusChange,
   onVerificationMethodChange,
+  desktopWeb = false,
 }: {
   displayName: string;
   initialProfile: Record<string, unknown>;
@@ -9519,6 +9674,7 @@ function EditableProfileScreen({
   verificationMethod?: IdentityVerificationMethod;
   onVerificationStatusChange?: (status: IdentityVerificationStatus) => void;
   onVerificationMethodChange?: (method: IdentityVerificationMethod) => void;
+  desktopWeb?: boolean;
 }) {
   const initialArray = (key: string) =>
     Array.isArray(initialProfile[key]) ? (initialProfile[key] as string[]) : [];
@@ -10687,12 +10843,16 @@ function EditableProfileScreen({
       }}
       scrollEventThrottle={16}
       contentContainerStyle={{
-        paddingHorizontal: 18,
+        paddingHorizontal: desktopWeb ? 30 : 18,
+        paddingTop: desktopWeb ? 24 : undefined,
         paddingBottom: 36,
         gap: 14,
+        width: "100%",
+        maxWidth: desktopWeb ? 1080 : undefined,
+        alignSelf: "center",
       }}
     >
-      <Logo size="compact" />
+      {!desktopWeb ? <Logo size="compact" /> : null}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 13 }}>
         <View
           style={{
@@ -10758,7 +10918,7 @@ function EditableProfileScreen({
                 Edit
               </Text>
             </Pressable>
-            <Pressable
+            {!desktopWeb ? <Pressable
               accessibilityRole="button"
               accessibilityLabel="Open settings"
               onPress={onSettings}
@@ -10774,7 +10934,7 @@ function EditableProfileScreen({
               }}
             >
               <Settings width={21} height={21} color={C.ink} />
-            </Pressable>
+            </Pressable> : null}
           </View>
           <Text
             selectable
@@ -10885,8 +11045,10 @@ function EditableProfileScreen({
           </View>
         </View>
       ) : null}
+      <View style={{ flexDirection: desktopWeb ? "row" : "column", gap: desktopWeb ? 18 : 14, alignItems: "stretch" }}>
       <View
         style={{
+          flex: desktopWeb ? 1 : undefined,
           borderRadius: 20,
           backgroundColor: C.paper,
           borderWidth: 1,
@@ -10927,6 +11089,7 @@ function EditableProfileScreen({
           />
         </View>
       </View>
+      <View style={{ flex: desktopWeb ? 1 : undefined }}>
       <ProfileSection
         title="Verification"
         subtitle="Selfie verification adds trust. Stripe ID verification completes profile verification."
@@ -11023,21 +11186,24 @@ function EditableProfileScreen({
           </> : null}
         </View>
       </ProfileSection>
+      </View>
+      </View>
 
       <ProfileSection
         title="Photos"
         subtitle="Add more photos for a stronger, more trusted profile."
         onAdd={photoUploadBusy ? undefined : uploadPhoto}
       >
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 9 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: desktopWeb ? 14 : 9 }}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Upload photos"
             disabled={photoUploadBusy}
             onPress={uploadPhoto}
             style={{
-              width: "31%",
-              aspectRatio: 0.82,
+              width: desktopWeb ? 210 : "31%",
+              height: desktopWeb ? 256 : undefined,
+              aspectRatio: desktopWeb ? undefined : 0.82,
               marginBottom: 8,
               borderRadius: 15,
               borderWidth: 1,
@@ -11065,8 +11231,9 @@ function EditableProfileScreen({
               <View
                 key={photo.id}
                 style={{
-                  width: "31%",
-                  aspectRatio: 0.82,
+                  width: desktopWeb ? 210 : "31%",
+                  height: desktopWeb ? 256 : undefined,
+                  aspectRatio: desktopWeb ? undefined : 0.82,
                   marginBottom: 8,
                   borderRadius: 15,
                   overflow: "hidden",
@@ -11074,7 +11241,7 @@ function EditableProfileScreen({
                   borderColor: best ? "#E3AE18" : C.line,
                 }}
               >
-                <MemberPhotoView photo={photo} size={130} />
+                <MemberPhotoView photo={photo} size={desktopWeb ? 210 : 130} height={desktopWeb ? 256 : 130} />
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={
@@ -13196,6 +13363,7 @@ function ReadyMeetChat({
   onMessagesCached?: (profileId: string, messages: ChatMessageItem[]) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const desktopWeb = useContext(DesktopSidebarContentContext);
   const { height: screenHeight } = useWindowDimensions();
   const [message, setMessage] = useState("");
   const [pendingChatMedia, setPendingChatMedia] = useState<{
@@ -14340,20 +14508,20 @@ function ReadyMeetChat({
           onPress={() => {
             if (proposal.status === "accepted" && !postMeetDue) setProposalDetailsExpanded(false);
           }}
-          style={{ borderRadius: 20, borderWidth: 1.5, borderColor: proposal.status === "accepted" ? C.sage : proposal.status === "declined" ? "#C84534" : "#D5B853", backgroundColor: proposal.status === "accepted" ? "#F1F8F3" : C.paper, padding: proposal.status === "accepted" && !postMeetDue ? 10 : 14, gap: proposal.status === "accepted" && !postMeetDue ? 6 : 9, boxShadow: proposal.status === "accepted" ? "0 18px 40px rgba(39,148,71,0.22)" : "0 14px 32px rgba(0,29,48,0.16)" }}
+          style={{ borderRadius: desktopWeb ? 12 : 20, borderWidth: 1.5, borderColor: proposal.status === "accepted" ? C.sage : proposal.status === "declined" ? "#C84534" : "#D5B853", backgroundColor: proposal.status === "accepted" ? "#F1F8F3" : C.paper, padding: desktopWeb ? 22 : proposal.status === "accepted" && !postMeetDue ? 10 : 14, gap: desktopWeb ? 24 : proposal.status === "accepted" && !postMeetDue ? 6 : 9, boxShadow: desktopWeb ? "0 8px 24px rgba(0,29,48,0.08)" : proposal.status === "accepted" ? "0 18px 40px rgba(39,148,71,0.22)" : "0 14px 32px rgba(0,29,48,0.16)", flexDirection: desktopWeb && needsPostMeetAcknowledgement ? "row" : "column", alignItems: desktopWeb && needsPostMeetAcknowledgement ? "center" : undefined }}
         >
-          <Text selectable style={{ color: C.ink, fontSize: proposal.status === "accepted" && !needsPostMeetAcknowledgement ? 14 : 16, fontWeight: "900" }}>{needsPostMeetAcknowledgement ? "Did you meet?" : proposal.status === "accepted" ? "Meeting accepted" : proposal.status === "declined" ? "Meeting declined" : proposalSentByMe ? "Meeting proposal sent" : "Meeting proposal received"}</Text>
-          <Text selectable numberOfLines={proposal.status === "accepted" && !postMeetDue ? 1 : undefined} style={{ color: C.ink, fontSize: proposal.status === "accepted" && !postMeetDue ? 11 : 13, lineHeight: proposal.status === "accepted" && !postMeetDue ? 14 : undefined, fontWeight: "900" }}>{proposal.venue}</Text>
-          <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>{scheduled.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at {scheduled.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · about {proposal.durationMinutes} minutes</Text>
+          <View style={{ flex: desktopWeb ? 1 : undefined, gap: desktopWeb ? 8 : 4 }}>
+            <Text selectable style={{ color: C.ink, fontSize: proposal.status === "accepted" && !needsPostMeetAcknowledgement ? 14 : desktopWeb ? 18 : 16, fontWeight: "900" }}>{needsPostMeetAcknowledgement ? "Did you meet?" : proposal.status === "accepted" ? "Meeting accepted" : proposal.status === "declined" ? "Meeting declined" : proposalSentByMe ? "Meeting proposal sent" : "Meeting proposal received"}</Text>
+            <Text selectable numberOfLines={proposal.status === "accepted" && !postMeetDue ? 1 : undefined} style={{ color: C.ink, fontSize: proposal.status === "accepted" && !postMeetDue ? 11 : 13, lineHeight: proposal.status === "accepted" && !postMeetDue ? 14 : undefined, fontWeight: "900" }}>{proposal.venue}</Text>
+            <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>{scheduled.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at {scheduled.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · about {proposal.durationMinutes} minutes</Text>
+            {needsPostMeetAcknowledgement ? <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>Your scheduled meeting window has passed. Did you meet?</Text> : null}
+          </View>
           {proposal.status === "pending" && !proposalSentByMe ? <View style={{ flexDirection: "row", gap: 8 }}><View style={{ flex: 1 }}><Button compact label="Accept" onPress={() => respondToMeetingProposal("accepted")} /></View><Pressable onPress={() => respondToMeetingProposal("declined")} style={{ flex: 1, minHeight: 44, borderRadius: 22, borderWidth: 1, borderColor: "#C84534", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#B52E20", fontWeight: "900" }}>Decline</Text></Pressable></View> : null}
           {proposal.status === "pending" && proposalSentByMe ? <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16, textAlign: "center", fontWeight: "800" }}>Waiting for {profile.name} to accept or decline.</Text> : null}
           {proposal.status === "declined" ? <Button compact label="Create another proposal" onPress={() => { setProposal(null); setProposalOpen(true); }} /> : null}
           {needsPostMeetAcknowledgement ? (
-            <View style={{ gap: 9 }}>
-              <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>
-                Your scheduled meeting window has passed. Did you meet?
-              </Text>
-              <View style={{ flexDirection: "row", gap: 8 }}>
+            <View style={{ gap: 9, width: desktopWeb ? 390 : undefined }}>
+              <View style={{ flexDirection: "row", gap: desktopWeb ? 12 : 8 }}>
                 <View style={{ flex: 1 }}>
                   <Button compact label="Yes, we met" onPress={() => setPostMeetOpen(true)} />
                 </View>
@@ -14977,7 +15145,7 @@ function ReadyToMeetFeature({
   onAvailabilitySave,
   onOpenChat,
   canUseReadyMeetChat,
-  walletBalance,
+  walletBalance = 0,
   paidChatIds,
   onUnlockReadyMeetChat,
   onOpenWallet,
@@ -16251,6 +16419,7 @@ function ExploreRecommendations({
   canOpenReadyMeetProfileWithoutAccess,
   onBlock,
   onReport,
+  mode = "all",
 }: {
   similarInterests: readonly TaggedRecommendation[];
   similarDatingGoals: readonly TaggedRecommendation[];
@@ -16272,6 +16441,7 @@ function ExploreRecommendations({
   canOpenReadyMeetProfileWithoutAccess?: (profile: Profile) => boolean;
   onBlock: (profile: Profile, reason: MemberReportReason, details: string) => void;
   onReport?: (profile: Profile, reason: MemberReportReason, details: string) => void;
+  mode?: "all" | "explore-only" | "ready-only";
 }) {
   const insets = useSafeAreaInsets();
   return (
@@ -16282,7 +16452,7 @@ function ExploreRecommendations({
       <View style={{ paddingHorizontal: 18 }}>
         <Logo size="compact" />
       </View>
-      <ReadyToMeetFeature
+      {mode !== "explore-only" ? <ReadyToMeetFeature
         people={readyPeople}
         currentProfile={currentProfile}
         currentAvailability={currentReadyToMeetAvailability}
@@ -16299,8 +16469,8 @@ function ExploreRecommendations({
         onLike={onLike}
         onBlock={onBlock}
         onReport={onReport}
-      />
-      <View style={{ paddingHorizontal: 18, gap: 5 }}>
+      /> : null}
+      {mode !== "ready-only" ? <><View style={{ paddingHorizontal: 18, gap: 5 }}>
         <Text
           selectable
           style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}
@@ -16332,6 +16502,7 @@ function ExploreRecommendations({
         onProfilePress={onProfilePress}
         onLike={onLike}
       />
+      </> : null}
     </ScrollView>
   );
 }
@@ -16668,7 +16839,7 @@ function LikedYouExperience({
               onPress={async () => {
                 if (walletBalance <= 0) {
                   setShowPaywall(null);
-                  onOpenWallet();
+                  onOpenWallet?.();
                   return;
                 }
                 const paid = await onWalletReveal(
@@ -17083,6 +17254,22 @@ function languageFlagEmoji(language: string) {
   return "\u{1F3F3}\u{FE0F}";
 }
 
+function languageFlagCode(language: string) {
+  const normalized = language.trim().toLowerCase();
+  if (normalized.includes("english")) return "gb";
+  if (normalized.includes("german")) return "de";
+  if (normalized.includes("french")) return "fr";
+  if (normalized.includes("zulu")) return "za";
+  if (normalized.includes("shona")) return "zw";
+  if (normalized.includes("spanish")) return "es";
+  if (normalized.includes("japanese")) return "jp";
+  if (normalized.includes("mandarin") || normalized.includes("chinese")) return "cn";
+  if (normalized.includes("korean")) return "kr";
+  if (normalized.includes("thai")) return "th";
+  if (normalized.includes("arabic")) return "sa";
+  return "";
+}
+
 function isInstagramPhotoRecord(photo: unknown) {
   if (!photo || typeof photo !== "object" || Array.isArray(photo)) return false;
   const record = photo as Record<string, unknown>;
@@ -17166,8 +17353,36 @@ function cachedImageFileUri(uri: string) {
 
 async function cacheRemoteImage(uri: string) {
   const cleanUri = cleanMediaUri(uri);
+  if (process.env.EXPO_OS === "web" && /^https?:\/\//i.test(cleanUri)) {
+    const cached = imageMemoryCache.get(cleanUri);
+    if (cached) return cached;
+    const existingDownload = imageDownloadPromises.get(cleanUri);
+    if (existingDownload) return existingDownload;
+    const download = (async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20_000);
+      try {
+        const response = await fetch(cleanUri, {
+          mode: "cors",
+          cache: "force-cache",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Photo request failed with ${response.status}.`);
+        const blob = await response.blob();
+        if (!blob.size) throw new Error("Photo response was empty.");
+        const localUri = URL.createObjectURL(blob);
+        imageMemoryCache.set(cleanUri, localUri);
+        return localUri;
+      } finally {
+        clearTimeout(timeout);
+      }
+    })().catch(() => cleanUri).finally(() => {
+      imageDownloadPromises.delete(cleanUri);
+    });
+    imageDownloadPromises.set(cleanUri, download);
+    return download;
+  }
   if (
-    process.env.EXPO_OS === "web" ||
     !LegacyFileSystem.cacheDirectory ||
     !/^https?:\/\//i.test(cleanUri)
   ) {
@@ -17198,7 +17413,6 @@ async function cacheRemoteImage(uri: string) {
 }
 
 function warmImageCache(uris: unknown[]) {
-  if (process.env.EXPO_OS === "web") return;
   [
     ...new Set(
       uris
@@ -17247,10 +17461,14 @@ async function preloadCriticalProfileImages(uris: unknown[], maxWaitMs = 6_000) 
 
 function useCachedImageUri(uri: string) {
   const cleanUri = cleanMediaUri(uri);
-  const [resolvedUri, setResolvedUri] = useState(() => imageMemoryCache.get(cleanUri) || cleanUri);
+  const [resolvedUri, setResolvedUri] = useState(() =>
+    imageMemoryCache.get(cleanUri) || (process.env.EXPO_OS === "web" && /^https?:\/\//i.test(cleanUri) ? "" : cleanUri),
+  );
 
   useEffect(() => {
-    setResolvedUri(imageMemoryCache.get(cleanUri) || cleanUri);
+    setResolvedUri(
+      imageMemoryCache.get(cleanUri) || (process.env.EXPO_OS === "web" && /^https?:\/\//i.test(cleanUri) ? "" : cleanUri),
+    );
     if (!cleanUri) return;
     let active = true;
     cacheRemoteImage(cleanUri)
@@ -17283,21 +17501,29 @@ function CachedRemoteImage({
   onError?: () => void;
   preferThumbnail?: boolean;
 }) {
-  const remoteUri = preferThumbnail ? thumbnailMediaUri(uri) : cleanMediaUri(uri);
+  const originalUri = cleanMediaUri(uri);
+  const remoteUri = preferThumbnail ? thumbnailMediaUri(originalUri) : originalUri;
   const displayUri = useCachedImageUri(remoteUri);
   const [forceRemoteUri, setForceRemoteUri] = useState(false);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   useEffect(() => {
     setForceRemoteUri(false);
-  }, [remoteUri]);
-  const imageUri = forceRemoteUri ? remoteUri : displayUri;
+    setThumbnailFailed(false);
+  }, [originalUri, remoteUri]);
+  const imageUri = thumbnailFailed ? originalUri : forceRemoteUri ? remoteUri : displayUri;
   if (!displayUri) return null;
   return (
     <Image
+      key={imageUri}
       accessibilityLabel={accessibilityLabel}
       source={{ uri: imageUri, cache: "force-cache" }}
       resizeMode={resizeMode}
       blurRadius={blurRadius}
       onError={() => {
+        if (!thumbnailFailed && remoteUri !== originalUri) {
+          setThumbnailFailed(true);
+          return;
+        }
         if (!forceRemoteUri && imageUri !== remoteUri) {
           imageMemoryCache.delete(remoteUri);
           setForceRemoteUri(true);
@@ -17383,6 +17609,7 @@ function ProfilePhotoGallery({
   profile,
   initialIndex,
   onClose,
+  desktopWeb = false,
   walletBalance = 0,
   hasCommentPlan = false,
   onOpenWallet,
@@ -17391,6 +17618,7 @@ function ProfilePhotoGallery({
   profile: Profile;
   initialIndex: number;
   onClose: () => void;
+  desktopWeb?: boolean;
   walletBalance?: number;
   hasCommentPlan?: boolean;
   onOpenWallet?: () => void;
@@ -17400,6 +17628,12 @@ function ProfilePhotoGallery({
   const insets = useSafeAreaInsets();
   const photos = profileGalleryItems(profile);
   const photoCount = photos.length;
+  const desktopGalleryWidth = Math.min(Math.max(width - 120, 320), 1180);
+  const desktopGalleryHeight = Math.min(Math.max(height - insets.top - insets.bottom - 180, 320), 760);
+  const galleryImageWidth = desktopWeb ? desktopGalleryWidth : width;
+  const galleryImageHeight = desktopWeb
+    ? desktopGalleryHeight
+    : Math.min(width * 1.25, height - insets.top - insets.bottom - 120);
   const photoPrompts = profilePromptsForGallery(profile);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [commentedPhotoIndexes, setCommentedPhotoIndexes] = useState<number[]>([]);
@@ -17459,11 +17693,11 @@ function ProfilePhotoGallery({
         >
           {photos.map((photo, index) => (
             <View key={`${profile.name}-gallery-${photo.kind}-${photo.value}-${index}`} style={{ width, height: height - insets.top - insets.bottom - 90, alignItems: "center", justifyContent: "center" }}>
-              <View style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120), overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#211E1A", position: "relative" }}>
+              <View style={{ width: galleryImageWidth, height: galleryImageHeight, borderRadius: desktopWeb ? 5 : 0, overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#211E1A", position: "relative" }}>
                 {photo.kind === "uri" ? (
-                  <CachedRemoteImage uri={String(photo.value)} resizeMode="cover" preferThumbnail={false} style={{ width, height: Math.min(width * 1.25, height - insets.top - insets.bottom - 120) }} />
+                  <CachedRemoteImage uri={String(photo.value)} resizeMode={desktopWeb ? "contain" : "cover"} preferThumbnail={false} style={{ width: galleryImageWidth, height: galleryImageHeight }} />
                 ) : (
-                  <Portrait index={Number(photo.value)} size={width} />
+                  <Portrait index={Number(photo.value)} size={Math.min(galleryImageWidth, galleryImageHeight)} />
                 )}
                 {photo.source === "instagram" ? <InstagramPhotoBadge /> : null}
                 {index > 0 && photoPrompts[index - 1] ? (
@@ -17735,7 +17969,7 @@ function ConnectExperience(props: {
   onPass: (profile: Profile) => void;
   hasCommentPlan?: boolean;
   walletBalance?: number;
-  onWalletSpend: (amount: number) => void;
+  onWalletSpend: (amount: number) => Promise<boolean>;
   onPhotoComment?: (profile: Profile, photoIndex: number) => Promise<boolean>;
   onOpenWallet?: () => void;
 }) {
@@ -17763,7 +17997,7 @@ function ConnectExperienceDeck({
   onLike,
   onPass,
   hasCommentPlan,
-  walletBalance,
+  walletBalance = 0,
   onWalletSpend,
   onPhotoComment,
   onOpenWallet,
@@ -17774,7 +18008,7 @@ function ConnectExperienceDeck({
   onPass: (profile: Profile) => void;
   hasCommentPlan?: boolean;
   walletBalance?: number;
-  onWalletSpend: (amount: number) => void;
+  onWalletSpend: (amount: number) => Promise<boolean>;
   onPhotoComment?: (profile: Profile, photoIndex: number) => Promise<boolean>;
   onOpenWallet?: () => void;
 }) {
@@ -17784,6 +18018,8 @@ function ConnectExperienceDeck({
   const [commentGate, setCommentGate] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [walletGate, setWalletGate] = useState(false);
+  const [walletGateBusy, setWalletGateBusy] = useState(false);
+  const [walletGateNotice, setWalletGateNotice] = useState("");
   const [comment, setComment] = useState("");
   const [swiping, setSwiping] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
@@ -17868,6 +18104,11 @@ function ConnectExperienceDeck({
   const requestComment = () =>
     hasCommentPlan ? setComposerOpen(true) : setCommentGate(true);
   const superLike = () => {
+    if (hasCommentPlan) {
+      advance("like");
+      return;
+    }
+    setWalletGateNotice("");
     setWalletGate(true);
   };
   const visibleInterests = profileInterestsForCard(current);
@@ -18422,7 +18663,7 @@ function ConnectExperienceDeck({
                 if (walletBalance > 0) {
                   setComposerOpen(true);
                 } else {
-                  onOpenWallet();
+                  onOpenWallet?.();
                 }
               }}
               style={{
@@ -18491,16 +18732,27 @@ function ConnectExperienceDeck({
             >
               Super Like costs {formatMoney(-2.5, { signed: true })}.
             </Text>
+            <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>Wallet balance: {formatMoney(walletBalance)}</Text>
+            {walletGateNotice ? <Text selectable style={{ color: "#A23A2A", fontSize: 12, fontWeight: "800" }}>{walletGateNotice}</Text> : null}
             <Button
-              label={walletBalance >= 2.5 ? "Pay with Wallet" : "Load Wallet"}
-              onPress={() => {
-                setWalletGate(false);
+              disabled={walletGateBusy}
+              label={walletGateBusy ? "Sending Super Like..." : walletBalance >= 2.5 ? "Use Wallet · $2.50" : "Load Wallet"}
+              onPress={async () => {
                 if (walletBalance >= 2.5) {
-                  onWalletSpend(2.5);
-                  onLike(current);
-                  advance("like");
+                  setWalletGateBusy(true);
+                  setWalletGateNotice("");
+                  try {
+                    const charged = await onWalletSpend(2.5);
+                    if (charged) {
+                      setWalletGate(false);
+                      advance("like");
+                    } else {
+                      setWalletGateNotice("The wallet charge could not be completed. Please try again.");
+                    }
+                  } finally { setWalletGateBusy(false); }
                 } else {
-                  onOpenWallet();
+                  setWalletGate(false);
+                  onOpenWallet?.();
                 }
               }}
             />
@@ -20087,11 +20339,14 @@ function SignedInHome({
   onNotificationTargetHandled?: (id: string) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { width: signedInWidth } = useWindowDimensions();
+  const webDesktop = process.env.EXPO_OS === "web" && signedInWidth >= 900;
   const bottomSystemGap = Math.max(insets.bottom, Platform.OS === "android" ? 42 : 0);
   const bottomTabPadding = bottomSystemGap + 8;
   const [tab, setTab] = useState<
     "profile" | "explore" | "connect" | "liked" | "chats"
   >(startInProfileEditor ? "profile" : "connect");
+  const [webStandalone, setWebStandalone] = useState<"ready" | "global" | null>(null);
   const [showRecommendation, setShowRecommendation] = useState(
     !startInProfileEditor,
   );
@@ -20499,6 +20754,23 @@ function SignedInHome({
       return false;
     }
   }, [initialUser?.id]);
+  const sendSuperLike = useCallback(async (profile: Profile, source: "connect" | "explore" | "ready_to_meet" = "explore") => {
+    if (profileIsMatched(profile) || profileIsInChats(profile)) return false;
+    try {
+      if (!premiumActive && !kindredPassActive) {
+        const profileId = profile.id || `profile-${profile.name.toLowerCase()}`;
+        const result = await spendWallet(
+          "super_like",
+          `${initialUser?.id}-super-like-${profileId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        );
+        setWalletBalance(result.walletBalanceCents / 100);
+      }
+      rememberLike(profile, source);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [initialUser?.id, kindredPassActive, premiumActive, profileIsInChats, profileIsMatched, rememberLike]);
   const openMemberChat = useCallback((profile: Profile) => {
     const key = likeProfileKey(profile);
     const existing = memberChats.find((item) => likeProfileKey(item) === key);
@@ -21253,9 +21525,19 @@ function SignedInHome({
     ? profileIsMatched(selectedMemberProfile) ||
       profileIsInChats(selectedMemberProfile)
     : false;
-  const content = selectedMemberProfile ? (
+  const content = webStandalone === "global" ? (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, backgroundColor: "#F7F6FB" }}>
+      <View style={{ width: "100%", maxWidth: 760, minHeight: 360, borderRadius: 32, padding: 38, alignItems: "center", justifyContent: "center", gap: 18, backgroundColor: "#EEE9FF", borderWidth: 1, borderColor: "#D9D0FF" }}>
+        <Globe2 width={72} height={72} color="#5A3AC7" />
+        <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 38, fontWeight: "900", textAlign: "center" }}>Global Connect</Text>
+        <Text selectable style={{ color: "#5A3AC7", fontSize: 21, fontWeight: "900", textAlign: "center" }}>Coming Soon</Text>
+        <Text selectable style={{ color: C.muted, fontSize: 15, lineHeight: 23, textAlign: "center", maxWidth: 520 }}>Meet compatible people around the world through shared values, culture, and meaningful connection.</Text>
+      </View>
+    </View>
+  ) : selectedMemberProfile ? (
     <ProfileDetail
       profile={selectedMemberProfile}
+      desktopWeb={webDesktop}
       onBack={() => setSelectedMemberProfile(null)}
       onConnect={() => requestPaidMemberChat(selectedMemberProfile)}
       onLike={selectedProfileIsConnected ? undefined : () => {
@@ -21268,6 +21550,8 @@ function SignedInHome({
       onReport={reportMember}
       walletBalance={walletBalance}
       hasCommentPlan={selectedProfileIsConnected || premiumActive || kindredPassActive}
+      superLikeIncluded={premiumActive || kindredPassActive}
+      onSuperLike={selectedProfileIsConnected ? undefined : () => sendSuperLike(selectedMemberProfile, "explore")}
       onOpenWallet={() => {
         setTab("profile");
         setStartSettingsInWallet(true);
@@ -21288,6 +21572,7 @@ function SignedInHome({
     />
   ) : tab === "profile" ? null : tab === "explore" ? (
     <ExploreRecommendations
+      mode={webStandalone === "ready" ? "ready-only" : webDesktop ? "explore-only" : "all"}
       similarInterests={similarInterestRecommendations}
       similarDatingGoals={similarDatingGoalRecommendations}
       communitiesInCommon={communityInCommonRecommendations}
@@ -21469,11 +21754,15 @@ function SignedInHome({
         premiumActive || kindredPassActive
       }
       walletBalance={walletBalance}
-      onWalletSpend={(amount) => {
+      onWalletSpend={async (amount) => {
         const item = amount >= 2.5 ? "super_like" : "photo_comment";
-        spendWallet(item, `${initialUser?.id}-${item}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-          .then((result) => setWalletBalance(result.walletBalanceCents / 100))
-          .catch(() => undefined);
+        try {
+          const result = await spendWallet(item, `${initialUser?.id}-${item}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+          setWalletBalance(result.walletBalanceCents / 100);
+          return true;
+        } catch {
+          return false;
+        }
       }}
       onPhotoComment={commentOnPhotoWithWallet}
       onOpenWallet={() => {
@@ -21496,9 +21785,66 @@ function SignedInHome({
     !revealedIncomingLikeIds.includes(like.id)
   ).length;
   const showConnectHeader = tab === "connect" && (!showRecommendation || profileStrength >= 100);
+  const selectWebDestination = (destination: "connect" | "explore" | "liked" | "chats" | "ready" | "global" | "profile" | "settings") => {
+    setFilterOpen(false);
+    setSelectedMemberProfile(null);
+    setActiveMemberChat(null);
+    if (destination === "ready" || destination === "global") {
+      setTab("explore");
+      setWebStandalone(destination);
+      return;
+    }
+    setWebStandalone(null);
+    if (destination === "settings") {
+      setTab("profile");
+      setProfileEditing(false);
+      setStartSettingsInWallet(false);
+      setSettingsOpen(true);
+      return;
+    }
+    setSettingsOpen(false);
+    setProfileEditing(false);
+    setTab(destination);
+  };
+  const webMenu = [
+    ["connect", "Connect", Users],
+    ["explore", "Explore", Compass],
+    ["liked", "Liked You", Heart],
+    ["ready", "Ready to Meet", MapPin],
+    ["global", "Global Connect", Globe2],
+  ] as const;
+  const activeWebDestination = webStandalone || (settingsOpen ? "settings" : tab);
+  const webProfilePhotoUri = profilePhotoUri || profilePrimaryPhotoUri(currentReadyMeetProfile);
   return (
-    <View style={{ flex: 1, backgroundColor: C.cream }}>
+    <View style={{ flex: 1, flexDirection: webDesktop ? "row" : "column", backgroundColor: C.cream }}>
+      {webDesktop ? (
+        <View style={{ width: 250, height: "100%", flexShrink: 0, backgroundColor: "#26345F", paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, borderRightWidth: 1, borderRightColor: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
+          <View style={{ paddingHorizontal: 2, paddingBottom: 24 }}><Logo size="sidebar" transparent /></View>
+          <View style={{ gap: 1 }}>
+            {webMenu.map(([key, label, Icon]) => {
+              const active = activeWebDestination === key;
+              return <Pressable key={key} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={() => selectWebDestination(key)} style={({ pressed }) => ({ minHeight: 43, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "transparent", opacity: pressed ? 0.78 : 1, zIndex: active ? 2 : 1, transform: active ? [{ translateX: 5 }, { scale: 1.04 }] : [{ translateX: 0 }, { scale: 1 }] })}><Icon width={active ? 21 : 19} height={active ? 21 : 19} color={active ? "#F4F5F8" : "#C8CCE0"} /><Text style={{ color: active ? "#F4F5F8" : "#D8DBE9", fontSize: active ? 15 : 14, fontWeight: active ? "900" : "700" }}>{label}</Text>{key === "global" ? <Text style={{ marginLeft: "auto", color: active ? "#E2E5EC" : "#B9ACFF", fontSize: 8, fontWeight: "900" }}>SOON</Text> : null}</Pressable>;
+            })}
+          </View>
+          <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.1)", marginVertical: 8 }} />
+          <Pressable accessibilityRole="button" onPress={() => selectWebDestination("settings")} style={({ pressed }) => ({ minHeight: 43, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "transparent", opacity: pressed ? 0.78 : 1, zIndex: activeWebDestination === "settings" ? 2 : 1, transform: activeWebDestination === "settings" ? [{ translateX: 5 }, { scale: 1.04 }] : [{ translateX: 0 }, { scale: 1 }] })}><Settings width={activeWebDestination === "settings" ? 21 : 19} height={activeWebDestination === "settings" ? 21 : 19} color={activeWebDestination === "settings" ? "#F4F5F8" : "#C8CCE0"} /><Text style={{ color: activeWebDestination === "settings" ? "#F4F5F8" : "#D8DBE9", fontSize: activeWebDestination === "settings" ? 15 : 14, fontWeight: activeWebDestination === "settings" ? "900" : "700" }}>Settings</Text></Pressable>
+          {!premiumActive && !kindredPassActive ? (
+            <View style={{ marginTop: 7, borderRadius: 14, borderCurve: "continuous", padding: 11, gap: 6, backgroundColor: "rgba(255,255,255,0.1)", borderWidth: 1, borderColor: "rgba(255,255,255,0.13)" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><Star width={17} height={17} color="#FFD15C" fill="#FFD15C" /><Text style={{ color: "#FFD15C", fontSize: 14, fontWeight: "900" }}>Premium</Text></View>
+              <Text style={{ color: "#E5E9F5", fontSize: 10.5, lineHeight: 14 }}>Unlock all features and find your perfect kindred.</Text>
+              <Pressable accessibilityRole="button" onPress={() => openPaymentCheckout("premium")} style={({ pressed }) => ({ alignSelf: "flex-start", minHeight: 30, borderRadius: 8, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", backgroundColor: pressed ? "#E83D69" : "#F3547C" })}><Text style={{ color: "#FFFFFF", fontSize: 10.5, fontWeight: "900" }}>Upgrade Now</Text></Pressable>
+            </View>
+          ) : null}
+          <View style={{ marginTop: "auto", paddingTop: 8, paddingHorizontal: 8 }}><Text style={{ color: "#B8C0D9", fontSize: 10 }}>© Tectavis</Text></View>
+        </View>
+      ) : null}
+      <DesktopSidebarContentContext.Provider value={webDesktop}>
       <View style={{ flex: 1 }}>
+        {webDesktop ? <View style={{ minHeight: 66, paddingHorizontal: 28, borderBottomWidth: 1, borderBottomColor: C.line, backgroundColor: "rgba(255,253,249,0.94)", flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 12 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Open notifications" onPress={() => selectWebDestination("liked")} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: C.line, backgroundColor: C.paper, alignItems: "center", justifyContent: "center" }}><Bell width={20} height={20} color={C.ink} />{likedActivityCount > 0 ? <View style={{ position: "absolute", right: -2, top: -2, minWidth: 17, height: 17, borderRadius: 9, backgroundColor: C.pink, paddingHorizontal: 4, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 9, fontWeight: "900" }}>{Math.min(99, likedActivityCount)}</Text></View> : null}</Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Open messages" onPress={() => selectWebDestination("chats")} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: C.line, backgroundColor: C.paper, alignItems: "center", justifyContent: "center" }}><MessageCircle width={20} height={20} color={C.ink} />{unreadChatIds.length > 0 ? <View style={{ position: "absolute", right: -2, top: -2, minWidth: 17, height: 17, borderRadius: 9, backgroundColor: C.pink, paddingHorizontal: 4, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 9, fontWeight: "900" }}>{Math.min(99, unreadChatIds.length)}</Text></View> : null}</Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="View profile" onPress={() => selectWebDestination("profile")} style={{ flexDirection: "row", alignItems: "center", gap: 9, paddingLeft: 4, paddingRight: 9, minHeight: 42, borderRadius: 22, backgroundColor: activeWebDestination === "profile" ? "#EFF0F3" : "transparent" }}><View style={{ width: 36, height: 36, borderRadius: 18, overflow: "hidden", backgroundColor: "#343A72", alignItems: "center", justifyContent: "center" }}>{webProfilePhotoUri ? <CachedRemoteImage uri={webProfilePhotoUri} resizeMode="cover" style={{ width: 36, height: 36 }} /> : <Users width={18} height={18} color="#FFFFFF" />}</View><Text numberOfLines={1} style={{ color: C.ink, fontSize: 13, fontWeight: "900", maxWidth: 130 }}>{memberUsername || "Profile"}</Text></Pressable>
+        </View> : null}
         {showConnectHeader && (
           <View style={{ paddingHorizontal: 16 }}>
             <AppHeader onFilter={() => setFilterOpen(true)} />
@@ -21547,6 +21893,7 @@ function SignedInHome({
             <EditableProfileScreen
               key={`profile-editor-${profileEditorVersion}`}
               displayName={memberUsername}
+              desktopWeb={webDesktop}
               initialProfile={privateProfile}
               onUsernameChange={async (username) => {
                 const result = await updateAccountUsername(username);
@@ -21580,7 +21927,7 @@ function SignedInHome({
               balance={walletBalance}
               profile={currentReadyMeetProfile}
               displayName={memberUsername}
-              profilePhotoUri={profilePhotoUri}
+              profilePhotoUri={webProfilePhotoUri}
               profileStrength={profileStrength}
               verificationStatus={identityVerificationStatus}
               verificationMethod={identityVerificationMethod}
@@ -21600,11 +21947,13 @@ function SignedInHome({
               onDeleteAccount={handleDeleteAccount}
               premiumActive={premiumActive}
               kindredPassActive={kindredPassActive}
+              desktopWeb={webDesktop}
             />
           </View>
         </View>
         {tab === "profile" ? null : content}
       </View>
+      </DesktopSidebarContentContext.Provider>
       <MembershipOptionsModal
         visible={membershipOptionsOpen}
         onClose={() => setMembershipOptionsOpen(false)}
@@ -21753,6 +22102,7 @@ function SignedInHome({
           </View>
         </View>
       </Modal>
+      {!webDesktop ? (
       <View
         style={{
           minHeight: 62 + bottomTabPadding,
@@ -21918,6 +22268,7 @@ function SignedInHome({
           );
         })}
       </View>
+      ) : null}
     </View>
   );
 }

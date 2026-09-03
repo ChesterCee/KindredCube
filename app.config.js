@@ -1,9 +1,13 @@
 const appJson = require("./app.json");
 
-const googleMapsApiKey =
+const sharedGoogleMapsApiKey =
   process.env.GOOGLE_MAPS_API_KEY ||
   process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
   "";
+const androidGoogleMapsApiKey =
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY_ANDROID || sharedGoogleMapsApiKey;
+const iosGoogleMapsApiKey =
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY_IOS || sharedGoogleMapsApiKey;
 
 const plugins = appJson.expo.plugins || [];
 const hasBuildProperties = plugins.some((plugin) =>
@@ -11,7 +15,7 @@ const hasBuildProperties = plugins.some((plugin) =>
 );
 const easProjectId = process.env.EAS_PROJECT_ID || appJson.expo.extra?.eas?.projectId;
 
-if (!googleMapsApiKey) {
+if (!androidGoogleMapsApiKey) {
   console.warn(
     "GOOGLE_MAPS_API_KEY is not set. Android release builds will crash when Google Maps opens.",
   );
@@ -30,8 +34,15 @@ module.exports = () => ({
       ...appJson.expo.android?.config,
       googleMaps: {
         ...appJson.expo.android?.config?.googleMaps,
-        apiKey: googleMapsApiKey,
+        apiKey: androidGoogleMapsApiKey,
       },
+    },
+  },
+  ios: {
+    ...appJson.expo.ios,
+    config: {
+      ...appJson.expo.ios?.config,
+      ...(iosGoogleMapsApiKey ? { googleMapsApiKey: iosGoogleMapsApiKey } : {}),
     },
   },
   plugins: hasBuildProperties
