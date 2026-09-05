@@ -4,6 +4,7 @@ import { IsArray, IsIn, IsOptional, IsString, Length, MaxLength, MinLength } fro
 import { AccessTokenGuard, AuthenticatedRequest } from "./auth/auth.guard";
 import { DatabaseService } from "./database.service";
 import { EmailService } from "./email.service";
+import { PushNotificationsService } from "./push-notifications.service";
 
 class ModerationActionDto {
   @IsIn(["suspend", "reinstate", "close_reports", "ban"])
@@ -112,6 +113,7 @@ export class AdminModerationController {
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(EmailService) private readonly email: EmailService,
+    @Inject(PushNotificationsService) private readonly push: PushNotificationsService,
   ) {}
 
   @Post("mfa/challenge")
@@ -295,11 +297,12 @@ export class AdminModerationController {
         email: string;
         emailReplyToken: string | null;
         status: string;
+        userId: string | null;
       }>(
         `SELECT st.id, st.ticket_number AS "ticketNumber",
                 COALESCE(u.email::text, st.contact_email) AS email,
                 st.email_reply_token AS "emailReplyToken",
-                st.status
+                st.status, st.user_id AS "userId"
            FROM support_tickets st
            LEFT JOIN users u ON u.id = st.user_id
           WHERE st.id = $1
@@ -333,6 +336,9 @@ export class AdminModerationController {
         replyToken: ticket.emailReplyToken,
         message,
       });
+      if (ticket.userId) {
+        await this.push.sendSupportNotification(ticket.userId, ticket.ticketNumber, message);
+      }
       const hydrated = await hydrateSupportTicketMessages(client, [{ ...updated.rows[0], email: ticket.email }]);
       return { ticket: hydrated[0], sent: true };
     });
@@ -353,11 +359,12 @@ export class AdminModerationController {
         email: string;
         emailReplyToken: string | null;
         status: string;
+        userId: string | null;
       }>(
         `SELECT st.id, st.ticket_number AS "ticketNumber",
                 COALESCE(u.email::text, st.contact_email) AS email,
                 st.email_reply_token AS "emailReplyToken",
-                st.status
+                st.status, st.user_id AS "userId"
            FROM support_tickets st
            LEFT JOIN users u ON u.id = st.user_id
           WHERE st.id = $1
@@ -393,6 +400,9 @@ export class AdminModerationController {
         replyToken: ticket.emailReplyToken,
         message: `Your KindredCube support ticket has been closed.\n\nReason: ${reason}`,
       });
+      if (ticket.userId) {
+        await this.push.sendSupportNotification(ticket.userId, ticket.ticketNumber, `Your support ticket has been closed. Reason: ${reason}`);
+      }
       const hydrated = await hydrateSupportTicketMessages(client, [{ ...updated.rows[0], email: ticket.email }]);
       return { ticket: hydrated[0], closed: true };
     });

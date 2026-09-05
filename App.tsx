@@ -6090,7 +6090,7 @@ function WalletScreen({
           onPress={onBack}
           style={{ paddingVertical: 8 }}
         >
-          <Text style={{ color: C.ink, fontWeight: "900" }}>Settings</Text>
+          <Text style={{ color: C.ink, fontWeight: "900" }}>Back to profile</Text>
         </Pressable>
         <Text
           selectable
@@ -20455,6 +20455,7 @@ function SignedInHome({
   );
   const amaraReadSaveRef = useRef<Promise<unknown> | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [walletPageOpen, setWalletPageOpen] = useState(false);
   const [profileEditing, setProfileEditing] = useState(startInProfileEditor);
   const [profileEditorVersion, setProfileEditorVersion] = useState(0);
   const [startSettingsInWallet, setStartSettingsInWallet] = useState(false);
@@ -21632,11 +21633,7 @@ function SignedInHome({
       hasCommentPlan={selectedProfileIsConnected || premiumActive || kindredPassActive}
       superLikeIncluded={premiumActive || kindredPassActive}
       onSuperLike={selectedProfileIsConnected ? undefined : () => sendSuperLike(selectedMemberProfile, "explore")}
-      onOpenWallet={() => {
-        setTab("profile");
-        setStartSettingsInWallet(true);
-        setSettingsOpen(true);
-      }}
+      onOpenWallet={openStandaloneWallet}
       onPhotoComment={selectedProfileIsConnected ? async () => true : commentOnPhotoWithWallet}
     />
   ) : filterOpen ? (
@@ -21684,11 +21681,7 @@ function SignedInHome({
       canUseReadyMeetChat={premiumActive || kindredPassActive || readyMeetPassActive}
       walletBalance={walletBalance}
       paidReadyMeetChatIds={paidReadyMeetChatIds}
-      onOpenWallet={() => {
-        setTab("profile");
-        setStartSettingsInWallet(true);
-        setSettingsOpen(true);
-      }}
+      onOpenWallet={openStandaloneWallet}
       canOpenReadyMeetProfileWithoutAccess={(profile) =>
         profileIsMatched(profile) || profileIsInChats(profile)
       }
@@ -21725,11 +21718,7 @@ function SignedInHome({
         openMemberChat(profile);
       }}
       walletBalance={walletBalance}
-      onOpenWallet={() => {
-        setTab("profile");
-        setStartSettingsInWallet(true);
-        setSettingsOpen(true);
-      }}
+      onOpenWallet={openStandaloneWallet}
       onViewMembershipPlans={() => setMembershipOptionsOpen(true)}
       onWalletReveal={async () => {
         try {
@@ -21845,11 +21834,7 @@ function SignedInHome({
         }
       }}
       onPhotoComment={commentOnPhotoWithWallet}
-      onOpenWallet={() => {
-        setTab("profile");
-        setStartSettingsInWallet(true);
-        setSettingsOpen(true);
-      }}
+      onOpenWallet={openStandaloneWallet}
     />
   );
   const tabs = [
@@ -21869,6 +21854,7 @@ function SignedInHome({
     setFilterOpen(false);
     setSelectedMemberProfile(null);
     setActiveMemberChat(null);
+    setWalletPageOpen(false);
     if (destination === "ready" || destination === "global") {
       setTab("explore");
       setWebStandalone(destination);
@@ -21886,6 +21872,14 @@ function SignedInHome({
     setProfileEditing(false);
     setTab(destination);
   };
+  function openStandaloneWallet() {
+    setTab("profile");
+    setWebStandalone(null);
+    setProfileEditing(false);
+    setStartSettingsInWallet(false);
+    setSettingsOpen(false);
+    setWalletPageOpen(true);
+  }
   const webMenu = [
     ["connect", "Connect", Users],
     ["explore", "Explore", Compass],
@@ -21931,7 +21925,14 @@ function SignedInHome({
           </View>
         )}
         <View style={{ flex: 1, display: tab === "profile" ? "flex" : "none" }}>
-          <View style={{ flex: 1, display: settingsOpen ? "flex" : "none" }}>
+          <View style={{ flex: 1, display: walletPageOpen ? "flex" : "none" }}>
+            <WalletScreen
+              balance={walletBalance}
+              onAddFunds={(amount) => openPaymentCheckout("wallet", amount)}
+              onBack={() => setWalletPageOpen(false)}
+            />
+          </View>
+          <View style={{ flex: 1, display: settingsOpen && !walletPageOpen ? "flex" : "none" }}>
             <SettingsScreen
               balance={walletBalance}
               initialSettings={privateSettings}
@@ -21954,7 +21955,7 @@ function SignedInHome({
           <View
             style={{
               flex: 1,
-              display: !settingsOpen && profileEditing ? "flex" : "none",
+              display: !settingsOpen && !walletPageOpen && profileEditing ? "flex" : "none",
             }}
           >
             {!privateSpaceLoaded ? (
@@ -21981,6 +21982,7 @@ function SignedInHome({
               }}
               onConnect={() => setProfileEditing(false)}
               onSettings={() => {
+                setWalletPageOpen(false);
                 setStartSettingsInWallet(false);
                 setSettingsOpen(true);
               }}
@@ -22000,7 +22002,7 @@ function SignedInHome({
           <View
             style={{
               flex: 1,
-              display: !settingsOpen && !profileEditing ? "flex" : "none",
+              display: !settingsOpen && !walletPageOpen && !profileEditing ? "flex" : "none",
             }}
           >
             <ProfileHubScreen
@@ -22016,13 +22018,11 @@ function SignedInHome({
                 setProfileEditing(true);
               }}
               onSettings={() => {
+                setWalletPageOpen(false);
                 setStartSettingsInWallet(false);
                 setSettingsOpen(true);
               }}
-              onOpenWallet={() => {
-                setStartSettingsInWallet(true);
-                setSettingsOpen(true);
-              }}
+              onOpenWallet={openStandaloneWallet}
               onPurchasePlan={(plan) => openPaymentCheckout(plan)}
               onDeleteAccount={handleDeleteAccount}
               premiumActive={premiumActive}
@@ -22157,9 +22157,7 @@ function SignedInHome({
                 if (!profile) return;
                 if (walletBalance < 9.99) {
                   setChatPaywallProfile(null);
-                  setTab("profile");
-                  setStartSettingsInWallet(true);
-                  setSettingsOpen(true);
+                  openStandaloneWallet();
                   return;
                 }
                 setChatUnlocking(true);

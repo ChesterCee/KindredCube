@@ -129,8 +129,12 @@ export class PushNotificationsService {
       const badgeCount = await notificationBadgeCount(client, recipientId);
       const messages: ExpoPushMessage[] = tokens.rows.map((row) => ({
         to: row.token,
-        title: meetingStatus === "accepted" ? "Meeting accepted" : `New message from ${senderName}`,
-        body: meetingStatus === "accepted" ? `${senderName} accepted your meeting proposal.` : pushBodyForChatKind(messageKind),
+        title: meetingStatus === "accepted" ? "Meeting accepted" : meetingStatus === "declined" ? "Meeting declined" : `New message from ${senderName}`,
+        body: meetingStatus === "accepted"
+          ? `${senderName} accepted your meeting proposal.`
+          : meetingStatus === "declined"
+            ? `${senderName} declined your meeting proposal.`
+            : pushBodyForChatKind(messageKind),
         sound: "default",
         priority: "high",
         channelId: "messages",
@@ -147,6 +151,33 @@ export class PushNotificationsService {
       this.logger.log(
         `Queued ${messages.length} message push notification(s) for recipient ${recipientId}; platforms=${summarizePushPlatforms(tokens.rows)}.`,
       );
+    });
+  }
+
+  async sendSupportNotification(recipientId: string, ticketNumber: string, body: string) {
+    await this.database.withUser(recipientId, async (client) => {
+      const tokens = await activePushTokens(client, recipientId);
+      if (!tokens.rowCount) {
+        this.logger.warn(`No active push token found for support recipient ${recipientId}.`);
+        return;
+      }
+      const badgeCount = await notificationBadgeCount(client, recipientId);
+      const messages: ExpoPushMessage[] = tokens.rows.map((row) => ({
+        to: row.token,
+        title: `Support update · ${ticketNumber}`,
+        body: body.trim().slice(0, 180) || "You have a new message from KindredCube Support.",
+        sound: "default",
+        priority: "high",
+        channelId: "messages",
+        badge: Math.max(1, badgeCount || 1),
+        data: {
+          type: "support_message",
+          destination: "settings",
+          ticketNumber,
+        },
+      }));
+      await sendExpoPush(messages, this.logger);
+      this.logger.log(`Queued ${messages.length} support push notification(s) for recipient ${recipientId}.`);
     });
   }
 
