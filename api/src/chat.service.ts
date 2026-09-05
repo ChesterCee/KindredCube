@@ -631,7 +631,7 @@ function normalizePayload(kind: ChatContentKind, payload: ChatPayload) {
     if (!audioUri || audioUri.length > 2000) throw new BadRequestException("Choose a valid voice note.");
     return {
       audioUri,
-      durationMillis: typeof payload.durationMillis === "number" ? Math.max(0, Math.round(payload.durationMillis)) : 0,
+      durationMillis: typeof payload.durationMillis === "number" ? Math.min(120_000, Math.max(0, Math.round(payload.durationMillis))) : 0,
     };
   }
   if (kind === "meeting_proposal") {

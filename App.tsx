@@ -4454,7 +4454,7 @@ function ProfileDetail({
             accessibilityRole="button"
             accessibilityLabel={`Enlarge ${profile.name}'s photo`}
             onPress={() => setGalleryIndex(0)}
-            style={{ borderRadius: desktopWeb ? 5 : 0, overflow: "hidden", boxShadow: desktopWeb ? "0 20px 48px rgba(24,27,48,0.2)" : undefined }}
+            style={{ borderRadius: desktopWeb ? 10 : 0, overflow: "hidden", boxShadow: desktopWeb ? "0 20px 48px rgba(24,27,48,0.2)" : undefined }}
           >
             <ProfileImage profile={profile} size={desktopWeb ? 510 : profileScreenWidth - 40} />
           </Pressable>
@@ -4543,9 +4543,9 @@ function ProfileDetail({
         {desktopWeb ? <View style={{ width: 510, gap: 12 }}>
           <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>More photos of {profile.name}</Text>
           {additionalProfilePhotos.length ? <View style={{ alignItems: "center", gap: 12 }}>
-            <Pressable accessibilityRole="button" accessibilityLabel={`View ${profile.name}'s photo ${desktopPhotoIndex + 2} full screen`} onPress={() => setGalleryIndex(desktopPhotoIndex + 1)} style={{ width: 510, height: 350, borderRadius: 5, overflow: "hidden", backgroundColor: C.line, boxShadow: "0 18px 42px rgba(25,31,55,0.18)" }}>
-              {additionalProfilePhotos[desktopPhotoIndex]?.kind === "uri" ? <CachedRemoteImage uri={String(additionalProfilePhotos[desktopPhotoIndex]?.value)} resizeMode="contain" style={{ width: 510, height: 350 }} /> : <Portrait index={Number(additionalProfilePhotos[desktopPhotoIndex]?.value || 0)} size={350} />}
-              <View pointerEvents="none" style={{ position: "absolute", right: 14, bottom: 14, borderRadius: 16, backgroundColor: "rgba(9,13,30,0.72)", paddingHorizontal: 11, paddingVertical: 7 }}><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>Click to view full size</Text></View>
+            <Pressable accessibilityRole="button" accessibilityLabel={`View ${profile.name}'s photo ${desktopPhotoIndex + 2} full screen`} onPress={() => setGalleryIndex(desktopPhotoIndex + 1)} style={{ width: 420, height: 320, borderRadius: 10, overflow: "hidden", backgroundColor: "transparent" }}>
+              {additionalProfilePhotos[desktopPhotoIndex]?.kind === "uri" ? <CachedRemoteImage uri={String(additionalProfilePhotos[desktopPhotoIndex]?.value)} resizeMode="contain" style={{ width: 420, height: 320 }} /> : <Portrait index={Number(additionalProfilePhotos[desktopPhotoIndex]?.value || 0)} size={320} />}
+              <View pointerEvents="none" style={{ position: "absolute", right: 10, bottom: 10, borderRadius: 14, backgroundColor: "rgba(9,13,30,0.72)", paddingHorizontal: 10, paddingVertical: 6 }}><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>View full photo</Text></View>
             </Pressable>
             {additionalProfilePhotos.length > 1 ? <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>{additionalProfilePhotos.map((_, index) => <Pressable key={`desktop-photo-dot-${index}`} accessibilityRole="button" accessibilityLabel={`Show photo ${index + 2}`} onPress={() => setDesktopPhotoIndex(index)} style={{ width: index === desktopPhotoIndex ? 22 : 8, height: 8, borderRadius: 4, backgroundColor: index === desktopPhotoIndex ? C.pink : "#D9D4CD" }} />)}</View> : null}
           </View> : <Text selectable style={{ color: C.muted, fontSize: 12 }}>No additional photos yet.</Text>}
@@ -4583,7 +4583,7 @@ function ProfileDetail({
             </Text>
           </View>
         ) : null}
-        <View style={{ padding: desktopWeb ? 30 : 16, gap: desktopWeb ? 15 : 7, flex: desktopWeb ? 1 : undefined, justifyContent: desktopWeb ? "flex-start" : undefined, backgroundColor: desktopWeb ? C.paper : "transparent", borderRadius: desktopWeb ? 5 : 0, borderWidth: desktopWeb ? 1 : 0, borderColor: C.line, boxShadow: desktopWeb ? "0 14px 38px rgba(25,31,55,0.09)" : undefined }}>
+        <View style={{ padding: desktopWeb ? 30 : 16, gap: desktopWeb ? 15 : 7, flex: desktopWeb ? 1 : undefined, justifyContent: desktopWeb ? "flex-start" : undefined, backgroundColor: desktopWeb ? C.paper : "transparent", borderRadius: desktopWeb ? 10 : 0, borderWidth: desktopWeb ? 1 : 0, borderColor: C.line, boxShadow: desktopWeb ? "0 14px 38px rgba(25,31,55,0.09)" : undefined }}>
           {!desktopWeb ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <Text
               selectable
@@ -5570,7 +5570,7 @@ function MessagesScreen({
         behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={8}
       >
-        <View style={{ flex: 1, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 30, gap: 10 }}>
+        <View style={{ flex: 1 }}>
           <ReadyMeetChat currentUserId={currentUserId} profile={activeMemberChat} onBack={onCloseMemberChat} onProfilePress={onProfilePress} onBlock={onBlockMember} onReport={onReportMember} onMessageSent={onMemberMessageSent} readyNearby={memberReadyNearby} online={false} verificationStatus={verificationStatus} verificationMethod={verificationMethod} onVerificationStatusChange={onVerificationStatusChange} onVerificationMethodChange={onVerificationMethodChange} onCurrentUserMeetupVerified={onCurrentUserMeetupVerified} completedPostMeetCheckKeys={completedPostMeetCheckKeys} onPostMeetCheckCompleted={onPostMeetCheckCompleted} cachedMessages={activeMemberChat.id ? cachedChatMessagesByProfileId[activeMemberChat.id] || [] : []} onMessagesCached={onMessagesCached} />
         </View>
       </KeyboardAvoidingView>
@@ -12966,11 +12966,22 @@ function ChatAudioBubble({ uri, durationMillis }: { uri: string; durationMillis?
   const player = useAudioPlayer(uri);
   const status = useAudioPlayerStatus(player);
   const duration = Math.max(1, Math.round((durationMillis || status.duration * 1000 || 0) / 1000));
+  const togglePlayback = async () => {
+    if (status.playing) {
+      player.pause();
+      return;
+    }
+    await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+    if (status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration - 0.1)) {
+      await player.seekTo(0);
+    }
+    player.play();
+  };
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={status.playing ? "Pause voice note" : "Play voice note"}
-      onPress={() => status.playing ? player.pause() : player.play()}
+      onPress={() => togglePlayback().catch(() => undefined)}
       style={{ minWidth: 155, paddingHorizontal: 13, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 9 }}
     >
       {status.playing ? <Pause width={19} height={19} color={C.ink} fill={C.ink} /> : <Play width={19} height={19} color={C.ink} fill={C.ink} />}
@@ -13397,6 +13408,7 @@ function ReadyMeetChat({
   const [fullscreenPhotoUri, setFullscreenPhotoUri] = useState("");
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 200);
+  const voiceRecordingStopInProgress = useRef(false);
   const [proposalOpen, setProposalOpen] = useState(false);
   const [venue, setVenue] = useState("");
   const [selectedVenue, setSelectedVenue] = useState<MapPlaceSuggestion | null>(null);
@@ -13447,17 +13459,19 @@ function ReadyMeetChat({
   const accepted = proposal?.status === "accepted";
   const declined = proposal?.status === "declined";
   const currentPostMeetKey = postMeetCheckKey(proposal);
+  const currentPostMeetCompleted = Boolean(currentPostMeetKey) && completedPostMeetKeys.includes(currentPostMeetKey);
   const meetingEnd = accepted ?
     meetingEndTime(proposal.scheduledAt, proposal.durationMinutes)
     : Number.POSITIVE_INFINITY;
   const meetingEnded = accepted && now >= meetingEnd;
   const postMeetDue = meetingEnded &&
     !postMeetSubmitted &&
+    !currentPostMeetCompleted &&
     !postMeetStatusChecking &&
     Boolean(currentPostMeetKey) &&
     postMeetStatusCheckedKey === currentPostMeetKey;
-  const needsPostMeetAcknowledgement = accepted && meetingEnded && !postMeetSubmitted;
-  const activeAccepted = accepted && !meetingEnded && !postMeetSubmitted;
+  const needsPostMeetAcknowledgement = accepted && meetingEnded && !postMeetSubmitted && !currentPostMeetCompleted;
+  const activeAccepted = accepted && !meetingEnded && !postMeetSubmitted && !currentPostMeetCompleted;
   const activeAcceptedBeforeDue = activeAccepted;
   const postMeetNeedsAction = postMeetDue || needsPostMeetAcknowledgement;
   // Ordinary chat refreshes must not reset the meeting/check state.
@@ -13485,7 +13499,7 @@ function ReadyMeetChat({
     Keyboard.dismiss();
     setMediaMenuOpen(false);
     setNow(Date.now());
-    if (postMeetNeedsAction || (accepted && Date.now() >= meetingEnd && !postMeetSubmitted)) {
+    if (postMeetNeedsAction || (accepted && Date.now() >= meetingEnd && !postMeetSubmitted && !currentPostMeetCompleted)) {
       setMeetingPromptNotice("You had a meeting last time. To activate a new meeting, please tell us about the last meeting.");
       setPostMeetOutcomeOpen(true);
       setPostMeetMissedReasonOpen(false);
@@ -13629,6 +13643,13 @@ function ReadyMeetChat({
     setPostMeetMissedReason("");
     setPostMeetPromptPreviewVisible(true);
   }, [postMeetNeedsAction, postMeetOutcomeOpen, postMeetOpen, currentPostMeetKey]);
+  useEffect(() => {
+    if (postMeetNeedsAction) return;
+    setPostMeetPromptPreviewVisible(false);
+    setPostMeetOutcomeOpen(false);
+    setPostMeetOpen(false);
+    setPostMeetMissedReasonOpen(false);
+  }, [postMeetNeedsAction]);
   useEffect(() => {
     if (!postMeetNeedsAction) {
       postMeetPulse.stopAnimation();
@@ -14170,17 +14191,25 @@ function ReadyMeetChat({
       setComposerNotice("Photo could not be prepared for sending. Try another photo.");
     }
   };
+  const finishVoiceRecording = async (durationMillis: number) => {
+    if (voiceRecordingStopInProgress.current) return;
+    voiceRecordingStopInProgress.current = true;
+    try {
+      await audioRecorder.stop();
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      const audioUri = audioRecorder.uri;
+      if (audioUri) {
+        await queueChatMedia("audio", audioUri, "audio/mp4", 1, Math.min(durationMillis, 120_000));
+      }
+    } finally {
+      voiceRecordingStopInProgress.current = false;
+    }
+  };
   const toggleVoiceRecording = async () => {
     setComposerNotice("");
     try {
       if (recorderState.isRecording) {
-        const durationMillis = recorderState.durationMillis;
-        await audioRecorder.stop();
-        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-        const audioUri = audioRecorder.uri;
-        if (audioUri) {
-          await queueChatMedia("audio", audioUri, "audio/mp4", 1, durationMillis);
-        }
+        await finishVoiceRecording(recorderState.durationMillis);
         return;
       }
       const permission = await requestRecordingPermissionsAsync();
@@ -14196,6 +14225,12 @@ function ReadyMeetChat({
       setComposerNotice("The voice note could not be recorded. Check microphone permission and try again.");
     }
   };
+  useEffect(() => {
+    if (!recorderState.isRecording || recorderState.durationMillis < 120_000) return;
+    finishVoiceRecording(120_000)
+      .then(() => setComposerNotice("Maximum voice-note length reached. Your two-minute recording is ready to send."))
+      .catch(() => setComposerNotice("The voice note could not be prepared. Please try again."));
+  }, [recorderState.durationMillis, recorderState.isRecording]);
   const closeGifPicker = useCallback(() => {
     setGifOpen(false);
     setGifQuery("");
@@ -14292,7 +14327,7 @@ function ReadyMeetChat({
     <KeyboardAvoidingView
       behavior={process.env.EXPO_OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Math.max(0, insets.top + 8)}
-      style={{ flex: 1, backgroundColor: "transparent", padding: typingMode ? 6 : 8, gap: typingMode ? 7 : 10 }}
+      style={{ flex: 1, backgroundColor: "transparent" }}
       onTouchStart={(event) => {
         const touch = event.nativeEvent.touches[0];
         chatSwipeStart.current = touch ? { x: touch.pageX, y: touch.pageY } : null;
@@ -14307,7 +14342,7 @@ function ReadyMeetChat({
         if (dx > 45 && dy < 120) onBack();
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingTop: insets.top + 8, paddingHorizontal: 10, paddingBottom: 10, borderRadius: 31, backgroundColor: "#F1EAE0", boxShadow: "0 7px 16px rgba(0,29,48,0.10)" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingTop: insets.top + 8, paddingHorizontal: 10, paddingBottom: 10, backgroundColor: "#F1EAE0", boxShadow: "0 7px 16px rgba(0,29,48,0.10)" }}>
         <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Pressable accessibilityRole="button" accessibilityLabel="Back to chats" onPress={onBack} style={{ width: 34, height: 44, alignItems: "center", justifyContent: "center" }}>
             <ChevronLeft width={27} height={27} color={C.ink} />
@@ -14392,6 +14427,35 @@ function ReadyMeetChat({
           />
         ) : null}
       </Modal>
+
+      <View
+        style={{
+          flex: 1,
+          minHeight: 0,
+          position: "relative",
+          overflow: "hidden",
+          backgroundColor: "transparent",
+          paddingHorizontal: typingMode ? 6 : 8,
+          paddingVertical: 6,
+          gap: typingMode ? 7 : 10,
+        }}
+      >
+        <Image
+          pointerEvents="none"
+          source={require("./assets/chat-kindred-pattern-v1.png")}
+          accessibilityLabel=""
+          resizeMode="cover"
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            opacity: desktopWeb ? 0.42 : 0.34,
+          }}
+        />
 
       {meetingPromptNotice && !proposalOpen && !typingMode ? (
         <View style={{ borderRadius: 20, backgroundColor: "#F7F3ED", paddingHorizontal: 15, paddingVertical: 13, alignItems: "center", justifyContent: "center", boxShadow: "0 10px 24px rgba(0,29,48,0.10)" }}>
@@ -14619,17 +14683,26 @@ function ReadyMeetChat({
       {accepted && !meetingEnded && scheduled && !typingMode ? <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16, textAlign: "center" }}>The post-meet check becomes available after {new Date(meetingEnd).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}.</Text> : null}
       {postMeetSubmitted && postMeetThanksVisible && !typingMode ? <View style={{ borderRadius: 16, backgroundColor: "#E7F2EA", padding: 12 }}><Text selectable style={{ color: C.sage, fontSize: 12, fontWeight: "900" }}>Thank you. Your private post-meet check was submitted.</Text></View> : null}
 
-      <ScrollView
-        ref={chatScrollRef}
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
-        onLayout={() => chatScrollRef.current?.scrollToEnd({ animated: false })}
-        onTouchStart={() => {
-          if (accepted && proposalDetailsExpanded) setProposalDetailsExpanded(false);
+      <View
+        style={{
+          flex: 1,
+          minHeight: 0,
+          position: "relative",
+          overflow: "hidden",
+          backgroundColor: "transparent",
         }}
-        style={{ flex: 1, minHeight: 0, opacity: proposalOpen || (accepted && proposalDetailsExpanded && !typingMode) ? 0.52 : 1 }}
-        contentContainerStyle={{ gap: 8, paddingTop: 4, paddingBottom: typingMode ? 12 : 4 }}
       >
+        <ScrollView
+          ref={chatScrollRef}
+          contentInsetAdjustmentBehavior="automatic"
+          keyboardShouldPersistTaps="handled"
+          onLayout={() => chatScrollRef.current?.scrollToEnd({ animated: false })}
+          onTouchStart={() => {
+            if (accepted && proposalDetailsExpanded) setProposalDetailsExpanded(false);
+          }}
+          style={{ flex: 1, minHeight: 0, backgroundColor: "transparent", opacity: proposalOpen || (accepted && proposalDetailsExpanded && !typingMode) ? 0.52 : 1 }}
+          contentContainerStyle={{ gap: 8, paddingHorizontal: 6, paddingTop: 8, paddingBottom: typingMode ? 12 : 8 }}
+        >
         {chatMessages.map((item, index) => {
           const sentByMe = item.sender === "me";
           const bubbleColor = sentByMe ? "rgba(245,130,32,0.40)" : "#FFFFFF";
@@ -14755,7 +14828,9 @@ function ReadyMeetChat({
             </View>
           );
         })}
-      </ScrollView>
+        </ScrollView>
+      </View>
+      </View>
 
       {composerNotice ? <Text accessibilityRole="alert" selectable style={{ color: "#9C3225", fontSize: 10, fontWeight: "800", textAlign: "center" }}>{composerNotice}</Text> : null}
       {recorderState.isRecording ? <Text accessibilityRole="alert" selectable style={{ color: "#B52E20", fontSize: 11, fontWeight: "900", textAlign: "center" }}>Recording voice note ? {Math.max(1, Math.round(recorderState.durationMillis / 1000))}s ? tap stop to send</Text> : null}
@@ -17628,13 +17703,14 @@ function ProfilePhotoGallery({
   const insets = useSafeAreaInsets();
   const photos = profileGalleryItems(profile);
   const photoCount = photos.length;
-  const desktopGalleryWidth = Math.min(Math.max(width - 120, 320), 1180);
-  const desktopGalleryHeight = Math.min(Math.max(height - insets.top - insets.bottom - 180, 320), 760);
+  const desktopGalleryWidth = Math.min(Math.max(width - 240, 360), 680);
+  const desktopGalleryHeight = Math.min(Math.max(height - insets.top - insets.bottom - 210, 360), 680);
   const galleryImageWidth = desktopWeb ? desktopGalleryWidth : width;
   const galleryImageHeight = desktopWeb
     ? desktopGalleryHeight
     : Math.min(width * 1.25, height - insets.top - insets.bottom - 120);
   const photoPrompts = profilePromptsForGallery(profile);
+  const desktopPromptWidth = Math.min(420, Math.max(260, desktopGalleryWidth - 36));
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [commentedPhotoIndexes, setCommentedPhotoIndexes] = useState<number[]>([]);
   const [commentMessage, setCommentMessage] = useState("");
@@ -17693,7 +17769,7 @@ function ProfilePhotoGallery({
         >
           {photos.map((photo, index) => (
             <View key={`${profile.name}-gallery-${photo.kind}-${photo.value}-${index}`} style={{ width, height: height - insets.top - insets.bottom - 90, alignItems: "center", justifyContent: "center" }}>
-              <View style={{ width: galleryImageWidth, height: galleryImageHeight, borderRadius: desktopWeb ? 5 : 0, overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#211E1A", position: "relative" }}>
+              <View style={{ width: galleryImageWidth, height: galleryImageHeight, borderRadius: desktopWeb ? 10 : 0, overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: desktopWeb ? "transparent" : "#211E1A", position: "relative" }}>
                 {photo.kind === "uri" ? (
                   <CachedRemoteImage uri={String(photo.value)} resizeMode={desktopWeb ? "contain" : "cover"} preferThumbnail={false} style={{ width: galleryImageWidth, height: galleryImageHeight }} />
                 ) : (
@@ -17705,10 +17781,11 @@ function ProfilePhotoGallery({
                     pointerEvents="none"
                     style={{
                       position: "absolute",
-                      left: 18,
-                      right: 18,
+                      left: desktopWeb ? (desktopGalleryWidth - desktopPromptWidth) / 2 : 18,
+                      right: desktopWeb ? undefined : 18,
+                      width: desktopWeb ? desktopPromptWidth : undefined,
                       bottom: 20,
-                      borderRadius: 20,
+                      borderRadius: desktopWeb ? 10 : 20,
                       borderWidth: 1,
                       borderColor: "rgba(255,255,255,0.55)",
                       backgroundColor: "rgba(255,253,249,0.34)",
@@ -21371,11 +21448,14 @@ function SignedInHome({
       clearTimeout(savePrivateSpaceTimer.current);
       savePrivateSpaceTimer.current = null;
     }
-    await updatePrivateSpace(
-      privateProfileRef.current,
-      privateSettingsRef.current,
-    ).catch(() => undefined);
-    await amaraReadSaveRef.current?.catch(() => undefined);
+    const finalSave = Promise.all([
+      updatePrivateSpace(privateProfileRef.current, privateSettingsRef.current).catch(() => undefined),
+      amaraReadSaveRef.current?.catch(() => undefined),
+    ]);
+    await Promise.race([
+      finalSave,
+      new Promise<void>((resolve) => setTimeout(resolve, 250)),
+    ]);
     onLogout();
   }, [onLogout]);
   const handleDeleteAccount = useCallback(async (reasons: string[], details: string) => {
@@ -23517,12 +23597,11 @@ export default function App() {
           setNotificationTarget((current) => current?.id === id ? null : current);
         }}
         onLogout={() => {
-          logoutAccount().finally(() => {
-            setSessionUser(null);
-            setStartInProfileEditor(false);
-            setNotificationTarget(null);
-            setScreen("landing");
-          });
+          setSessionUser(null);
+          setStartInProfileEditor(false);
+          setNotificationTarget(null);
+          setScreen("landing");
+          logoutAccount().catch(() => undefined);
         }}
       />
     );

@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Param, Post, Put, Query, Req, Res, UseGuards } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { IsIn, IsInt, IsObject, IsString, Max, Min } from "class-validator";
-import { Response } from "express";
+import { Request, Response } from "express";
 import sharp from "sharp";
 import { DatabaseService } from "./database.service";
 import { AccessTokenGuard, AuthenticatedRequest } from "./auth/auth.guard";
@@ -189,6 +189,7 @@ export class PrivateSpaceController {
 
   @Get("media/profile-photo/:mediaId")
   async readProfilePhoto(
+    @Req() request: Request,
     @Param("mediaId") mediaId: string,
     @Query("thumb") thumb: string | undefined,
     @Res() response: Response,
@@ -268,9 +269,30 @@ export class PrivateSpaceController {
       ? row.thumbnail_size_bytes || generatedThumbnail!.data.length
       : row.size_bytes;
     response.setHeader("Content-Type", mimeType);
-    response.setHeader("Content-Length", String(sizeBytes));
+    response.setHeader("Accept-Ranges", "bytes");
+    // Profile photos are intentionally public media and are rendered by the
+    // KindredCube web app from the api.kindredcube.com subdomain. Helmet's
+    // default same-origin resource policy blocks that legitimate embedding.
+    response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
     response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     response.setHeader("ETag", `"${mediaId}${useThumbnail ? "-thumb" : ""}"`);
+    const range = request.headers.range;
+    if (range) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+      if (match) {
+        const requestedStart = match[1] ? Number(match[1]) : 0;
+        const requestedEnd = match[2] ? Number(match[2]) : data.length - 1;
+        const start = Math.max(0, Math.min(requestedStart, data.length - 1));
+        const end = Math.max(start, Math.min(requestedEnd, data.length - 1));
+        const chunk = data.subarray(start, end + 1);
+        response.status(206);
+        response.setHeader("Content-Range", `bytes ${start}-${end}/${data.length}`);
+        response.setHeader("Content-Length", String(chunk.length));
+        response.send(chunk);
+        return;
+      }
+    }
+    response.setHeader("Content-Length", String(sizeBytes));
     response.send(data);
   }
 
