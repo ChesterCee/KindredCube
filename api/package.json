@@ -7,6 +7,7 @@
     "start": "node dist/src/main.js",
     "start:dev": "tsx watch src/main.ts",
     "migrate": "tsx scripts/migrate.ts",
+    "grant:lifetime-premium": "tsx scripts/grant-lifetime-premium.ts",
     "admin:totp-secret": "tsx scripts/create-admin-totp-secret.ts",
     "test": "vitest run"
   },
