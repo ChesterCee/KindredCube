@@ -117,24 +117,34 @@ export class PushNotificationsService {
         [senderId],
       );
       const senderName = sender.rows[0]?.display_name || "Someone";
-      const message = await client.query<{ content_kind: string }>(
-        `SELECT content_kind
-           FROM chat_messages
-          WHERE id = $1
-            AND recipient_id = $2
+      const message = await client.query<{ content_kind: string; ready_meet_invitation: boolean }>(
+        `SELECT cm.content_kind,
+                EXISTS (
+                  SELECT 1
+                    FROM ready_meet_chat_invitations invitation
+                   WHERE invitation.first_message_id = cm.id
+                     AND invitation.recipient_id = $2
+                     AND invitation.status = 'pending'
+                ) AS ready_meet_invitation
+           FROM chat_messages cm
+          WHERE cm.id = $1
+            AND cm.recipient_id = $2
           LIMIT 1`,
         [messageId, recipientId],
       );
       const messageKind = message.rows[0]?.content_kind || "text";
+      const readyMeetInvitation = message.rows[0]?.ready_meet_invitation === true;
       const badgeCount = await notificationBadgeCount(client, recipientId);
       const messages: ExpoPushMessage[] = tokens.rows.map((row) => ({
         to: row.token,
-        title: meetingStatus === "accepted" ? "Meeting accepted" : meetingStatus === "declined" ? "Meeting declined" : `New message from ${senderName}`,
+        title: meetingStatus === "accepted" ? "Meeting accepted" : meetingStatus === "declined" ? "Meeting declined" : readyMeetInvitation ? `Chat request from ${senderName}` : `New message from ${senderName}`,
         body: meetingStatus === "accepted"
           ? `${senderName} accepted your meeting proposal.`
           : meetingStatus === "declined"
             ? `${senderName} declined your meeting proposal.`
-            : pushBodyForChatKind(messageKind),
+            : readyMeetInvitation
+              ? "Tap to read their first message and accept or decline the conversation."
+              : pushBodyForChatKind(messageKind),
         sound: "default",
         priority: "high",
         channelId: "messages",

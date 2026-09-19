@@ -158,6 +158,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import {
+  AccessibilityInfo,
   Animated,
   Alert,
   AppState,
@@ -1047,6 +1048,7 @@ type Profile = {
   chatPreviewFromMe?: boolean;
   chatLastMessageAt?: string;
   chatLastMessageSenderId?: string;
+  chatInvitation?: ReadyMeetChatInvitation;
   promptAnswers?: Record<string, { prompt: string; answer: string }>;
 };
 
@@ -5670,10 +5672,13 @@ function MessagesScreen({
         <View style={{ gap: 10 }}>
         {visibleChatProfiles.map((chatProfile) => {
           const unread = Boolean(unreadChatIds?.includes(chatProfile.id || chatProfile.name));
+          const incomingChatRequest = chatProfile.chatInvitation?.status === "pending" && chatProfile.chatInvitation.direction === "incoming";
           const previewPrefix = chatProfile.chatPreview ?
-            `${chatProfile.chatPreviewFromMe ? "You" : chatProfile.name}: `
+            incomingChatRequest ? "" : `${chatProfile.chatPreviewFromMe ? "You" : chatProfile.name}: `
             : "";
-          const previewText = chatProfile.chatPreview || "You matched. Start the conversation.";
+          const previewText = incomingChatRequest
+            ? "Chat request — tap to read the first message and respond"
+            : chatProfile.chatPreview || "You matched. Start the conversation.";
           return (
         <Pressable
           accessibilityRole="button"
@@ -5699,7 +5704,7 @@ function MessagesScreen({
             );
           }}
           delayLongPress={420}
-          style={{ minHeight: 82, borderRadius: 22, backgroundColor: unread ? "#FFF7DF" : C.paper, borderWidth: 1.5, borderColor: unread ? "#F0A000" : C.line, padding: 13, flexDirection: "row", alignItems: "center", gap: 12 }}
+          style={{ minHeight: 82, borderRadius: 22, backgroundColor: incomingChatRequest || unread ? "#FFF7DF" : C.paper, borderWidth: 1.5, borderColor: incomingChatRequest || unread ? "#F0A000" : C.line, padding: 13, flexDirection: "row", alignItems: "center", gap: 12 }}
         >
           <View style={{ width: 56, height: 56, borderRadius: 28, overflow: "hidden", borderWidth: unread ? 3 : 2, borderColor: unread ? "#F0A000" : C.pink }}>
             <ProfileImage profile={chatProfile} size={56} />
@@ -5712,8 +5717,13 @@ function MessagesScreen({
                   <Text style={{ color: C.paper, fontSize: 9, fontWeight: "900" }}>NEW</Text>
                 </View>
               ) : null}
+              {incomingChatRequest ? (
+                <View style={{ borderRadius: 10, backgroundColor: C.pink, paddingHorizontal: 7, paddingVertical: 2 }}>
+                  <Text style={{ color: C.paper, fontSize: 9, fontWeight: "900" }}>CHAT REQUEST</Text>
+                </View>
+              ) : null}
             </View>
-            <Text numberOfLines={1} style={{ color: unread ? C.ink : C.muted, fontSize: 12, fontWeight: unread ? "900" : "600" }}>
+            <Text numberOfLines={2} style={{ color: incomingChatRequest || unread ? C.ink : C.muted, fontSize: 12, fontWeight: incomingChatRequest || unread ? "900" : "600" }}>
               {previewPrefix}{previewText}
             </Text>
           </View>
@@ -15318,6 +15328,92 @@ function ReadyMeetEmptyStory() {
   );
 }
 
+function ReadyMeetRotatingPhoto({
+  profile,
+  size,
+  paused,
+}: {
+  profile: Profile;
+  size: number;
+  paused: boolean;
+}) {
+  const photos = profilePhotoUris(profile).slice(0, 5);
+  const photoKey = photos.join("|");
+  const fade = useRef(new Animated.Value(1)).current;
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [previousUri, setPreviousUri] = useState(photos[0] || "");
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) setReduceMotion(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+  useEffect(() => {
+    setActiveIndex(0);
+    setPreviousUri(photos[0] || "");
+    fade.setValue(1);
+  }, [photoKey, fade]);
+  useEffect(() => {
+    if (paused || reduceMotion || photos.length <= 1) return;
+    const timer = setInterval(() => {
+      setActiveIndex((currentIndex) => {
+        const currentUri = photos[currentIndex] || photos[0];
+        setPreviousUri(currentUri);
+        let nextIndex = currentIndex;
+        while (nextIndex === currentIndex) {
+          nextIndex = Math.floor(Math.random() * photos.length);
+        }
+        fade.stopAnimation();
+        fade.setValue(0);
+        Animated.timing(fade, {
+          toValue: 1,
+          duration: 1100,
+          useNativeDriver: true,
+        }).start();
+        return nextIndex;
+      });
+    }, 6500);
+    return () => clearInterval(timer);
+  }, [fade, paused, photoKey, reduceMotion]);
+  const activeUri = photos[activeIndex] || photos[0] || "";
+  return (
+    <View style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+      <ProfileImage profile={profile} size={size} />
+      {previousUri ? (
+        <Image
+          source={{ uri: previousUri }}
+          resizeMode="cover"
+          fadeDuration={0}
+          style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%" }}
+        />
+      ) : null}
+      {activeUri ? (
+        <Animated.Image
+          source={{ uri: activeUri }}
+          resizeMode="cover"
+          fadeDuration={0}
+          style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%", opacity: fade }}
+        />
+      ) : null}
+      <View pointerEvents="none" style={{ position: "absolute", left: 7, bottom: 5, width: 68, height: 23, opacity: 0.24 }}>
+        <Image
+          source={require("./assets/kindredcube-3d-horizontal-transparent.png")}
+          accessibilityLabel="KindredCube"
+          resizeMode="contain"
+          fadeDuration={0}
+          style={{ width: 68, height: 23 }}
+        />
+      </View>
+    </View>
+  );
+}
+
 function ReadyToMeetFeature({
   people,
   currentProfile,
@@ -15364,6 +15460,7 @@ function ReadyToMeetFeature({
   const readyProfilesPagerRef = useRef<ScrollView | null>(null);
   const [expanded, setExpanded] = useState(primary);
   const [readyProfilePage, setReadyProfilePage] = useState(0);
+  const [readyPhotoRotationPaused, setReadyPhotoRotationPaused] = useState(false);
   const [coordinates, setCoordinates] = useState<{
     latitude: number;
     longitude: number;
@@ -15920,6 +16017,8 @@ function ReadyToMeetFeature({
               showsHorizontalScrollIndicator={false}
               decelerationRate="fast"
               scrollEventThrottle={16}
+              onScrollBeginDrag={() => setReadyPhotoRotationPaused(true)}
+              onScrollEndDrag={() => setReadyPhotoRotationPaused(false)}
               onMomentumScrollEnd={(event) => {
                 const nextPage = Math.max(
                   0,
@@ -15929,6 +16028,7 @@ function ReadyToMeetFeature({
                   ),
                 );
                 setReadyProfilePage(nextPage);
+                setReadyPhotoRotationPaused(false);
                 setShowReadySwipeHint(false);
                 swipeHintProgress.stopAnimation();
               }}
@@ -15959,7 +16059,7 @@ function ReadyToMeetFeature({
                       </Text>
                     ) : null}
                     <View style={{ height: cardImageHeight, borderRadius: 15, overflow: "hidden", backgroundColor: "#1C2338" }}>
-                      <ProfileImage profile={profile} size={cardWidth} />
+                      <ReadyMeetRotatingPhoto profile={profile} size={cardWidth} paused={readyPhotoRotationPaused} />
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={isCurrentUserReadyCard ? "Your Ready to Meet card" : `Chat with ${profile.name}`}
@@ -21018,6 +21118,7 @@ function SignedInHome({
           chatPreviewFromMe: conversation.lastMessageSenderId === initialUser?.id,
           chatLastMessageAt: conversation.lastMessageAt,
           chatLastMessageSenderId: conversation.lastMessageSenderId,
+          chatInvitation: conversation.invitation,
         };
       });
     if (markIncomingUnread) {
@@ -21339,6 +21440,7 @@ function SignedInHome({
             chatLastMessageSenderId: message.senderId,
           };
           promoteChatProfile(incomingProfile);
+          if (!fromMe) refreshChatConversations(true).catch(() => undefined);
           setMemberChatReadyNearby(Boolean(profileMatchingSignals(incomingProfile).readyToMeet));
           const activeKey = activeMemberChatRef.current ? likeProfileKey(activeMemberChatRef.current) : "";
           const profileKey = likeProfileKey(incomingProfile);
