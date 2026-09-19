@@ -35,12 +35,15 @@
   },
   "scripts": {
     "local:env": "node script/sync-local-network-env.js",
-    "start": "npm run local:env && set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --lan",
-    "start:phone": "npm run local:env && set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --lan --clear",
-    "start:api": "npm run local:env && cd api && npm.cmd run build && node dist/src/main.js",
+    "local:env:api": "node script/sync-local-network-env.js --local-api",
+    "start": "node script/sync-local-network-env.js --start-expo",
+    "start:phone": "node script/sync-local-network-env.js --start-expo --clear",
+    "start:phone:local-api": "node script/sync-local-network-env.js --start-expo --clear --local-api",
+    "start:api": "npm run local:env:api && cd api && npm.cmd run build && node dist/src/main.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --web --port 3000"
+    "web": "set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --web --port 3000",
+    "web:export": "expo export --platform web --output-dir dist --clear && node script/configure-pwa-export.js dist"
   },
   "private": true
 }

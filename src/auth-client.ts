@@ -999,6 +999,18 @@ export type ChatConversation = {
   lastMessageAt: string;
   lastMessagePreview: string;
   lastMessageSenderId?: string;
+  invitation?: ReadyMeetChatInvitation;
+};
+
+export type ReadyMeetChatInvitation = {
+  id: string;
+  requesterId: string;
+  recipientId: string;
+  status: "pending" | "accepted" | "declined";
+  direction: "incoming" | "outgoing";
+  reconsiderAfter?: string;
+  createdAt: string;
+  respondedAt?: string;
 };
 
 export async function getChatSocketConfig() {
@@ -1027,9 +1039,25 @@ export async function getChatSocketConfig() {
 }
 
 export function getConversationMessages(profileId: string) {
-  return request<{ messages: ChatMessage[] }>(
+  return request<{ messages: ChatMessage[]; invitation?: ReadyMeetChatInvitation }>(
     `/v1/chats/${encodeURIComponent(profileId)}/messages`,
     { method: "GET" },
+    true,
+  );
+}
+
+export function sendReadyMeetChatInvitation(recipientId: string, message: string) {
+  return request<{ invitation: ReadyMeetChatInvitation; message: ChatMessage }>(
+    "/v1/chats/ready-meet-invitations",
+    { method: "POST", body: JSON.stringify({ recipientId, message }) },
+    true,
+  );
+}
+
+export function respondToReadyMeetChatInvitation(invitationId: string, status: "accepted" | "declined") {
+  return request<{ invitation: ReadyMeetChatInvitation }>(
+    `/v1/chats/ready-meet-invitations/${encodeURIComponent(invitationId)}/respond`,
+    { method: "POST", body: JSON.stringify({ status }) },
     true,
   );
 }

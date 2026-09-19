@@ -56,6 +56,17 @@ export type ChatMessageResponse = {
   };
 };
 
+export type ReadyMeetChatInvitationResponse = {
+  id: string;
+  requesterId: string;
+  recipientId: string;
+  status: "pending" | "accepted" | "declined";
+  direction: "incoming" | "outgoing";
+  reconsiderAfter?: string;
+  createdAt: string;
+  respondedAt?: string;
+};
+
 export type ChatConversationResponse = {
   profile: {
     id: string;
@@ -77,6 +88,7 @@ export type ChatConversationResponse = {
   lastMessageAt: string;
   lastMessagePreview: string;
   lastMessageSenderId?: string;
+  invitation?: ReadyMeetChatInvitationResponse;
 };
 
 type ChatMessageRow = {
@@ -112,6 +124,13 @@ type ChatConversationRow = {
   last_ciphertext: string | null;
   last_iv: string | null;
   last_auth_tag: string | null;
+  invitation_id: string | null;
+  invitation_requester_id: string | null;
+  invitation_recipient_id: string | null;
+  invitation_status: "pending" | "accepted" | "declined" | null;
+  invitation_reconsider_after: string | null;
+  invitation_created_at: string | null;
+  invitation_responded_at: string | null;
 };
 
 @Injectable()
@@ -189,6 +208,13 @@ export class ChatService {
                 last_message.ciphertext AS last_ciphertext,
                 last_message.iv AS last_iv,
                 last_message.auth_tag AS last_auth_tag,
+                invitation.id AS invitation_id,
+                invitation.requester_id AS invitation_requester_id,
+                invitation.recipient_id AS invitation_recipient_id,
+                invitation.status AS invitation_status,
+                invitation.reconsider_after AS invitation_reconsider_after,
+                invitation.created_at AS invitation_created_at,
+                invitation.responded_at AS invitation_responded_at,
                 ${publicStripeVerifiedSql("d.user_id")} AS identity_verified,
                 ${publicSelfieVerifiedSql("d.user_id")} AS selfie_verified
            FROM latest
@@ -209,6 +235,14 @@ export class ChatService {
               ORDER BY cm.created_at DESC
               LIMIT 1
            ) last_message ON true
+          LEFT JOIN LATERAL (
+            SELECT id, requester_id, recipient_id, status, reconsider_after, created_at, responded_at
+              FROM ready_meet_chat_invitations invitation_row
+             WHERE (invitation_row.requester_id = $1 AND invitation_row.recipient_id = latest.other_user_id)
+                OR (invitation_row.requester_id = latest.other_user_id AND invitation_row.recipient_id = $1)
+             ORDER BY invitation_row.updated_at DESC
+             LIMIT 1
+          ) invitation ON true
           LEFT JOIN hidden_chat_conversations hidden
             ON hidden.user_id = $1
            AND hidden.other_user_id = latest.other_user_id
@@ -225,14 +259,14 @@ export class ChatService {
           LIMIT 50`,
         [userId],
       );
-      return { conversations: result.rows.map((row) => this.toConversationResponse(row)) };
+      return { conversations: result.rows.map((row) => this.toConversationResponse(row, userId)) };
     });
   }
 
   async listMessages(userId: string, otherUserId: string) {
     if (!isUuid(otherUserId) || otherUserId === userId) throw new BadRequestException("A valid chat member is required.");
     return this.database.withUser(userId, async (client) => {
-      await this.assertCanChat(client, userId, otherUserId);
+      await this.assertCanViewChat(client, userId, otherUserId);
       const result = await client.query<ChatMessageRow>(
         `SELECT id, sender_id, recipient_id, content_kind, ciphertext, iv, auth_tag, reaction_data, created_at, edited_at, unsent_at
            FROM chat_messages
@@ -255,7 +289,132 @@ export class ChatService {
       const messages = result.rows.map((row) => this.toResponse(row));
       // Catch up recent accepted meetings saved before the worker was deployed.
       for (const message of messages) await schedulePostMeet(client, message);
-      return { messages };
+      const invitation = await this.readyMeetInvitation(client, userId, otherUserId);
+      return { messages, invitation };
+    });
+  }
+
+  async sendReadyMeetInvitation(userId: string, recipientId: string, text: string) {
+    if (!isUuid(recipientId) || recipientId === userId) throw new BadRequestException("A valid recipient is required.");
+    const normalized = normalizePayload("text", { text });
+    return this.database.withUser(userId, async (client) => {
+      const access = await client.query<{
+        recipient_ready: boolean;
+        blocked: boolean;
+        active_plan: boolean;
+        ready_meet_wallet: boolean;
+      }>(
+        `SELECT
+           EXISTS (
+             SELECT 1 FROM users u
+             JOIN discovery_profiles d ON d.user_id = u.id
+            WHERE u.id = $2
+              AND u.status = 'active'
+              AND u.email_verified_at IS NOT NULL
+              AND d.visible = true
+              AND d.matching_data ->> 'readyToMeet' = 'true'
+              AND NULLIF(d.matching_data ->> 'readyToMeetExpiresAt', '')::timestamptz > now()
+           ) AS recipient_ready,
+           EXISTS (
+             SELECT 1 FROM user_blocks b
+              WHERE (b.blocker_id = $1 AND b.blocked_profile_id = $2::text)
+                 OR (b.blocker_id = $2 AND b.blocked_profile_id = $1::text)
+           ) AS blocked,
+           EXISTS (
+             SELECT 1 FROM user_entitlements e
+              WHERE e.user_id = $1 AND e.active = true
+                AND e.entitlement IN ('premium', 'kindred_pass')
+                AND (e.expires_at IS NULL OR e.expires_at > now())
+           ) AS active_plan,
+           EXISTS (
+             SELECT 1 FROM wallet_ledger w
+              WHERE w.user_id = $1 AND w.entry_type = 'ready_to_meet_chat'
+           ) AS ready_meet_wallet`,
+        [userId, recipientId],
+      );
+      const permission = access.rows[0];
+      if (!permission?.recipient_ready) throw new ForbiddenException("This member is no longer available on Ready to Meet.");
+      if (permission.blocked) throw new ForbiddenException("This chat request is not available.");
+      if (!permission.active_plan && !permission.ready_meet_wallet) throw new ForbiddenException("Ready to Meet chat access is required.");
+
+      const existing = await client.query<{
+        id: string;
+        status: "pending" | "accepted" | "declined";
+        reconsider_after: string | null;
+      }>(
+        `SELECT id, status, reconsider_after
+           FROM ready_meet_chat_invitations
+          WHERE requester_id = $1 AND recipient_id = $2
+          FOR UPDATE`,
+        [userId, recipientId],
+      );
+      const current = existing.rows[0];
+      if (current?.status === "pending") throw new ForbiddenException("Your chat invitation is still waiting for a response.");
+      if (current?.status === "accepted") throw new BadRequestException("This invitation is already accepted. Continue in chat.");
+      if (current?.status === "declined" && current.reconsider_after && new Date(current.reconsider_after).getTime() > Date.now()) {
+        throw new ForbiddenException("This member declined the invitation. They may appear again after the quiet period.");
+      }
+
+      const invitation = await client.query<{
+        id: string;
+        requester_id: string;
+        recipient_id: string;
+        status: "pending";
+        created_at: string;
+      }>(
+        `INSERT INTO ready_meet_chat_invitations
+          (requester_id, recipient_id, status, reconsider_after, created_at, updated_at, responded_at)
+         VALUES ($1, $2, 'pending', NULL, now(), now(), NULL)
+         ON CONFLICT (requester_id, recipient_id)
+         DO UPDATE SET status = 'pending', reconsider_after = NULL, created_at = now(), updated_at = now(), responded_at = NULL
+         RETURNING id, requester_id, recipient_id, status, created_at`,
+        [userId, recipientId],
+      );
+      const encrypted = this.encrypt(normalized);
+      const messageResult = await client.query<ChatMessageRow>(
+        `INSERT INTO chat_messages
+          (sender_id, recipient_id, content_kind, ciphertext, iv, auth_tag, content_hash)
+         VALUES ($1, $2, 'text', $3, $4, $5, $6)
+         RETURNING id, sender_id, recipient_id, content_kind, ciphertext, iv, auth_tag, reaction_data, created_at, edited_at, unsent_at`,
+        [userId, recipientId, encrypted.ciphertext, encrypted.iv, encrypted.authTag, encrypted.contentHash],
+      );
+      await client.query(
+        `UPDATE ready_meet_chat_invitations SET first_message_id = $2 WHERE id = $1`,
+        [invitation.rows[0]!.id, messageResult.rows[0]!.id],
+      );
+      return {
+        invitation: this.toInvitationResponse(invitation.rows[0]!, userId),
+        message: this.toResponse(messageResult.rows[0]!),
+      };
+    });
+  }
+
+  async respondToReadyMeetInvitation(userId: string, invitationId: string, status: "accepted" | "declined") {
+    if (!isUuid(invitationId)) throw new BadRequestException("A valid invitation is required.");
+    return this.database.withUser(userId, async (client) => {
+      const result = await client.query<{
+        id: string;
+        requester_id: string;
+        recipient_id: string;
+        status: "accepted" | "declined";
+        reconsider_after: string | null;
+        created_at: string;
+        responded_at: string;
+      }>(
+        `UPDATE ready_meet_chat_invitations
+            SET status = $3,
+                responded_at = now(),
+                updated_at = now(),
+                reconsider_after = CASE WHEN $3 = 'declined' THEN now() + interval '30 days' ELSE NULL END
+          WHERE id = $1
+            AND recipient_id = $2
+            AND status = 'pending'
+         RETURNING id, requester_id, recipient_id, status, reconsider_after, created_at, responded_at`,
+        [invitationId, userId, status],
+      );
+      const invitation = result.rows[0];
+      if (!invitation) throw new ForbiddenException("This invitation is no longer waiting for your response.");
+      return { invitation: this.toInvitationResponse(invitation, userId) };
     });
   }
 
@@ -440,13 +599,22 @@ export class ChatService {
          SELECT 1 FROM wallet_ledger w
           WHERE w.user_id = $1
             AND w.entry_type = 'ready_to_meet_chat'
+       ),
+       ready_meet_invitation AS (
+         SELECT status
+           FROM ready_meet_chat_invitations
+          WHERE (requester_id = $1 AND recipient_id = $2)
+             OR (requester_id = $2 AND recipient_id = $1)
+          ORDER BY updated_at DESC
+          LIMIT 1
        )
        SELECT
          EXISTS (SELECT 1 FROM other_account) AS other_exists,
          EXISTS (SELECT 1 FROM blocked) AS blocked,
          EXISTS (SELECT 1 FROM mutual_like) AS mutual_like,
          EXISTS (SELECT 1 FROM active_plan) AS active_plan,
-         EXISTS (SELECT 1 FROM ready_meet_wallet) AS ready_meet_wallet`,
+         EXISTS (SELECT 1 FROM ready_meet_wallet) AS ready_meet_wallet,
+         (SELECT status FROM ready_meet_invitation) AS invitation_status`,
       [userId, otherUserId],
     );
     const row = result.rows[0] as {
@@ -455,12 +623,55 @@ export class ChatService {
       mutual_like: boolean;
       active_plan: boolean;
       ready_meet_wallet: boolean;
+      invitation_status: "pending" | "accepted" | "declined" | null;
     };
     if (!row?.other_exists) throw new ForbiddenException("This profile is not available for chat.");
     if (row.blocked) throw new ForbiddenException("This chat is not available.");
-    if (!row.mutual_like && !row.active_plan && !row.ready_meet_wallet) {
+    if (row.invitation_status === "pending") throw new ForbiddenException("The chat invitation must be accepted before more messages can be sent.");
+    if (row.invitation_status === "declined") throw new ForbiddenException("This chat invitation was declined.");
+    if (row.invitation_status !== "accepted" && !row.mutual_like && !row.active_plan && !row.ready_meet_wallet) {
       throw new ForbiddenException("Chat opens after a mutual match or an active chat entitlement.");
     }
+  }
+
+  private async assertCanViewChat(client: PoolClient, userId: string, otherUserId: string) {
+    const invitation = await this.readyMeetInvitation(client, userId, otherUserId);
+    if (invitation) return;
+    await this.assertCanChat(client, userId, otherUserId);
+  }
+
+  private async readyMeetInvitation(client: PoolClient, userId: string, otherUserId: string) {
+    const result = await client.query<{
+      id: string;
+      requester_id: string;
+      recipient_id: string;
+      status: "pending" | "accepted" | "declined";
+      reconsider_after: string | null;
+      created_at: string;
+      responded_at: string | null;
+    }>(
+      `SELECT id, requester_id, recipient_id, status, reconsider_after, created_at, responded_at
+         FROM ready_meet_chat_invitations
+        WHERE (requester_id = $1 AND recipient_id = $2)
+           OR (requester_id = $2 AND recipient_id = $1)
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      [userId, otherUserId],
+    );
+    return result.rows[0] ? this.toInvitationResponse(result.rows[0], userId) : undefined;
+  }
+
+  private toInvitationResponse(row: { id: string; requester_id: string; recipient_id: string; status: "pending" | "accepted" | "declined"; reconsider_after?: string | null; created_at: string; responded_at?: string | null }, userId: string): ReadyMeetChatInvitationResponse {
+    return {
+      id: row.id,
+      requesterId: row.requester_id,
+      recipientId: row.recipient_id,
+      status: row.status,
+      direction: row.recipient_id === userId ? "incoming" : "outgoing",
+      reconsiderAfter: row.reconsider_after || undefined,
+      createdAt: row.created_at,
+      respondedAt: row.responded_at || undefined,
+    };
   }
 
   private encrypt(payload: ChatPayload) {
@@ -502,7 +713,7 @@ export class ChatService {
     };
   }
 
-  private toConversationResponse(row: ChatConversationRow): ChatConversationResponse {
+  private toConversationResponse(row: ChatConversationRow, userId: string): ChatConversationResponse {
     const matching = activeMatchingData(row.matching_data || {});
     const photoVersion = typeof matching.photoVersion === "string" ? matching.photoVersion : "";
     const photoUris = Array.isArray(matching.photos)
@@ -531,8 +742,25 @@ export class ChatService {
         matching,
       },
       lastMessageAt: row.last_message_at,
-      lastMessagePreview: this.conversationPreview(row),
+      lastMessagePreview: row.invitation_status === "pending" && row.invitation_recipient_id === userId
+        ? "New chat invitation request"
+        : row.invitation_status === "pending"
+          ? "Chat invitation awaiting response"
+          : row.invitation_status === "declined"
+            ? "Chat invitation declined"
+            : this.conversationPreview(row),
       lastMessageSenderId: row.last_sender_id || undefined,
+      invitation: row.invitation_id && row.invitation_requester_id && row.invitation_recipient_id && row.invitation_status && row.invitation_created_at
+        ? this.toInvitationResponse({
+            id: row.invitation_id,
+            requester_id: row.invitation_requester_id,
+            recipient_id: row.invitation_recipient_id,
+            status: row.invitation_status,
+            reconsider_after: row.invitation_reconsider_after,
+            created_at: row.invitation_created_at,
+            responded_at: row.invitation_responded_at,
+          }, userId)
+        : undefined,
     };
   }
 

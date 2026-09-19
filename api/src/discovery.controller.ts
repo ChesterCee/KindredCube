@@ -189,6 +189,13 @@ export class DiscoveryController {
                WHERE (b.blocker_id = $1 AND b.blocked_profile_id = d.user_id::text)
                   OR (b.blocker_id = d.user_id AND b.blocked_profile_id = $1::text)
             )
+            AND NOT EXISTS (
+              SELECT 1 FROM ready_meet_chat_invitations invitation
+               WHERE invitation.recipient_id = $1
+                 AND invitation.requester_id = d.user_id
+                 AND invitation.status = 'declined'
+                 AND invitation.reconsider_after > now()
+            )
           ORDER BY COALESCE(ts.rolling_score, 0) DESC, d.recently_active_at DESC
           LIMIT 100`,
         [request.user.id],

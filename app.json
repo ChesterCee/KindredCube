@@ -7,14 +7,14 @@
     "orientation": "portrait",
     "icon": "./assets/kindredcube-horizontal-logo-transparent.png",
     "splash": {
-      "image": "./assets/kindredcube-welcome-loader-poster.png",
-      "resizeMode": "cover",
+      "image": "./assets/kindredcube-3d-horizontal-transparent.png",
+      "resizeMode": "contain",
       "backgroundColor": "#F7F1E7"
     },
     "userInterfaceStyle": "light",
     "ios": {
+      "icon": "./assets/ios-launcher-icon.png",
       "supportsTablet": true,
-      "buildNumber": "9",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "KindredCube needs microphone access when you choose to record and send a voice note.",
         "LSApplicationQueriesSchemes": [
@@ -26,10 +26,10 @@
       "bundleIdentifier": "com.kindredcube.kindredcube"
     },
     "android": {
+      "icon": "./assets/android-launcher-icon-safe.png",
       "adaptiveIcon": {
-        "backgroundColor": "#F7F1E7",
-        "foregroundImage": "./assets/kindredcube-horizontal-logo-transparent.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#FFC21C",
+        "foregroundImage": "./assets/android-icon-foreground-safe.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [

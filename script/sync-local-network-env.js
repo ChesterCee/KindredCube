@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { spawnSync } = require("child_process");
 
 const rootDir = path.resolve(__dirname, "..");
 
@@ -67,7 +68,12 @@ if (!ip) {
   process.exit(1);
 }
 
-const apiUrl = `http://${ip}:3001`;
+const useLocalApi = process.argv.includes("--local-api");
+const startExpo = process.argv.includes("--start-expo");
+const productionApiUrl = "https://api.kindredcube.com";
+const apiUrl = useLocalApi
+  ? `http://${ip}:3001`
+  : productionApiUrl;
 const expoDeepLink = `exp://${ip}:8081/--/verify-email`;
 const allowedOrigins = [
   "http://localhost:3000",
@@ -79,14 +85,40 @@ const allowedOrigins = [
 ].join(",");
 
 writeEnv(path.join(rootDir, ".env"), {
-  EXPO_PUBLIC_API_URL: apiUrl,
+  EXPO_PUBLIC_API_URL: productionApiUrl,
 });
 
-writeEnv(path.join(rootDir, "api", ".env"), {
-  PUBLIC_API_URL: apiUrl,
-  APP_DEEP_LINK: expoDeepLink,
-  ALLOWED_ORIGINS: allowedOrigins,
-});
+if (useLocalApi) {
+  writeEnv(path.join(rootDir, "api", ".env"), {
+    PUBLIC_API_URL: apiUrl,
+    APP_DEEP_LINK: expoDeepLink,
+    ALLOWED_ORIGINS: allowedOrigins,
+  });
+}
 
 console.log(`KindredCube local network is set to ${ip}`);
 console.log(`Mobile app API: ${apiUrl}`);
+if (!useLocalApi) {
+  console.log("Using the secure production API. Pass --local-api only when the local API is running.");
+}
+
+if (startExpo) {
+  const expoCli = path.join(rootDir, "node_modules", "expo", "bin", "cli");
+  const extraArgs = process.argv.includes("--clear") ? ["--clear"] : [];
+  console.log(`Expo Go address: exp://${ip}:8081`);
+  const result = spawnSync(
+    process.execPath,
+    [expoCli, "start", "--lan", ...extraArgs],
+    {
+      cwd: rootDir,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        EXPO_PUBLIC_API_URL: apiUrl,
+        EXPO_NO_DEPENDENCY_VALIDATION: "1",
+        REACT_NATIVE_PACKAGER_HOSTNAME: ip,
+      },
+    },
+  );
+  process.exit(result.status ?? 1);
+}

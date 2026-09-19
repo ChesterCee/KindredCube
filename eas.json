@@ -24,6 +24,7 @@
     "production": {
       "autoIncrement": true,
       "channel": "production",
+      "environment": "production",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.kindredcube.com"
       }

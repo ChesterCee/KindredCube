@@ -26,6 +26,20 @@ class ReactChatMessageDto {
   emoji!: string;
 }
 
+class SendReadyMeetInvitationDto {
+  @IsUUID()
+  recipientId!: string;
+
+  @IsString()
+  @MaxLength(2000)
+  message!: string;
+}
+
+class RespondReadyMeetInvitationDto {
+  @IsIn(["accepted", "declined"])
+  status!: "accepted" | "declined";
+}
+
 @Controller("v1/chats")
 @UseGuards(AccessTokenGuard)
 export class ChatController {
@@ -54,6 +68,18 @@ export class ChatController {
     const message = await this.chats.sendMessage(request.user.id, input.recipientId, input.kind, input.payload);
     this.realtime.publish(message);
     return message;
+  }
+
+  @Post("ready-meet-invitations")
+  async invite(@Req() request: AuthenticatedRequest, @Body() input: SendReadyMeetInvitationDto) {
+    const result = await this.chats.sendReadyMeetInvitation(request.user.id, input.recipientId, input.message);
+    this.realtime.publish(result.message);
+    return result;
+  }
+
+  @Post("ready-meet-invitations/:invitationId/respond")
+  respondToInvitation(@Req() request: AuthenticatedRequest, @Param("invitationId") invitationId: string, @Body() input: RespondReadyMeetInvitationDto) {
+    return this.chats.respondToReadyMeetInvitation(request.user.id, invitationId, input.status);
   }
 
   @Patch("messages/:messageId")

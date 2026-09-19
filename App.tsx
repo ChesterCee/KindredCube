@@ -46,6 +46,7 @@ import {
   Play,
   Plus,
   Reply,
+  Search,
   Send,
   Settings,
   Share2,
@@ -67,6 +68,7 @@ import MapView, { Marker } from "./src/platform-map";
 import {
   AuthenticatedUser,
   ChatMessage,
+  ReadyMeetChatInvitation,
   IdentityVerificationStatus,
   DiscoveryCandidate,
   blockMemberProfile,
@@ -108,6 +110,8 @@ import {
   deleteChatMessageForMe,
   editChatMessage,
   reactToChatMessage,
+  respondToReadyMeetChatInvitation,
+  sendReadyMeetChatInvitation,
   sendChatMessage,
   submitPostMeetCheck,
   unsendChatMessage,
@@ -345,6 +349,8 @@ const TECTAVIS_GREEN = "#4E8F2F";
 const KINDREDCUBE_ORANGE = "#F58220";
 const INSTAGRAM_ICON = require("./assets/instagram-icon.png");
 const PROFILE_UPLOAD_CAMERA_ICON = require("./assets/profile-upload-camera.png");
+const GLOBAL_CONNECT_LOGO = require("./assets/kindredcube-global-connect-logo.png");
+const READY_TO_MEET_WORDMARK = require("./assets/ready-to-meet-wordmark-transparent.png");
 
 function formatMoney(amount: number, options: { signed?: boolean } = {}) {
   const prefix = options.signed && amount < 0 ? "-" : "";
@@ -1349,7 +1355,7 @@ function Logo({
   if (hiddenInsideDesktopShell) return null;
   const preferredWidth = size === "sidebar" ? 218 : size === "compact" ? 170 : 190;
   const logoWidth = Math.min(preferredWidth, width - 40);
-  const logoHeight = logoWidth / (1659 / 399);
+  const logoHeight = logoWidth / (2172 / 724);
   return (
     <View
       style={{
@@ -1361,7 +1367,7 @@ function Logo({
     >
       <Image
         accessibilityLabel="KindredCube"
-        source={require("./assets/kindredcube-current-logo-header.png")}
+        source={require("./assets/kindredcube-3d-horizontal-transparent.png")}
         resizeMode="contain"
         fadeDuration={0}
         style={{ width: logoWidth, height: logoHeight }}
@@ -2161,6 +2167,7 @@ function AccountChoice({
   onLogin: () => void;
   onBack: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   return (
     <ScrollView
       scrollEnabled={false}
@@ -2168,7 +2175,10 @@ function AccountChoice({
       contentContainerStyle={{
         flexGrow: 1,
         paddingHorizontal: 20,
-        paddingTop: 24,
+        paddingTop:
+          process.env.EXPO_OS === "ios"
+            ? Math.max(insets.top, 0) + 10
+            : 24,
         paddingBottom: 24,
         gap: 18,
       }}
@@ -2250,6 +2260,7 @@ function Login({
   onForgotPassword: () => void;
   onSignup: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -2290,7 +2301,7 @@ function Login({
         contentContainerStyle={{
           flexGrow: 1,
           paddingHorizontal: 20,
-          paddingTop: 24,
+          paddingTop: process.env.EXPO_OS === "android" ? appHeaderTopPadding(insets) + 8 : 24,
           paddingBottom: 28,
           gap: 18,
         }}
@@ -3494,6 +3505,7 @@ function Results({
   onProfilePress?: (profile: Profile) => void;
 }) {
   const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const backRef = useRef(onBack);
   backRef.current = onBack;
   const swipeBack = useRef(
@@ -3576,7 +3588,7 @@ function Results({
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={{
         paddingHorizontal: 20,
-        paddingTop: 12,
+        paddingTop: process.env.EXPO_OS === "android" ? appHeaderTopPadding(insets) + 6 : 12,
         paddingBottom: 34,
         gap: 14,
       }}
@@ -3641,6 +3653,7 @@ function Registration({
   onSignIn: () => void;
 }) {
   const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const compact = height < 760;
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -3717,7 +3730,7 @@ function Registration({
         contentContainerStyle={{
           flexGrow: 1,
           paddingHorizontal: 18,
-          paddingTop: compact ? 8 : 12,
+          paddingTop: process.env.EXPO_OS === "android" ? appHeaderTopPadding(insets) + (compact ? 4 : 8) : compact ? 8 : 12,
           paddingBottom: compact ? 12 : 18,
           gap: compact ? 7 : 10,
         }}
@@ -5549,6 +5562,7 @@ function MessagesScreen({
   cachedChatMessagesByProfileId?: Record<string, ChatMessageItem[]>;
   onMessagesCached?: (profileId: string, messages: ChatMessageItem[]) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [conversationOpen, setConversationOpen] = useState(false);
   const [chatListFilter, setChatListFilter] = useState<"all" | "unread">("all");
   const assistantTimeLabel = assistantDeliveredAt ? formatMessageListDate(assistantDeliveredAt) : "";
@@ -5582,7 +5596,7 @@ function MessagesScreen({
       contentContainerStyle={{
         flexGrow: 1,
         paddingHorizontal: 22,
-        paddingTop: 18,
+        paddingTop: process.env.EXPO_OS === "android" ? appHeaderTopPadding(insets) + 10 : 18,
         paddingBottom: 30,
         gap: 18,
       }}
@@ -6063,6 +6077,7 @@ function WalletScreen({
   onAddFunds: (amount: number) => Promise<boolean>;
   onBack: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("10");
   const [notice, setNotice] = useState("");
   const [checkoutBusy, setCheckoutBusy] = useState(false);
@@ -6074,6 +6089,7 @@ function WalletScreen({
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={{
         paddingHorizontal: 20,
+        paddingTop: process.env.EXPO_OS === "android" ? appHeaderTopPadding(insets) + 6 : 0,
         paddingBottom: 34,
         gap: 16,
       }}
@@ -8184,7 +8200,7 @@ function SettingsScreen({
       </Pressable>
       <View style={{ alignItems: "center", gap: 8, paddingTop: 18 }}>
         <Image
-          source={require("./assets/kindredcube-current-logo-header.png")}
+          source={require("./assets/kindredcube-3d-horizontal-transparent.png")}
           resizeMode="contain"
           style={{
             width: 190,
@@ -9243,7 +9259,7 @@ function ProfileHubScreen({
   };
   return (
     <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
+      contentInsetAdjustmentBehavior="never"
       contentContainerStyle={{
         paddingHorizontal: desktopWeb ? 34 : 18,
         paddingTop: desktopWeb ? 30 : appHeaderTopPadding(insets),
@@ -12963,7 +12979,10 @@ function LegacyReadyMeetChat({
 }
 
 function ChatAudioBubble({ uri, durationMillis }: { uri: string; durationMillis?: number }) {
-  const player = useAudioPlayer(uri);
+  // Voice notes are small (two minutes maximum). Downloading the complete file
+  // first avoids platform range/buffering differences that could stop playback
+  // after the first status update.
+  const player = useAudioPlayer(uri, { downloadFirst: true, updateInterval: 250 });
   const status = useAudioPlayerStatus(player);
   const duration = Math.max(1, Math.round((durationMillis || status.duration * 1000 || 0) / 1000));
   const togglePlayback = async () => {
@@ -13383,6 +13402,8 @@ function ReadyMeetChat({
     label: string;
   } | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessageItem[]>(cachedMessages);
+  const [chatInvitation, setChatInvitation] = useState<ReadyMeetChatInvitation | undefined>();
+  const [chatInvitationBusy, setChatInvitationBusy] = useState(false);
   const [messageActionTarget, setMessageActionTarget] = useState<(typeof chatMessages)[number] | null>(null);
   const [editingMessageId, setEditingMessageId] = useState("");
   const [editDraft, setEditDraft] = useState("");
@@ -13480,6 +13501,7 @@ function ReadyMeetChat({
       (item.kind === "meeting_response" && item.meetingResponse)),
   ).slice(-1)[0] || null);
   const typingMode = keyboardVisible && !proposalOpen && !gifOpen;
+  const invitationBlocksComposer = Boolean(chatInvitation && chatInvitation.status !== "accepted");
   const hasPriorChat = chatMessages.some((item) =>
     ["text", "gif", "image", "audio", "video"].includes(item.kind) &&
     !item.unsentAt,
@@ -13554,6 +13576,7 @@ function ReadyMeetChat({
           sender: (currentUserId ? item.senderId === currentUserId : item.senderId !== profileId) ? "me" : "them",
         })) as ChatMessageItem[];
         setChatMessages(messages);
+        setChatInvitation(result.invitation);
         warmChatImageCache(messages);
         onMessagesCached?.(profileId, messages);
       })
@@ -13590,6 +13613,26 @@ function ReadyMeetChat({
       socket?.disconnect();
     };
   }, [appendServerMessage, currentUserId, profile.id]);
+
+  useEffect(() => {
+    if (!profile.id || chatInvitation?.status !== "pending" || chatInvitation.direction !== "outgoing") return;
+    let active = true;
+    const refreshInvitation = () => {
+      getConversationMessages(profile.id!)
+        .then((result) => {
+          if (!active) return;
+          setChatInvitation(result.invitation);
+          if (result.invitation?.status === "accepted") setComposerNotice("Your chat invitation was accepted. You can continue the conversation.");
+          if (result.invitation?.status === "declined") setComposerNotice("Your chat invitation was declined. Please respect their decision.");
+        })
+        .catch(() => undefined);
+    };
+    const timer = setInterval(refreshInvitation, 10000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [chatInvitation?.direction, chatInvitation?.status, profile.id]);
 
   useEffect(() => {
     if (!profile.id || !chatMessages.length) return;
@@ -13894,6 +13937,27 @@ function ReadyMeetChat({
     const outgoingText = replyTarget ?
       `Replying to ${replyTarget.sender === "me" ? "you" : profile.name}: "${chatMessagePreview(replyTarget as ChatMessage)}"\n${text}`
       : text;
+    if (chatInvitation && chatInvitation.status !== "accepted") {
+      setComposerNotice(chatInvitation.status === "pending" ? "Wait for the chat invitation to be accepted." : "This chat invitation was declined.");
+      return;
+    }
+    if (readyNearby && !chatInvitation && chatMessages.length === 0 && profile.id) {
+      try {
+        setChatInvitationBusy(true);
+        const result = await sendReadyMeetChatInvitation(profile.id, outgoingText);
+        setChatInvitation(result.invitation);
+        appendServerMessage(result.message);
+        onMessageSent?.(profile, result.message);
+        setMessage("");
+        setReplyTarget(null);
+        setComposerNotice("Chat invitation sent. You can continue when they accept.");
+      } catch (caught) {
+        setComposerNotice(caught instanceof Error ? caught.message : "Chat invitation could not be sent.");
+      } finally {
+        setChatInvitationBusy(false);
+      }
+      return;
+    }
     const delivered = await sendRealtimeMessage("text", { text: outgoingText });
     if (delivered) {
       if (pendingChatMedia) {
@@ -13902,6 +13966,24 @@ function ReadyMeetChat({
       }
       setMessage("");
       setReplyTarget(null);
+    }
+  };
+  const respondToChatInvitation = async (status: "accepted" | "declined") => {
+    if (!chatInvitation || chatInvitation.direction !== "incoming") return;
+    try {
+      setChatInvitationBusy(true);
+      setComposerNotice("");
+      const result = await respondToReadyMeetChatInvitation(chatInvitation.id, status);
+      setChatInvitation(result.invitation);
+      if (status === "accepted") {
+        setComposerNotice("Chat invitation accepted. You can continue the conversation.");
+      } else {
+        setComposerNotice("Chat invitation declined. This person will be shown less and cannot request again for 30 days.");
+      }
+    } catch (caught) {
+      setComposerNotice(caught instanceof Error ? caught.message : "The invitation could not be updated.");
+    } finally {
+      setChatInvitationBusy(false);
     }
   };
   const respondToMeetingProposal = async (status: "accepted" | "declined") => {
@@ -14465,6 +14547,27 @@ function ReadyMeetChat({
         </View>
       ) : null}
 
+      {chatInvitation && chatInvitation.status !== "accepted" ? (
+        <View style={{ borderRadius: 20, borderCurve: "continuous", backgroundColor: chatInvitation.status === "declined" ? "#F8EAE7" : "#FFF8E8", borderWidth: 1, borderColor: chatInvitation.status === "declined" ? "#D8897E" : "#D5B853", padding: 14, gap: 9, zIndex: 4 }}>
+          <Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>
+            {chatInvitation.status === "declined" ? "Chat invitation declined" : chatInvitation.direction === "incoming" ? "New chat invitation" : "Invitation awaiting a response"}
+          </Text>
+          <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+            {chatInvitation.status === "declined"
+              ? "The conversation cannot continue. For safety and comfort, a new invitation cannot be sent for 30 days."
+              : chatInvitation.direction === "incoming"
+                ? `${profile.name} contacted you through Ready to Meet. Accept to continue chatting, or decline without opening further contact.`
+                : `${profile.name} can accept or decline your first message. You cannot send more messages while the invitation is pending.`}
+          </Text>
+          {chatInvitation.status === "pending" && chatInvitation.direction === "incoming" ? (
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={{ flex: 1 }}><Button compact disabled={chatInvitationBusy} label={chatInvitationBusy ? "Updating..." : "Accept chat"} onPress={() => respondToChatInvitation("accepted")} /></View>
+              <Pressable disabled={chatInvitationBusy} onPress={() => respondToChatInvitation("declined")} style={{ flex: 1, minHeight: 44, borderRadius: 22, borderWidth: 1, borderColor: "#C84534", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#B52E20", fontWeight: "900" }}>Decline</Text></Pressable>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       {proposalOpen ? (
         <KeyboardAvoidingView behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={90}>
           <Pressable
@@ -14564,7 +14667,9 @@ function ReadyMeetChat({
       {proposal && scheduled && !typingMode && (
         proposal.status === "pending" ||
         (proposal.status === "declined" && declinedMeetingNoticeVisible) ||
-        (proposal.status === "accepted" && (postMeetNeedsAction || proposalDetailsExpanded || postMeetPromptPreviewVisible || postMeetOutcomeOpen))
+        (proposal.status === "accepted" && !postMeetSubmitted && !currentPostMeetCompleted &&
+          (postMeetNeedsAction || proposalDetailsExpanded || postMeetPromptPreviewVisible || postMeetOutcomeOpen) &&
+          (postMeetNeedsAction || !meetingEnded))
       ) ? (
         <Pressable
           accessibilityRole="button"
@@ -14931,7 +15036,7 @@ function ReadyMeetChat({
           ) : actionButton;
         })()}
         <View style={{ flex: 1, minHeight: 48, borderWidth: 1, borderColor: C.line, borderRadius: 24, backgroundColor: C.paper, justifyContent: "center", boxShadow: "0 8px 22px rgba(0,29,48,0.16)" }}>
-          <TextInput value={message} onChangeText={setMessage} onSubmitEditing={sendTextMessage} returnKeyType="send" placeholder={`Message ${profile.name}...`} placeholderTextColor="#948A7F" style={{ minHeight: 46, paddingLeft: 14, paddingRight: 48, color: C.ink }} />
+          <TextInput editable={!invitationBlocksComposer && !chatInvitationBusy} value={message} onChangeText={setMessage} onSubmitEditing={sendTextMessage} returnKeyType="send" placeholder={invitationBlocksComposer ? "Chat invitation must be accepted first" : `Message ${profile.name}...`} placeholderTextColor="#948A7F" style={{ minHeight: 46, paddingLeft: 14, paddingRight: 48, color: C.ink, opacity: invitationBlocksComposer ? 0.62 : 1 }} />
           <Pressable accessibilityRole="button" accessibilityLabel="Choose GIF" onPress={() => setGifOpen((value) => !value)} style={{ position: "absolute", right: 4, width: 42, height: 40, borderRadius: 20, backgroundColor: gifOpen ? "#FCE5EE" : "transparent", alignItems: "center", justifyContent: "center" }}>
             <Image source={require("./assets/gif-icon.png")} resizeMode="contain" style={{ width: 28, height: 28 }} />
           </Pressable>
@@ -14940,6 +15045,7 @@ function ReadyMeetChat({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Open media options"
+            disabled={invitationBlocksComposer || chatInvitationBusy}
             onPress={() => {
               setGifOpen(false);
               setMediaMenuOpen((value) => !value);
@@ -14961,10 +15067,10 @@ function ReadyMeetChat({
             </View>
           ) : null}
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel={recorderState.isRecording ? "Stop and send voice note" : "Record voice note"} onPress={toggleVoiceRecording} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: recorderState.isRecording ? "#F9D9D4" : "#F3EFE8", alignItems: "center", justifyContent: "center" }}>
+        <Pressable disabled={invitationBlocksComposer || chatInvitationBusy} accessibilityRole="button" accessibilityLabel={recorderState.isRecording ? "Stop and send voice note" : "Record voice note"} onPress={toggleVoiceRecording} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: recorderState.isRecording ? "#F9D9D4" : "#F3EFE8", alignItems: "center", justifyContent: "center", opacity: invitationBlocksComposer ? 0.45 : 1 }}>
           {recorderState.isRecording ? <Square width={17} height={17} color="#B52E20" fill="#B52E20" /> : <Mic width={21} height={21} color={C.ink} strokeWidth={2.2} />}
         </Pressable>
-        {message.trim() || pendingChatMedia ? <Pressable accessibilityRole="button" accessibilityLabel="Send message" onPress={sendTextMessage} style={{ width: 44, height: 42, borderRadius: 21, backgroundColor: C.ink, alignItems: "center", justifyContent: "center" }}><ChevronRight width={21} height={21} color={C.paper} strokeWidth={3} /></Pressable> : null}
+        {message.trim() || pendingChatMedia ? <Pressable disabled={invitationBlocksComposer || chatInvitationBusy} accessibilityRole="button" accessibilityLabel="Send message" onPress={sendTextMessage} style={{ width: 44, height: 42, borderRadius: 21, backgroundColor: C.ink, alignItems: "center", justifyContent: "center", opacity: invitationBlocksComposer || chatInvitationBusy ? 0.45 : 1 }}><ChevronRight width={21} height={21} color={C.paper} strokeWidth={3} /></Pressable> : null}
       </View>
       <Modal transparent animationType="fade" visible={Boolean(fullscreenPhotoUri)} onRequestClose={() => setFullscreenPhotoUri("")}>
         <View
@@ -15229,6 +15335,7 @@ function ReadyToMeetFeature({
   onLike,
   onBlock,
   onReport,
+  primary = false,
 }: {
   people: readonly Profile[];
   currentProfile?: Profile;
@@ -15246,13 +15353,17 @@ function ReadyToMeetFeature({
   onLike: (profile: Profile) => void;
   onBlock: (profile: Profile, reason: MemberReportReason, details: string) => void;
   onReport?: (profile: Profile, reason: MemberReportReason, details: string) => void;
+  primary?: boolean;
 }) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const pulse = useRef(new Animated.Value(0.35)).current;
   const arrivalProgress = useRef(new Animated.Value(0)).current;
-  const [expanded, setExpanded] = useState(false);
-  const [showAllReadyProfiles, setShowAllReadyProfiles] = useState(false);
+  const swipeHintProgress = useRef(new Animated.Value(0)).current;
+  const rotatingCueOpacity = useRef(new Animated.Value(0)).current;
+  const readyProfilesPagerRef = useRef<ScrollView | null>(null);
+  const [expanded, setExpanded] = useState(primary);
+  const [readyProfilePage, setReadyProfilePage] = useState(0);
   const [coordinates, setCoordinates] = useState<{
     latitude: number;
     longitude: number;
@@ -15281,8 +15392,46 @@ function ReadyToMeetFeature({
   const [readyMeetEndDatePickerOpen, setReadyMeetEndDatePickerOpen] = useState(false);
   const [readyMeetEndTimePickerOpen, setReadyMeetEndTimePickerOpen] = useState(false);
   const [arrivalDone, setArrivalDone] = useState(false);
+  const [showReadySwipeHint, setShowReadySwipeHint] = useState(false);
+  const [rotatingReadyCue, setRotatingReadyCue] = useState<"ready" | "swipe" | null>(null);
   const selectedProfileRef = useRef<Profile | null>(null);
   selectedProfileRef.current = selected;
+  useEffect(() => {
+    if (primary) setExpanded(true);
+  }, [primary]);
+  useEffect(() => {
+    if (!primary || !expanded) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const wait = (duration: number) => new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, duration);
+    });
+    const fade = (toValue: number) => new Promise<void>((resolve) => {
+      Animated.timing(rotatingCueOpacity, { toValue, duration: 5000, useNativeDriver: true }).start(() => resolve());
+    });
+    const run = async () => {
+      while (!cancelled) {
+        setRotatingReadyCue("ready");
+        await fade(1);
+        await wait(5000);
+        await fade(0);
+        if (cancelled) break;
+        setRotatingReadyCue("swipe");
+        await fade(1);
+        await wait(5000);
+        await fade(0);
+        setRotatingReadyCue(null);
+        await wait(25000);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      rotatingCueOpacity.stopAnimation();
+      rotatingCueOpacity.setValue(0);
+    };
+  }, [expanded, primary, rotatingCueOpacity]);
   useEffect(() => {
     const savedAt = currentAvailability?.availableAt ? new Date(currentAvailability.availableAt) : null;
     const expiresAt = currentAvailability?.expiresAt ? new Date(currentAvailability.expiresAt) : null;
@@ -15405,7 +15554,45 @@ function ReadyToMeetFeature({
     }),
   ];
   const readyPeopleTotal = readyPeople.length;
-  const visibleReadyPeople = showAllReadyProfiles ? readyPeople : readyPeople.slice(0, 4);
+  const readyProfilePageCount = Math.max(1, Math.ceil(readyPeopleTotal / 4));
+  const readyProfilePageWidth = Math.max(1, screenWidth - 36);
+  const readyProfilePages = Array.from(
+    { length: readyProfilePageCount },
+    (_, page) => readyPeople.slice(page * 4, page * 4 + 4),
+  );
+  const hasMoreReadyProfiles = readyProfilePage < readyProfilePageCount - 1;
+  useEffect(() => {
+    setReadyProfilePage((page) => Math.min(page, readyProfilePageCount - 1));
+  }, [readyProfilePageCount]);
+  useEffect(() => {
+    if (!primary || !hasMoreReadyProfiles) {
+      setShowReadySwipeHint(false);
+      swipeHintProgress.stopAnimation();
+      swipeHintProgress.setValue(0);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setShowReadySwipeHint(true);
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(swipeHintProgress, { toValue: 1, duration: 650, useNativeDriver: true }),
+          Animated.timing(swipeHintProgress, { toValue: 0, duration: 650, useNativeDriver: true }),
+          Animated.delay(500),
+        ]),
+      ).start();
+    }, 8000);
+    return () => {
+      clearTimeout(timer);
+      swipeHintProgress.stopAnimation();
+    };
+  }, [primary, readyPeopleTotal, hasMoreReadyProfiles, readyProfilePage, swipeHintProgress]);
+  const goToReadyProfilePage = (page: number) => {
+    const nextPage = Math.max(0, Math.min(page, readyProfilePageCount - 1));
+    setReadyProfilePage(nextPage);
+    readyProfilesPagerRef.current?.scrollTo({ x: nextPage * readyProfilePageWidth, animated: true });
+    setShowReadySwipeHint(false);
+    swipeHintProgress.stopAnimation();
+  };
   const canViewReadyMeetProfile = (profile: Profile) =>
     canUseReadyMeetChat ||
     paidChatIds.includes(profile.id || profile.name) ||
@@ -15423,7 +15610,7 @@ function ReadyToMeetFeature({
   };
   const closeReadyToMeet = () => {
     setExpanded(false);
-    setShowAllReadyProfiles(false);
+    setReadyProfilePage(0);
     setSelected(null);
   };
   const readyMeetSwipeResponder = useRef(
@@ -15479,20 +15666,19 @@ function ReadyToMeetFeature({
       </View>
       </Modal>
     );
-  if (expanded)
-    return (
-      <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={closeReadyToMeet}>
+  if (expanded) {
+    const expandedContent = (
       <View
-        {...readyMeetSwipeResponder.panHandlers}
-        style={{ flex: 1, minHeight: screenHeight, paddingHorizontal: 18, paddingTop: insets.top + 34, paddingBottom: insets.bottom + 18, gap: 13, backgroundColor: "#070A18" }}
+        {...(primary ? {} : readyMeetSwipeResponder.panHandlers)}
+        style={{ flex: 1, minHeight: primary ? undefined : screenHeight, paddingHorizontal: 18, paddingTop: primary ? appHeaderTopPadding(insets) : insets.top + 34, paddingBottom: primary ? 24 : insets.bottom + 18, gap: 13, backgroundColor: "#070A18" }}
       >
         <View style={{ minHeight: 54, flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <Pressable
+          {!primary || readyProfilePage > 0 ? <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back from Ready to Meet"
             onPress={() => {
-              if (showAllReadyProfiles) {
-                setShowAllReadyProfiles(false);
+              if (readyProfilePage > 0) {
+                goToReadyProfilePage(readyProfilePage - 1);
                 return;
               }
               closeReadyToMeet();
@@ -15500,19 +15686,13 @@ function ReadyToMeetFeature({
             style={{ width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)" }}
           >
             <ChevronLeft width={25} height={25} color={C.paper} />
-          </Pressable>
+          </Pressable> : null}
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text selectable numberOfLines={1} style={{ color: C.paper, fontSize: 28, lineHeight: 31, fontWeight: "900", letterSpacing: -0.8 }}>
-              {showAllReadyProfiles ? "More Online" : "Ready to Meet"}
-            </Text>
-            <Text selectable numberOfLines={1} style={{ color: "#AAB2C8", fontSize: 14, lineHeight: 17, fontWeight: "400" }}>
-              {showAllReadyProfiles ? "All profiles currently available" : "People who are available now"}
+              {readyPeopleTotal} online
             </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
-            <Text selectable style={{ color: "#AAB2C8", fontSize: 11, fontWeight: "900", fontVariant: ["tabular-nums"] }}>
-              {readyPeopleTotal} online
-            </Text>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Filter Ready to Meet distance"
@@ -15728,17 +15908,41 @@ function ReadyToMeetFeature({
           <ScrollView
             contentInsetAdjustmentBehavior="automatic"
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ gap: 14, paddingBottom: 24 }}
+            contentContainerStyle={{ gap: 14, paddingBottom: 92 }}
           >
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-              {visibleReadyPeople.map((profile, index) => {
+            <ScrollView
+              ref={readyProfilesPagerRef}
+              horizontal
+              pagingEnabled
+              nestedScrollEnabled
+              directionalLockEnabled
+              bounces={false}
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              scrollEventThrottle={16}
+              onMomentumScrollEnd={(event) => {
+                const nextPage = Math.max(
+                  0,
+                  Math.min(
+                    readyProfilePageCount - 1,
+                    Math.round(event.nativeEvent.contentOffset.x / readyProfilePageWidth),
+                  ),
+                );
+                setReadyProfilePage(nextPage);
+                setShowReadySwipeHint(false);
+                swipeHintProgress.stopAnimation();
+              }}
+            >
+              {readyProfilePages.map((pageProfiles, pageIndex) => (
+              <View key={`ready-page-${pageIndex}`} style={{ width: readyProfilePageWidth, flexDirection: "row", flexWrap: "wrap", alignContent: "flex-start", gap: 12 }}>
+              {pageProfiles.map((profile, index) => {
                 const isCurrentUserReadyCard = currentUserReadyProfile && (profile.id || profile.name) === (currentUserReadyProfile.id || currentUserReadyProfile.name);
                 const cardWidth = Math.max(132, (screenWidth - 48) / 2);
                 const cardImageHeight = screenHeight < 760 ? 128 : 148;
                 const realDistanceMiles = typeof profile.discovery?.distanceKm === "number"
                   ? Math.max(1, Math.round(profile.discovery.distanceKm / 1.60934))
                   : null;
-                const approximateDistance = realDistanceMiles || distances[index % distances.length];
+                const approximateDistance = realDistanceMiles || distances[(pageIndex * 4 + index) % distances.length];
                 return (
                   <Pressable
                     key={profile.id || profile.name}
@@ -15795,21 +15999,14 @@ function ReadyToMeetFeature({
                   </Pressable>
                 );
               })}
-            </View>
-            {readyPeople.length > 4 && !showAllReadyProfiles ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="View more Ready to Meet profiles"
-                onPress={() => setShowAllReadyProfiles(true)}
-                style={{ minHeight: 46, borderRadius: 23, borderWidth: 1, borderColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" }}
-              >
-                <Text style={{ color: C.paper, fontSize: 13, fontWeight: "900" }}>
-                  More online ({readyPeople.length - 4})
-                </Text>
-              </Pressable>
-            ) : null}
+              </View>
+              ))}
+            </ScrollView>
           </ScrollView>
         ) : <ReadyMeetEmptyStory />}
+        {rotatingReadyCue ? <Animated.View pointerEvents="none" style={{ position: "absolute", zIndex: 10, right: 10, bottom: 8, width: 126, height: 44, opacity: rotatingCueOpacity, alignItems: "flex-end", justifyContent: "center", overflow: "hidden" }}>
+          {rotatingReadyCue === "ready" || readyProfilePageCount <= 1 ? <Image source={READY_TO_MEET_WORDMARK} accessibilityLabel="Ready to Meet" resizeMode="contain" fadeDuration={0} style={{ width: 126, height: 44 }} /> : <View style={{ height: 34, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", gap: 4 }}><Text style={{ fontSize: 14 }}>{hasMoreReadyProfiles ? "👈" : "👉"}</Text><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900", textShadowColor: "rgba(0,0,0,0.7)", textShadowRadius: 3 }}>{hasMoreReadyProfiles ? "Swipe left for more" : "Swipe right to go back"}</Text></View>}
+        </Animated.View> : null}
         {paywall && selectedProfileRef.current ? (
           <View
             style={{
@@ -15891,8 +16088,14 @@ function ReadyToMeetFeature({
           </View>
         ) : null}
       </View>
+    );
+    if (primary) return expandedContent;
+    return (
+      <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={closeReadyToMeet}>
+        {expandedContent}
       </Modal>
     );
+  }
   return (
     <View style={{ paddingHorizontal: 18, gap: 11 }}>
       <Pressable
@@ -16473,6 +16676,116 @@ function ReadyToMeetFeature({
   );
 }
 
+function profileGlobalCountry(profile: Profile) {
+  const matching = profile.discovery?.matching as Record<string, unknown> | undefined;
+  const nestedProfile = matching?.profile && typeof matching.profile === "object" && !Array.isArray(matching.profile)
+    ? matching.profile as Record<string, unknown>
+    : {};
+  const explicit = [
+    matching?.country,
+    matching?.locationCountry,
+    nestedProfile.country,
+    nestedProfile.locationCountry,
+  ].find((value) => typeof value === "string" && value.trim().length > 0);
+  if (typeof explicit === "string") return explicit.trim();
+  const culture = profile.culture.toLocaleLowerCase("en-US");
+  const culturalCountries: [string, string[]][] = [
+    ["United States", ["american", "southern american"]],
+    ["United Kingdom", ["british", "english", "scottish", "welsh"]],
+    ["Germany", ["german"]],
+    ["France", ["french"]],
+    ["Mexico", ["mexican"]],
+    ["Brazil", ["brazilian"]],
+    ["Nigeria", ["nigerian"]],
+    ["South Africa", ["south african"]],
+    ["Zimbabwe", ["zimbabwean"]],
+    ["Kenya", ["kenyan"]],
+    ["Ghana", ["ghanaian"]],
+    ["India", ["indian"]],
+    ["Japan", ["japanese"]],
+    ["South Korea", ["korean"]],
+    ["Philippines", ["filipino"]],
+    ["China", ["chinese"]],
+  ];
+  return culturalCountries.find(([, values]) => values.some((value) => culture.includes(value)))?.[0] || "";
+}
+
+function GlobalConnectDiscovery({
+  people,
+  likedProfileKeys,
+  onProfilePress,
+  onLike,
+  onClose,
+}: {
+  people: readonly Profile[];
+  likedProfileKeys?: readonly string[];
+  onProfilePress?: (profile: Profile) => void;
+  onLike: (profile: Profile) => void;
+  onClose: () => void;
+}) {
+  const countries = [
+    ...new Set(people.map(profileGlobalCountry).filter(Boolean)),
+  ].sort((first, second) => first.localeCompare(second));
+  const [country, setCountry] = useState("");
+  const [countrySearch, setCountrySearch] = useState("");
+  const matchingCountries = countries.filter((item) =>
+    item.toLocaleLowerCase("en-US").includes(countrySearch.trim().toLocaleLowerCase("en-US")),
+  );
+  const visiblePeople = country
+    ? people.filter((profile) => profileGlobalCountry(profile) === country)
+    : [];
+  const globalRecommendations = visiblePeople.slice(0, 10).map((profile) => ({
+    profile,
+    tag: profileGlobalCountry(profile) ? `Global Connect · ${profileGlobalCountry(profile)}` : "Global Connect · Open to the world",
+  }));
+  return (
+    <View style={{ gap: 11 }}>
+      <View style={{ marginHorizontal: 18, gap: 12 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back to Explore" onPress={onClose} style={{ alignSelf: "flex-start", minHeight: 38, flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <ChevronLeft width={20} height={20} color={C.ink} />
+          <Text style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>Explore</Text>
+        </Pressable>
+        <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 25, fontWeight: "900" }}>Choose a country</Text>
+        <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>Only countries selected by current KindredCube members appear here.</Text>
+        <View style={{ minHeight: 48, borderRadius: 16, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 9 }}>
+          <Search width={19} height={19} color={C.muted} />
+          <TextInput
+            value={countrySearch}
+            onChangeText={setCountrySearch}
+            placeholder="Search countries"
+            placeholderTextColor="#948A7F"
+            autoCapitalize="words"
+            autoCorrect={false}
+            style={{ flex: 1, color: C.ink, fontSize: 14, paddingVertical: 12 }}
+          />
+        </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {matchingCountries.map((item) => {
+            const selected = country === item;
+            return <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => setCountry(item)} style={{ minHeight: 38, borderRadius: 19, borderWidth: 1, borderColor: selected ? "#5A3AC7" : C.line, backgroundColor: selected ? "#EEE9FF" : C.paper, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" }}><Text style={{ color: selected ? "#5A3AC7" : C.ink, fontSize: 12, fontWeight: "900" }}>{item}</Text></Pressable>;
+          })}
+          {!matchingCountries.length ? <Text selectable style={{ color: C.muted, fontSize: 12 }}>No member countries match that search.</Text> : null}
+        </View>
+      </View>
+      {country && globalRecommendations.length ? (
+        <RecommendationCarousel
+          title={`People in ${country}`}
+          description="Like a profile to express interest. Chat opens after a mutual connection."
+          recommendations={globalRecommendations}
+          likedProfileKeys={likedProfileKeys}
+          onProfilePress={onProfilePress}
+          onLike={onLike}
+        />
+      ) : country ? (
+        <View style={{ marginHorizontal: 18, borderRadius: 20, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 17, gap: 5 }}>
+          <Text selectable style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>No profiles here yet</Text>
+          <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>Try another country. New members will appear here as the community grows.</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function ExploreRecommendations({
   similarInterests,
   similarDatingGoals,
@@ -16495,6 +16808,9 @@ function ExploreRecommendations({
   onBlock,
   onReport,
   mode = "all",
+  primaryReadyMeet = false,
+  globalPeople = [],
+  offlinePeople = [],
 }: {
   similarInterests: readonly TaggedRecommendation[];
   similarDatingGoals: readonly TaggedRecommendation[];
@@ -16517,62 +16833,82 @@ function ExploreRecommendations({
   onBlock: (profile: Profile, reason: MemberReportReason, details: string) => void;
   onReport?: (profile: Profile, reason: MemberReportReason, details: string) => void;
   mode?: "all" | "explore-only" | "ready-only";
+  primaryReadyMeet?: boolean;
+  globalPeople?: readonly Profile[];
+  offlinePeople?: readonly Profile[];
 }) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const [globalConnectOpen, setGlobalConnectOpen] = useState(false);
+  const globalLogoWidth = Math.min(170, width - 40);
+  const globalLogoHeight = globalLogoWidth / (2172 / 724);
+  const readyMeetFeature = (
+    <ReadyToMeetFeature
+      people={readyPeople}
+      currentProfile={currentProfile}
+      currentAvailability={currentReadyToMeetAvailability}
+      onRefreshPeople={onRefreshReadyToMeetPeople}
+      onAvailabilitySave={onReadyToMeetAvailabilitySave}
+      onOpenChat={onOpenChat}
+      canUseReadyMeetChat={canUseReadyMeetChat}
+      walletBalance={walletBalance}
+      paidChatIds={paidReadyMeetChatIds}
+      onUnlockReadyMeetChat={onUnlockReadyMeetChat}
+      onOpenWallet={onOpenWallet}
+      canOpenProfileWithoutReadyMeetAccess={canOpenReadyMeetProfileWithoutAccess}
+      likedProfileKeys={likedProfileKeys}
+      onLike={onLike}
+      onBlock={onBlock}
+      onReport={onReport}
+      primary={primaryReadyMeet}
+    />
+  );
+  if (mode === "ready-only" && primaryReadyMeet) return readyMeetFeature;
   return (
     <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ paddingTop: appHeaderTopPadding(insets), paddingBottom: 34, gap: 17 }}
+      contentInsetAdjustmentBehavior="never"
+      style={{ flex: 1, backgroundColor: C.cream }}
+      contentContainerStyle={{ flexGrow: 1, paddingTop: appHeaderTopPadding(insets), paddingBottom: 34, gap: 17 }}
     >
-      <View style={{ paddingHorizontal: 18 }}>
-        <Logo size="compact" />
-      </View>
-      {mode !== "explore-only" ? <ReadyToMeetFeature
-        people={readyPeople}
-        currentProfile={currentProfile}
-        currentAvailability={currentReadyToMeetAvailability}
-        onRefreshPeople={onRefreshReadyToMeetPeople}
-        onAvailabilitySave={onReadyToMeetAvailabilitySave}
-        onOpenChat={onOpenChat}
-        canUseReadyMeetChat={canUseReadyMeetChat}
-        walletBalance={walletBalance}
-        paidChatIds={paidReadyMeetChatIds}
-        onUnlockReadyMeetChat={onUnlockReadyMeetChat}
-        onOpenWallet={onOpenWallet}
-        canOpenProfileWithoutReadyMeetAccess={canOpenReadyMeetProfileWithoutAccess}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={globalConnectOpen ? "Global Connect" : "Open Global Connect"}
+        onPress={() => setGlobalConnectOpen(true)}
+        style={{
+          marginHorizontal: 18,
+          width: globalLogoWidth,
+          height: globalLogoHeight,
+          alignSelf: "flex-start",
+        }}
+      >
+        <Image
+          source={GLOBAL_CONNECT_LOGO}
+          accessibilityLabel="KindredCube Global Connect"
+          resizeMode="contain"
+          fadeDuration={0}
+          style={{ width: globalLogoWidth, height: globalLogoHeight }}
+        />
+      </Pressable>
+      {mode !== "explore-only" ? readyMeetFeature : null}
+      {mode !== "ready-only" && globalConnectOpen ? <GlobalConnectDiscovery
+        people={globalPeople}
         likedProfileKeys={likedProfileKeys}
+        onProfilePress={onProfilePress}
         onLike={onLike}
-        onBlock={onBlock}
-        onReport={onReport}
+        onClose={() => setGlobalConnectOpen(false)}
       /> : null}
-      {mode !== "ready-only" ? <><View style={{ paddingHorizontal: 18, gap: 5 }}>
-        <Text
-          selectable
-          style={{ color: C.muted, fontSize: 14, lineHeight: 20 }}
-        >
-          Recommendations with promising common ground.
-        </Text>
-      </View>
+      {mode !== "ready-only" && !globalConnectOpen ? <><Pressable
+        accessibilityRole="button"
+        onPress={() => setGlobalConnectOpen(true)}
+        style={{ marginHorizontal: 18, minHeight: 58, borderRadius: 18, backgroundColor: "#151B3B", borderWidth: 1, borderColor: "#343E72", paddingHorizontal: 15, flexDirection: "row", alignItems: "center", gap: 11 }}
+      >
+        <View style={{ flex: 1, gap: 2 }}><Text style={{ color: C.paper, fontSize: 15, fontWeight: "900" }}>Global Connect</Text><Text style={{ color: "#C8CCE0", fontSize: 11 }}>Search members by country</Text></View>
+        <ChevronRight width={20} height={20} color="#B9ACFF" />
+      </Pressable>
       <RecommendationCarousel
-        title="Similar interests"
-        description="People who enjoy some of the same things you do."
-        recommendations={similarInterests.slice(0, 6)}
-        likedProfileKeys={likedProfileKeys}
-        onProfilePress={onProfilePress}
-        onLike={onLike}
-      />
-      <RecommendationCarousel
-        title="Similar dating goals"
-        description="Shared intentions can be a strong place to begin."
-        recommendations={similarDatingGoals.slice(0, 6)}
-        likedProfileKeys={likedProfileKeys}
-        onProfilePress={onProfilePress}
-        onLike={onLike}
-      />
-      <RecommendationCarousel
-        title="Communities in common"
-        description="You share a community or cause that matters."
-        recommendations={communitiesInCommon.slice(0, 6)}
+        title="Explore Kindreds"
+        description="Offline Kindreds recommended by shared interests, compatibility, and promising ground for connection."
+        recommendations={similarInterests}
         likedProfileKeys={likedProfileKeys}
         onProfilePress={onProfilePress}
         onLike={onLike}
@@ -16656,7 +16992,7 @@ function LikedYouExperience({
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
         contentContainerStyle={{
           paddingHorizontal: 18,
           paddingTop: appHeaderTopPadding(insets),
@@ -21552,11 +21888,39 @@ function SignedInHome({
   const explorePeople = rankedRecommendations
     .filter(({ result }) => result.placement === "explore")
     .map(({ candidate }) => candidate);
+  const offlineDiscoveryPeople = rankedRecommendations
+    .map(({ candidate }) => candidate)
+    .filter((profile) => !profileReadyToMeetIsActive(profile));
   const categorizedRecommendations = categorizedExploreRecommendations(
-    explorePeople,
+    offlineDiscoveryPeople,
     viewerSignals,
   );
-  const similarInterestRecommendations = categorizedRecommendations.interests;
+  const similarInterestRecommendations = offlineDiscoveryPeople.map((profile) => {
+    const overlap = recommendationOverlap(
+      viewerSignals.interests,
+      profileMatchingSignals(profile).interests,
+    );
+    const matching = profileMatchingSignals(profile);
+    const goalOverlap = recommendationOverlap(
+      viewerSignals.relationshipGoals,
+      matching.relationshipGoals,
+    );
+    const communityOverlap = recommendationOverlap(
+      viewerSignals.communities,
+      matching.communities,
+    );
+    const distance = typeof profile.discovery?.distanceKm === "number"
+      ? `About ${Math.max(1, Math.round(profile.discovery.distanceKm / 1.60934))} miles away`
+      : "Promising connection";
+    const tag = overlap.count > 0
+      ? `Similar interest: ${overlap.first}`
+      : goalOverlap.count > 0
+        ? `Similar dating goal: ${goalOverlap.first}`
+        : communityOverlap.count > 0
+          ? `Community in common: ${communityOverlap.first}`
+          : distance;
+    return { profile, tag };
+  });
   const similarDatingGoalRecommendations = categorizedRecommendations.datingGoals;
   const communityInCommonRecommendations = categorizedRecommendations.communities;
   const readyToMeetPeople = (() => {
@@ -21647,9 +22011,12 @@ function SignedInHome({
       premiumActive={premiumActive}
       kindredPassActive={kindredPassActive}
     />
-  ) : tab === "profile" ? null : tab === "explore" ? (
+  ) : tab === "profile" ? null : tab === "explore" || tab === "connect" ? (
     <ExploreRecommendations
-      mode={webStandalone === "ready" ? "ready-only" : webDesktop ? "explore-only" : "all"}
+      mode={tab === "connect" ? "ready-only" : "explore-only"}
+      primaryReadyMeet={tab === "connect"}
+      globalPeople={offlineDiscoveryPeople}
+      offlinePeople={offlineDiscoveryPeople}
       similarInterests={similarInterestRecommendations}
       similarDatingGoals={similarDatingGoalRecommendations}
       communitiesInCommon={communityInCommonRecommendations}
@@ -21849,7 +22216,7 @@ function SignedInHome({
     !like.chatStarted &&
     !revealedIncomingLikeIds.includes(like.id)
   ).length;
-  const showConnectHeader = tab === "connect" && (!showRecommendation || profileStrength >= 100);
+  const showConnectHeader = false;
   const selectWebDestination = (destination: "connect" | "explore" | "liked" | "chats" | "ready" | "global" | "profile" | "settings") => {
     setFilterOpen(false);
     setSelectedMemberProfile(null);
@@ -21884,8 +22251,6 @@ function SignedInHome({
     ["connect", "Connect", Users],
     ["explore", "Explore", Compass],
     ["liked", "Liked You", Heart],
-    ["ready", "Ready to Meet", MapPin],
-    ["global", "Global Connect", Globe2],
   ] as const;
   const activeWebDestination = webStandalone || (settingsOpen ? "settings" : tab);
   const webProfilePhotoUri = profilePhotoUri || profilePrimaryPhotoUri(currentReadyMeetProfile);
@@ -21897,7 +22262,7 @@ function SignedInHome({
           <View style={{ gap: 1 }}>
             {webMenu.map(([key, label, Icon]) => {
               const active = activeWebDestination === key;
-              return <Pressable key={key} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={() => selectWebDestination(key)} style={({ pressed }) => ({ minHeight: 43, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "transparent", opacity: pressed ? 0.78 : 1, zIndex: active ? 2 : 1, transform: active ? [{ translateX: 5 }, { scale: 1.04 }] : [{ translateX: 0 }, { scale: 1 }] })}><Icon width={active ? 21 : 19} height={active ? 21 : 19} color={active ? "#F4F5F8" : "#C8CCE0"} /><Text style={{ color: active ? "#F4F5F8" : "#D8DBE9", fontSize: active ? 15 : 14, fontWeight: active ? "900" : "700" }}>{label}</Text>{key === "global" ? <Text style={{ marginLeft: "auto", color: active ? "#E2E5EC" : "#B9ACFF", fontSize: 8, fontWeight: "900" }}>SOON</Text> : null}</Pressable>;
+              return <Pressable key={key} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={() => selectWebDestination(key)} style={({ pressed }) => ({ minHeight: 43, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "transparent", opacity: pressed ? 0.78 : 1, zIndex: active ? 2 : 1, transform: active ? [{ translateX: 5 }, { scale: 1.04 }] : [{ translateX: 0 }, { scale: 1 }] })}><Icon width={active ? 21 : 19} height={active ? 21 : 19} color={active ? "#F4F5F8" : "#C8CCE0"} /><Text style={{ color: active ? "#F4F5F8" : "#D8DBE9", fontSize: active ? 15 : 14, fontWeight: active ? "900" : "700" }}>{label}</Text></Pressable>;
             })}
           </View>
           <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.1)", marginVertical: 8 }} />
