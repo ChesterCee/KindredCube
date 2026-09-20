@@ -287,16 +287,17 @@ function activeMatchingData(matching: Record<string, unknown>): Record<string, u
 }
 
 function candidateToResponse(candidate: DiscoveryRow, age: number, distanceKm: number | undefined, origin: string) {
-  const matching = {
+  const matching: Record<string, unknown> = {
     ...activeMatchingData(candidate.matching_data || {}),
     constellationIds: candidate.constellation_ids || [],
   };
   const photoVersion = typeof matching.photoVersion === "string" ? matching.photoVersion : "";
-  const photoUris = Array.isArray(matching.photos)
-    ? matching.photos
-        .map((photo) => photo && typeof photo === "object" && "uri" in photo ? (photo as { uri?: unknown }).uri : undefined)
-        .map((uri) => publicMediaUri(uri, origin, photoVersion))
-        .filter((uri): uri is string => uri.length > 0)
+  const photos: unknown[] = Array.isArray(matching.photos) ? matching.photos : [];
+  const photoUris = photos.length
+    ? photos
+        .map((photo: unknown) => photo && typeof photo === "object" && "uri" in photo ? (photo as { uri?: unknown }).uri : undefined)
+        .map((uri: unknown) => publicMediaUri(uri, origin, photoVersion))
+        .filter((uri: string): uri is string => uri.length > 0)
     : [];
   const bestPhotoUri = publicMediaUri(
     typeof matching.bestPhotoUri === "string" ? matching.bestPhotoUri : undefined,
