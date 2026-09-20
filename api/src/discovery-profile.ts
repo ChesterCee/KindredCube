@@ -52,6 +52,7 @@ export async function syncDiscoveryProfile(
     readyToMeetAt: readyToMeetAt.slice(0, 50),
     readyToMeetExpiresAt: readyToMeetExpiresAt.slice(0, 50),
     promptAnswers: safePromptAnswers(profile.promptAnswers),
+    compatibilityResponses: safeCompatibilityResponses(profile.compatibilityResponses),
   };
   const culture = text(profile.culture) || stringList(profile.personalLifestyle, 1)[0] || "";
   const visible = settings.profilePaused !== true && settings.incognitoMode !== true;
@@ -87,8 +88,13 @@ function calculateProfileStrength(profile: Record<string, unknown>) {
     const prompt = record(entry);
     return text(prompt.prompt) && text(prompt.answer).length >= 3;
   }).length;
+  const kindredTypeComplete = Object.values(record(profile.compatibilityResponses)).filter((entry) => {
+    const response = record(entry);
+    return Number.isInteger(response.value) && Number(response.value) >= 1 && Number(response.value) <= 5;
+  }).length >= 36;
   const completed = [
     text(profile.personality),
+    kindredTypeComplete,
     stringList(profile.relationshipGoals, 10).length,
     stringList(profile.interests, 25).length,
     stringList(profile.causes, 10).length,
@@ -100,10 +106,19 @@ function calculateProfileStrength(profile: Record<string, unknown>) {
     Object.keys(details).length >= 4,
     stringList(profile.languages, 20).length,
   ].filter(Boolean).length;
-  const baseCompletionScore = Math.round((completed / 11) * 54);
+  const baseCompletionScore = Math.round((completed / 12) * 54);
   const promptCompletionScore = Math.min(12, validPromptCount * 4);
   const photoCompletionScore = Math.min(24, photos.length * 8);
   return Math.min(90, photoCompletionScore + promptCompletionScore + baseCompletionScore);
+}
+
+function safeCompatibilityResponses(value: unknown) {
+  return Object.fromEntries(Object.entries(record(value)).flatMap(([key, entry]) => {
+    const response = record(entry);
+    const numericValue = Number(response.value);
+    if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > 5) return [];
+    return [[key.slice(0, 100), { category: text(response.category).slice(0, 50), value: numericValue }]];
+  }));
 }
 
 function record(value: unknown): Record<string, unknown> {

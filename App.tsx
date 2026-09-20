@@ -52,6 +52,7 @@ import {
   Share2,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Star,
   Square,
   Target,
@@ -81,6 +82,15 @@ import {
   getPrivateSpace,
   getIdentityVerificationStatus,
   getDiscoveryCandidates,
+  getMemberConstellations,
+  createMemberConstellation,
+  generateConstellationCover,
+  joinMemberConstellation,
+  deleteMemberConstellation,
+  getConstellationEarnings,
+  ConstellationEarnings,
+  claimConstellationReferral,
+  MemberConstellation,
   getReadyToMeetCandidates,
   getIncomingLikes,
   getCurrentUser,
@@ -352,6 +362,10 @@ const INSTAGRAM_ICON = require("./assets/instagram-icon.png");
 const PROFILE_UPLOAD_CAMERA_ICON = require("./assets/profile-upload-camera.png");
 const GLOBAL_CONNECT_LOGO = require("./assets/kindredcube-global-connect-logo.png");
 const READY_TO_MEET_WORDMARK = require("./assets/ready-to-meet-wordmark-transparent.png");
+const SIGMA_CONSTELLATION_ART = require("./assets/sigma-constellation.png");
+const DOG_PEOPLE_CONSTELLATION_ART = require("./assets/dog-people-constellation.png");
+const FAITH_PURPOSE_CONSTELLATION_ART = require("./assets/faith-purpose-constellation.png");
+const FAMILY_CENTERED_CONSTELLATION_ART = require("./assets/family-centered-constellation.png");
 
 function formatMoney(amount: number, options: { signed?: boolean } = {}) {
   const prefix = options.signed && amount < 0 ? "-" : "";
@@ -769,7 +783,163 @@ const kindredTypeQuestions = [
     weight: "3%",
     statement: "Laws should apply equally to everyone regardless of status.",
   },
+  {
+    key: "dogPeople_homeLife",
+    category: "lifestyle",
+    title: "Dogs & daily life",
+    weight: "Constellation",
+    statement: "I want dogs to be part of my everyday home life.",
+  },
+  {
+    key: "dogPeople_sharedRoutines",
+    category: "lifestyle",
+    title: "Dogs & daily life",
+    weight: "Constellation",
+    statement: "I enjoy planning walks, outings, and routines around a dog.",
+  },
+  {
+    key: "dogPeople_responsibleCare",
+    category: "lifestyle",
+    title: "Dogs & daily life",
+    weight: "Constellation",
+    statement: "Responsible care for animals is an important reflection of someone's values.",
+  },
+  {
+    key: "dogPeople_partnerComfort",
+    category: "lifestyle",
+    title: "Dogs & daily life",
+    weight: "Constellation",
+    statement: "It is important that my partner is comfortable sharing life with dogs.",
+  },
+  {
+    key: "sigma_independentPath",
+    category: "personality",
+    title: "Independent thinking",
+    weight: "Constellation",
+    statement: "I am comfortable choosing my own path even when it differs from what others expect.",
+  },
+  {
+    key: "sigma_solitude",
+    category: "personality",
+    title: "Independent thinking",
+    weight: "Constellation",
+    statement: "Time alone helps me think clearly, recharge, and make better decisions.",
+  },
+  {
+    key: "sigma_quietConfidence",
+    category: "personality",
+    title: "Independent thinking",
+    weight: "Constellation",
+    statement: "I value quiet confidence more than attention, popularity, or social status.",
+  },
+  {
+    key: "sigma_selfDirection",
+    category: "personality",
+    title: "Independent thinking",
+    weight: "Constellation",
+    statement: "I prefer relationships where both people are self-directed and respect each other's independence.",
+  },
+  {
+    key: "family_sharedHome",
+    category: "relationships",
+    title: "Family-centered life",
+    weight: "Constellation",
+    statement: "Building a stable, loving home is one of my most important life goals.",
+  },
+  {
+    key: "family_childrenCommunity",
+    category: "relationships",
+    title: "Family-centered life",
+    weight: "Constellation",
+    statement: "Children, relatives, or chosen family should be an active part of everyday life.",
+  },
+  {
+    key: "family_traditions",
+    category: "relationships",
+    title: "Family-centered life",
+    weight: "Constellation",
+    statement: "Creating and preserving family traditions matters to me.",
+  },
+  {
+    key: "family_longTermCare",
+    category: "relationships",
+    title: "Family-centered life",
+    weight: "Constellation",
+    statement: "Partners should plan together for the long-term care and wellbeing of their family.",
+  },
+  {
+    key: "faith_sharedPurpose",
+    category: "faithSpirituality",
+    title: "Faith & purpose",
+    weight: "Constellation",
+    statement: "I want a relationship grounded in a shared sense of faith, meaning, or higher purpose.",
+  },
+  {
+    key: "faith_service",
+    category: "faithSpirituality",
+    title: "Faith & purpose",
+    weight: "Constellation",
+    statement: "Serving other people and my community is an important expression of my beliefs.",
+  },
+  {
+    key: "faith_growthTogether",
+    category: "faithSpirituality",
+    title: "Faith & purpose",
+    weight: "Constellation",
+    statement: "I want a partner who will grow with me spiritually and in purpose.",
+  },
+  {
+    key: "faith_guidedLife",
+    category: "faithSpirituality",
+    title: "Faith & purpose",
+    weight: "Constellation",
+    statement: "My beliefs guide how I approach relationships, work, and major life choices.",
+  },
 ] as const;
+
+const constellationKindredTypeKeys: Record<string, readonly string[]> = {
+  sigma: [
+    "sigma_independentPath",
+    "sigma_solitude",
+    "sigma_quietConfidence",
+    "sigma_selfDirection",
+    "coreValues_personalGrowth",
+    "coreValues_meaningfulLife",
+    "ethics_honestyFeelings",
+    "ethics_responsibility",
+    "ambition_purposeIncome",
+    "ambition_sacrificesGoals",
+    "ambition_calculatedRisks",
+    "politicsSociety_individualResponsibility",
+  ],
+  "dog-people": ["dogPeople_homeLife", "dogPeople_sharedRoutines", "dogPeople_responsibleCare", "dogPeople_partnerComfort"],
+  "faith-purpose": [
+    "faith_sharedPurpose",
+    "faith_service",
+    "faith_growthTogether",
+    "faith_guidedLife",
+    "faithSpirituality_godReligion",
+    "faithSpirituality_majorDecisions",
+    "faithSpirituality_dailyReflection",
+    "coreValues_meaningfulLife",
+    "ambition_purposeIncome",
+    "ambition_positiveImpact",
+    "politicsSociety_communityHelp",
+  ],
+  "family-centered": [
+    "family_sharedHome",
+    "family_childrenCommunity",
+    "family_traditions",
+    "family_longTermCare",
+    "relationships_lifelongMarriage",
+    "relationships_sharedFinances",
+    "relationships_decisionsTogether",
+    "relationships_trustRomance",
+    "conflictPersonality_forgiveness",
+    "lifestyle_financialDiscipline",
+    "lifestyle_familyTime",
+  ],
+};
 const kindredTypeAnswerOptions = [
   { value: 1, label: "Agree" },
   { value: 2, label: "Somewhat agree" },
@@ -16059,7 +16229,11 @@ function ReadyToMeetFeature({
                       </Text>
                     ) : null}
                     <View style={{ height: cardImageHeight, borderRadius: 15, overflow: "hidden", backgroundColor: "#1C2338" }}>
-                      <ReadyMeetRotatingPhoto profile={profile} size={cardWidth} paused={readyPhotoRotationPaused} />
+                      {isCurrentUserReadyCard ? (
+                        <ProfileImage profile={profile} size={cardWidth} />
+                      ) : (
+                        <ReadyMeetRotatingPhoto profile={profile} size={cardWidth} paused={readyPhotoRotationPaused} />
+                      )}
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={isCurrentUserReadyCard ? "Your Ready to Meet card" : `Chat with ${profile.name}`}
@@ -16812,76 +16986,64 @@ function profileGlobalCountry(profile: Profile) {
 
 function GlobalConnectDiscovery({
   people,
-  likedProfileKeys,
+  viewerProfile,
   onProfilePress,
-  onLike,
   onClose,
 }: {
   people: readonly Profile[];
-  likedProfileKeys?: readonly string[];
+  viewerProfile?: Profile;
   onProfilePress?: (profile: Profile) => void;
-  onLike: (profile: Profile) => void;
   onClose: () => void;
 }) {
-  const countries = [
-    ...new Set(people.map(profileGlobalCountry).filter(Boolean)),
-  ].sort((first, second) => first.localeCompare(second));
-  const [country, setCountry] = useState("");
-  const [countrySearch, setCountrySearch] = useState("");
-  const matchingCountries = countries.filter((item) =>
-    item.toLocaleLowerCase("en-US").includes(countrySearch.trim().toLocaleLowerCase("en-US")),
-  );
-  const visiblePeople = country
-    ? people.filter((profile) => profileGlobalCountry(profile) === country)
-    : [];
-  const globalRecommendations = visiblePeople.slice(0, 10).map((profile) => ({
+  const { width } = useWindowDimensions();
+  const globalLogoWidth = Math.min(170, width - 40);
+  const globalLogoHeight = globalLogoWidth / (2172 / 724);
+  const viewerCountry = viewerProfile ? profileGlobalCountry(viewerProfile) : "";
+  const globalRecommendations = people
+    .filter((profile) => {
+      const country = profileGlobalCountry(profile);
+      return country && (!viewerCountry || country !== viewerCountry);
+    })
+    .map((profile) => ({
     profile,
     tag: profileGlobalCountry(profile) ? `Global Connect · ${profileGlobalCountry(profile)}` : "Global Connect · Open to the world",
   }));
   return (
     <View style={{ gap: 11 }}>
       <View style={{ marginHorizontal: 18, gap: 12 }}>
+        <Image
+          source={GLOBAL_CONNECT_LOGO}
+          accessibilityLabel="KindredCube Global Connect"
+          resizeMode="contain"
+          fadeDuration={0}
+          style={{ width: globalLogoWidth, height: globalLogoHeight }}
+        />
         <Pressable accessibilityRole="button" accessibilityLabel="Back to Explore" onPress={onClose} style={{ alignSelf: "flex-start", minHeight: 38, flexDirection: "row", alignItems: "center", gap: 6 }}>
           <ChevronLeft width={20} height={20} color={C.ink} />
           <Text style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>Explore</Text>
         </Pressable>
-        <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 25, fontWeight: "900" }}>Choose a country</Text>
-        <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>Only countries selected by current KindredCube members appear here.</Text>
-        <View style={{ minHeight: 48, borderRadius: 16, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 9 }}>
-          <Search width={19} height={19} color={C.muted} />
-          <TextInput
-            value={countrySearch}
-            onChangeText={setCountrySearch}
-            placeholder="Search countries"
-            placeholderTextColor="#948A7F"
-            autoCapitalize="words"
-            autoCorrect={false}
-            style={{ flex: 1, color: C.ink, fontSize: 14, paddingVertical: 12 }}
-          />
-        </View>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          {matchingCountries.map((item) => {
-            const selected = country === item;
-            return <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => setCountry(item)} style={{ minHeight: 38, borderRadius: 19, borderWidth: 1, borderColor: selected ? "#5A3AC7" : C.line, backgroundColor: selected ? "#EEE9FF" : C.paper, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" }}><Text style={{ color: selected ? "#5A3AC7" : C.ink, fontSize: 12, fontWeight: "900" }}>{item}</Text></Pressable>;
-          })}
-          {!matchingCountries.length ? <Text selectable style={{ color: C.muted, fontSize: 12 }}>No member countries match that search.</Text> : null}
-        </View>
+        <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 25, fontWeight: "900" }}>Global constellations</Text>
+        <Text selectable style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>Discover Kindreds in your strongest groups from countries beyond {viewerCountry || "your own"}. Profiles remain visible while offline.</Text>
       </View>
-      {country && globalRecommendations.length ? (
-        <RecommendationCarousel
-          title={`People in ${country}`}
-          description="Like a profile to express interest. Chat opens after a mutual connection."
-          recommendations={globalRecommendations}
-          likedProfileKeys={likedProfileKeys}
-          onProfilePress={onProfilePress}
-          onLike={onLike}
-        />
-      ) : country ? (
+      {globalRecommendations.length ? (
+        <>
+          <CommonGroundAtlas recommendations={globalRecommendations} viewerProfile={viewerProfile} onProfilePress={onProfilePress} globalLayout />
+          <View style={{ marginHorizontal: 18, gap: 10 }}>
+            <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>Global members</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+              {globalRecommendations.map(({ profile }) => {
+                const cardWidth = Math.max(132, (width - 48) / 2);
+                return <Pressable key={likeProfileKeyValue(profile)} accessibilityRole="button" accessibilityLabel={`Explore ${profile.name}'s profile`} onPress={() => onProfilePress?.(profile)} style={{ width: cardWidth, borderRadius: 18, overflow: "hidden", backgroundColor: C.paper, borderWidth: 1, borderColor: C.line }}><View style={{ width: cardWidth, height: cardWidth, backgroundColor: "#E8E1D6" }}><ProfileImage profile={profile} size={cardWidth} /></View><View style={{ padding: 9, gap: 3 }}><Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>{profile.name}, {profile.age}</Text><Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 10, fontWeight: "800" }}>{profileGlobalCountry(profile)}</Text><View style={{ minHeight: 28, borderRadius: 14, backgroundColor: C.ink, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 9.5, fontWeight: "900" }}>Explore</Text></View></View></Pressable>;
+              })}
+            </View>
+          </View>
+        </>
+      ) : (
         <View style={{ marginHorizontal: 18, borderRadius: 20, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 17, gap: 5 }}>
-          <Text selectable style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>No profiles here yet</Text>
-          <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>Try another country. New members will appear here as the community grows.</Text>
+          <Text selectable style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>No global Kindreds yet</Text>
+          <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>Members from other countries will appear here as the global community grows.</Text>
         </View>
-      ) : null}
+      )}
     </View>
   );
 }
@@ -16911,6 +17073,7 @@ function ExploreRecommendations({
   primaryReadyMeet = false,
   globalPeople = [],
   offlinePeople = [],
+  canCreateConstellation = false,
 }: {
   similarInterests: readonly TaggedRecommendation[];
   similarDatingGoals: readonly TaggedRecommendation[];
@@ -16936,12 +17099,10 @@ function ExploreRecommendations({
   primaryReadyMeet?: boolean;
   globalPeople?: readonly Profile[];
   offlinePeople?: readonly Profile[];
+  canCreateConstellation?: boolean;
 }) {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
   const [globalConnectOpen, setGlobalConnectOpen] = useState(false);
-  const globalLogoWidth = Math.min(170, width - 40);
-  const globalLogoHeight = globalLogoWidth / (2172 / 724);
   const readyMeetFeature = (
     <ReadyToMeetFeature
       people={readyPeople}
@@ -16970,31 +17131,12 @@ function ExploreRecommendations({
       style={{ flex: 1, backgroundColor: C.cream }}
       contentContainerStyle={{ flexGrow: 1, paddingTop: appHeaderTopPadding(insets), paddingBottom: 34, gap: 17 }}
     >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={globalConnectOpen ? "Global Connect" : "Open Global Connect"}
-        onPress={() => setGlobalConnectOpen(true)}
-        style={{
-          marginHorizontal: 18,
-          width: globalLogoWidth,
-          height: globalLogoHeight,
-          alignSelf: "flex-start",
-        }}
-      >
-        <Image
-          source={GLOBAL_CONNECT_LOGO}
-          accessibilityLabel="KindredCube Global Connect"
-          resizeMode="contain"
-          fadeDuration={0}
-          style={{ width: globalLogoWidth, height: globalLogoHeight }}
-        />
-      </Pressable>
+      {!globalConnectOpen ? <View style={{ marginHorizontal: 18 }}><Logo size="compact" /></View> : null}
       {mode !== "explore-only" ? readyMeetFeature : null}
       {mode !== "ready-only" && globalConnectOpen ? <GlobalConnectDiscovery
         people={globalPeople}
-        likedProfileKeys={likedProfileKeys}
+        viewerProfile={currentProfile}
         onProfilePress={onProfilePress}
-        onLike={onLike}
         onClose={() => setGlobalConnectOpen(false)}
       /> : null}
       {mode !== "ready-only" && !globalConnectOpen ? <><Pressable
@@ -17005,16 +17147,560 @@ function ExploreRecommendations({
         <View style={{ flex: 1, gap: 2 }}><Text style={{ color: C.paper, fontSize: 15, fontWeight: "900" }}>Global Connect</Text><Text style={{ color: "#C8CCE0", fontSize: 11 }}>Search members by country</Text></View>
         <ChevronRight width={20} height={20} color="#B9ACFF" />
       </Pressable>
+      <CommonGroundAtlas
+        recommendations={(offlinePeople.length ? offlinePeople : similarInterests.map((item) => item.profile)).map((profile) => ({ profile, tag: "Nearby Kindred" }))}
+        viewerProfile={currentProfile}
+        onProfilePress={onProfilePress}
+        canCreateConstellation={canCreateConstellation}
+      />
       <RecommendationCarousel
-        title="Explore Kindreds"
-        description="Offline Kindreds recommended by shared interests, compatibility, and promising ground for connection."
-        recommendations={similarInterests}
+        title="Explore everyone"
+        description="All profiles remain discoverable here. Constellation membership is always a separate choice."
+        recommendations={(offlinePeople.length ? offlinePeople : similarInterests.map((item) => item.profile)).map((profile) => ({ profile, tag: "Explore Kindred" }))}
         likedProfileKeys={likedProfileKeys}
         onProfilePress={onProfilePress}
         onLike={onLike}
       />
       </> : null}
     </ScrollView>
+  );
+}
+
+type ExploreConstellation = {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  accent: string;
+  keywords: string[];
+  explainer: string;
+  custom?: boolean;
+  requiresApproval?: boolean;
+  coverUri?: string;
+  memberCount?: number;
+  published?: boolean;
+  shareUrl?: string;
+  membershipStatus?: "pending" | "accepted" | "declined" | null;
+  creatorId?: string;
+};
+
+function memberConstellationToExplore(item: MemberConstellation): ExploreConstellation {
+  return {
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    explainer: item.description,
+    color: "#EAF0FA",
+    accent: "#354E86",
+    keywords: item.name.toLocaleLowerCase("en-US").split(/\s+/u).filter(Boolean),
+    custom: true,
+    requiresApproval: item.requiresApproval,
+    coverUri: item.coverUri,
+    memberCount: item.memberCount,
+    published: item.published,
+    shareUrl: item.shareUrl,
+    membershipStatus: item.membershipStatus,
+    creatorId: item.creatorId,
+  };
+}
+
+const DEFAULT_EXPLORE_CONSTELLATIONS: ExploreConstellation[] = [
+  {
+    id: "sigma",
+    name: "Sigma",
+    description: "Independent thinkers building life with intention.",
+    explainer: "Sigma independent thinkers value autonomy, quiet confidence, self-direction, and meaningful progress without needing the spotlight.",
+    color: "#FFFFFF",
+    accent: "#172448",
+    keywords: ["sigma", "independent", "autonomy", "entrepreneur", "founder", "leadership", "growth", "self-directed", "ambition"],
+  },
+  {
+    id: "dog-people",
+    name: "Dog People",
+    description: "Walks, parks, rescue stories, and four-legged family.",
+    explainer: "Dog People build connection through companionship, outdoor routines, responsible pet care, and the joy animals bring to everyday life.",
+    color: "#E8F1E6",
+    accent: "#41725A",
+    keywords: ["dog", "dogs", "pets", "animals", "walking", "park"],
+  },
+  {
+    id: "faith-purpose",
+    name: "Faith & Purpose",
+    description: "Kindreds grounded in faith, service, and meaning.",
+    explainer: "Faith & Purpose brings together people whose beliefs, service, spiritual growth, and sense of calling help guide their choices.",
+    color: "#F2EAF8",
+    accent: "#73529A",
+    keywords: ["faith", "religion", "spiritual", "purpose", "service", "community"],
+  },
+  {
+    id: "family-centered",
+    name: "Family-Centered",
+    description: "People who put family, care, and commitment first.",
+    explainer: "Family-Centered Kindreds prioritize commitment, care, home life, children or future family, and relationships built for the long term.",
+    color: "#FCE8EC",
+    accent: "#A83E61",
+    keywords: ["family", "children", "parent", "marriage", "commitment", "home"],
+  },
+];
+
+type ConstellationMatch = TaggedRecommendation & {
+  strength: number;
+  level: "Emerging" | "Strong" | "Very strong";
+  reasons: string[];
+};
+
+function kindredTypeConstellationStrength(profile: Profile, constellationId: string) {
+  const responses = profileMatchingSignals(profile).compatibilityResponses || {};
+  const keys = constellationKindredTypeKeys[constellationId] || [];
+  const values = keys
+    .map((key) => responses[key]?.value)
+    .filter((value): value is 1 | 2 | 3 | 4 | 5 => typeof value === "number");
+  if (!values.length) return null;
+  return Math.round(values.reduce((total, value) => total + ((5 - value) / 4) * 100, 0) / values.length);
+}
+
+function rankedDefaultConstellationIds(profile: Profile) {
+  return DEFAULT_EXPLORE_CONSTELLATIONS
+    .map((constellation, index) => ({
+      id: constellation.id,
+      strength: kindredTypeConstellationStrength(profile, constellation.id) ?? 0,
+      index,
+    }))
+    .sort((left, right) => right.strength - left.strength || left.index - right.index)
+    .slice(0, 2)
+    .map((item) => item.id);
+}
+
+function constellationMatch(item: TaggedRecommendation, constellation: ExploreConstellation): ConstellationMatch {
+  const signals = profileMatchingSignals(item.profile);
+  const structured = [
+    ...(signals.values || []),
+    ...(signals.interests || []),
+    ...(signals.communities || []),
+    ...(signals.relationshipGoals || []),
+    signals.personality || "",
+    signals.religion || "",
+    signals.wantsChildren || "",
+    signals.hasChildren ? "has children family parent" : "",
+    item.profile.role,
+    item.profile.culture,
+    item.tag,
+  ].filter(Boolean);
+  const prompts = Object.values(item.profile.promptAnswers || {}).flatMap((answer) => [answer.prompt, answer.answer]);
+  const structuredText = structured.join(" ").toLocaleLowerCase("en-US");
+  const promptText = prompts.join(" ").toLocaleLowerCase("en-US");
+  const allText = `${structuredText} ${promptText}`;
+  const matchedKeywords = [...new Set(constellation.keywords.filter((keyword) => allText.includes(keyword)))];
+  const reasons: string[] = [];
+  if (matchedKeywords.length) reasons.push(`Signals: ${matchedKeywords.slice(0, 3).join(", ")}`);
+  if (signals.values?.length) reasons.push(`Values: ${signals.values.slice(0, 2).join(" · ")}`);
+  if (signals.interests?.length) reasons.push(`Interests: ${signals.interests.slice(0, 2).join(" · ")}`);
+
+  let score = 34 + Math.min(36, matchedKeywords.length * 8) + Math.min(8, Math.round((signals.profileCompleteness || 0) / 13));
+  if (constellation.id === "sigma" && ["INTJ", "INTP", "ISTP", "ENTJ"].includes(signals.personality || "")) {
+    score += 12;
+    reasons.unshift(`Independent-thinking profile: ${signals.personality}`);
+  }
+  if (constellation.id === "dog-people" && /dog|pet|animal|rescue|walking|park/u.test(allText)) score += 14;
+  if (constellation.id === "faith-purpose" && (signals.religion || /faith|spiritual|service|purpose/u.test(allText))) {
+    score += 14;
+    if (signals.religion) reasons.unshift(`Faith: ${signals.religion}`);
+  }
+  if (constellation.id === "family-centered" && (signals.hasChildren || /family|children|marriage|commitment|long.?term/u.test(allText))) score += 14;
+  const kindredTypeStrength = kindredTypeConstellationStrength(item.profile, constellation.id);
+  if (kindredTypeStrength !== null) {
+    score = Math.round(kindredTypeStrength * 0.72 + score * 0.28);
+    reasons.unshift(`Kindred Type: ${kindredTypeStrength}% aligned`);
+  }
+  score = Math.max(20, Math.min(98, score));
+  if (!reasons.length) reasons.push("Profile signals are still developing");
+  return {
+    ...item,
+    strength: score,
+    level: score >= 82 ? "Very strong" : score >= 64 ? "Strong" : "Emerging",
+    reasons: reasons.slice(0, 2),
+  };
+}
+
+function CommonGroundAtlas({
+  recommendations,
+  viewerProfile,
+  onProfilePress,
+  globalLayout = false,
+  canCreateConstellation = false,
+}: {
+  recommendations: readonly TaggedRecommendation[];
+  viewerProfile?: Profile;
+  onProfilePress?: (profile: Profile) => void;
+  globalLayout?: boolean;
+  canCreateConstellation?: boolean;
+}) {
+  const { width } = useWindowDimensions();
+  const storageKey = "kindredcube.customExploreConstellations";
+  const joinedStorageKey = "kindredcube.joinedCustomConstellations";
+  const pendingStorageKey = "kindredcube.pendingCustomConstellations";
+  const constellationScrollRef = useRef<ScrollView>(null);
+  const [customConstellations, setCustomConstellations] = useState<ExploreConstellation[]>([]);
+  const [joinedCustomIds, setJoinedCustomIds] = useState<string[]>([]);
+  const [pendingCustomIds, setPendingCustomIds] = useState<string[]>([]);
+  const [selectedId, setSelectedId] = useState(DEFAULT_EXPLORE_CONSTELLATIONS[0]!.id);
+  const [creatorOpen, setCreatorOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [requiresApproval, setRequiresApproval] = useState(true);
+  const [generatedCover, setGeneratedCover] = useState<{ imageBase64: string; mimeType: "image/png" } | null>(null);
+  const [coverGenerating, setCoverGenerating] = useState(false);
+  const [constellationBusy, setConstellationBusy] = useState(false);
+  const [constellationNotice, setConstellationNotice] = useState("");
+  const [earningsOpen, setEarningsOpen] = useState(false);
+  const [earningsBusy, setEarningsBusy] = useState(false);
+  const [earnings, setEarnings] = useState<ConstellationEarnings | null>(null);
+  const constellations = [...DEFAULT_EXPLORE_CONSTELLATIONS, ...customConstellations];
+  const selected = constellations.find((item) => item.id === selectedId) || constellations[0]!;
+  const selectedConstellationIndex = Math.max(0, constellations.findIndex((item) => item.id === selected.id));
+  const carouselConstellations = constellations.length > 1
+    ? [
+        constellations[(selectedConstellationIndex - 1 + constellations.length) % constellations.length]!,
+        selected,
+        constellations[(selectedConstellationIndex + 1) % constellations.length]!,
+      ]
+    : [selected];
+
+  useEffect(() => {
+    const timer = setTimeout(() => constellationScrollRef.current?.scrollTo({ x: constellations.length > 1 ? 220 : 0, animated: false }), 40);
+    return () => clearTimeout(timer);
+  }, [selectedId, constellations.length]);
+
+  useEffect(() => {
+    getMemberConstellations()
+      .then((result) => setCustomConstellations(result.constellations.map(memberConstellationToExplore)))
+      .catch(() => setCustomConstellations([]));
+    SecureStore.getItemAsync(joinedStorageKey)
+      .then((saved) => {
+        if (!saved) return;
+        const parsed = JSON.parse(saved) as unknown;
+        if (Array.isArray(parsed)) setJoinedCustomIds(parsed.filter((item): item is string => typeof item === "string"));
+      })
+      .catch(() => undefined);
+    SecureStore.getItemAsync(pendingStorageKey)
+      .then((saved) => {
+        if (!saved) return;
+        const parsed = JSON.parse(saved) as unknown;
+        if (Array.isArray(parsed)) setPendingCustomIds(parsed.filter((item): item is string => typeof item === "string"));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const saveCustomConstellations = useCallback((next: ExploreConstellation[]) => {
+    setCustomConstellations(next);
+    SecureStore.setItemAsync(storageKey, JSON.stringify(next)).catch(() => undefined);
+  }, []);
+
+  const visibleProfiles = recommendations
+    .filter((item) => {
+      if (!selected.custom) return rankedDefaultConstellationIds(item.profile).includes(selected.id);
+      const memberships = item.profile.discovery?.matching?.constellationIds;
+      return Array.isArray(memberships) && memberships.includes(selected.id);
+    })
+    .map((item) => constellationMatch(item, selected))
+    .sort((left, right) => right.strength - left.strength);
+  const viewerIsFeatured = selected.custom
+    ? selected.creatorId === viewerProfile?.id || joinedCustomIds.includes(selected.id)
+    : Boolean(viewerProfile && rankedDefaultConstellationIds(viewerProfile).includes(selected.id));
+  const joinSelectedCustomConstellation = async () => {
+    if (!selected.custom || joinedCustomIds.includes(selected.id) || pendingCustomIds.includes(selected.id)) return;
+    try {
+      const result = await joinMemberConstellation(selected.id);
+      if (result.status === "pending") {
+        const nextPending = [...pendingCustomIds, selected.id];
+        setPendingCustomIds(nextPending);
+        SecureStore.setItemAsync(pendingStorageKey, JSON.stringify(nextPending)).catch(() => undefined);
+      } else {
+        const next = [...joinedCustomIds, selected.id];
+        setJoinedCustomIds(next);
+        SecureStore.setItemAsync(joinedStorageKey, JSON.stringify(next)).catch(() => undefined);
+      }
+      setCustomConstellations((items) => items.map((item) => item.id === selected.id ? { ...item, memberCount: result.memberCount, published: result.published, membershipStatus: result.status } : item));
+    } catch (caught) {
+      Alert.alert("Could not join", caught instanceof Error ? caught.message : "Please try again.");
+    }
+  };
+  const confirmDeleteSelectedConstellation = () => {
+    if (!selected.custom || selected.creatorId !== viewerProfile?.id) return;
+    Alert.alert(
+      "Delete constellation?",
+      `This permanently removes ${selected.name} and all of its membership records. This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            deleteMemberConstellation(selected.id)
+              .then(() => {
+                const next = customConstellations.filter((item) => item.id !== selected.id);
+                saveCustomConstellations(next);
+                setJoinedCustomIds((items) => items.filter((id) => id !== selected.id));
+                setPendingCustomIds((items) => items.filter((id) => id !== selected.id));
+                setSelectedId(DEFAULT_EXPLORE_CONSTELLATIONS[0]!.id);
+              })
+              .catch((caught) => Alert.alert("Could not delete", caught instanceof Error ? caught.message : "Please try again."));
+          },
+        },
+      ],
+    );
+  };
+  const openConstellationEarnings = async () => {
+    if (!selected.custom || selected.creatorId !== viewerProfile?.id) return;
+    setEarningsOpen(true);
+    setEarningsBusy(true);
+    try {
+      setEarnings(await getConstellationEarnings(selected.id));
+    } catch (caught) {
+      Alert.alert("Could not load earnings", caught instanceof Error ? caught.message : "Please try again.");
+    } finally {
+      setEarningsBusy(false);
+    }
+  };
+
+  const generateCover = async () => {
+    const trimmedName = name.trim();
+    if (trimmedName.length < 2 || coverGenerating) return;
+    setCoverGenerating(true);
+    setConstellationNotice("");
+    try {
+      setGeneratedCover(await generateConstellationCover(trimmedName));
+    } catch (caught) {
+      setGeneratedCover(null);
+      setConstellationNotice(caught instanceof Error ? caught.message : "The AI icon could not be generated.");
+    } finally {
+      setCoverGenerating(false);
+    }
+  };
+
+  const createConstellation = async () => {
+    const trimmedName = name.trim();
+    if (!trimmedName || !generatedCover || constellationBusy) return;
+    setConstellationBusy(true);
+    setConstellationNotice("");
+    try {
+      const result = await createMemberConstellation({
+        name: trimmedName.slice(0, 40),
+        description: description.trim().slice(0, 240) || "A constellation created by a KindredCube member.",
+        requiresApproval,
+        imageBase64: generatedCover.imageBase64,
+        mimeType: generatedCover.mimeType,
+      });
+      const item = memberConstellationToExplore(result.constellation);
+      saveCustomConstellations([...customConstellations, item]);
+      setSelectedId(item.id);
+      setName(""); setDescription(""); setRequiresApproval(true); setGeneratedCover(null); setCreatorOpen(false);
+    } catch (caught) {
+      setConstellationNotice(caught instanceof Error ? caught.message : "The constellation could not be created.");
+    } finally {
+      setConstellationBusy(false);
+    }
+  };
+
+  return (
+    <View style={{ gap: 15 }}>
+      <View style={{ paddingHorizontal: 18, gap: 4 }}>
+        <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 25, fontWeight: "900" }}>
+          Explore Kindreds
+        </Text>
+        <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+          Enter through what matters to you. Every constellation brings together Kindreds with meaningful common ground.
+        </Text>
+      </View>
+
+      <ScrollView
+        ref={constellationScrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        decelerationRate="fast"
+        snapToInterval={220}
+        onMomentumScrollEnd={(event) => {
+          const carouselIndex = Math.round(event.nativeEvent.contentOffset.x / 220);
+          const item = carouselConstellations[Math.max(0, Math.min(2, carouselIndex))];
+          if (item && item.id !== selectedId) {
+            setSelectedId(item.id);
+          } else {
+            constellationScrollRef.current?.scrollTo({ x: constellations.length > 1 ? 220 : 0, animated: false });
+          }
+        }}
+        contentContainerStyle={{ paddingHorizontal: Math.max(18, (width - 206) / 2), paddingVertical: 13, gap: 14 }}
+      >
+        {carouselConstellations.map((item, index) => {
+          const active = item.id === selected.id;
+          const Icon = index % 4 === 0 ? Target : index % 4 === 2 ? Star : Users;
+          const illustration =
+            item.id === "sigma"
+              ? SIGMA_CONSTELLATION_ART
+              : item.id === "dog-people"
+                ? DOG_PEOPLE_CONSTELLATION_ART
+                : item.id === "faith-purpose"
+                  ? FAITH_PURPOSE_CONSTELLATION_ART
+                  : item.id === "family-centered"
+                    ? FAMILY_CENTERED_CONSTELLATION_ART
+                    : null;
+          return (
+            <Pressable
+              key={`${item.id}-${index}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${item.name} constellation`}
+              onPress={() => setSelectedId(item.id)}
+              style={({ pressed }) => ({
+                width: 206,
+                minHeight: 238,
+                borderRadius: 32,
+                borderCurve: "continuous",
+                padding: 15,
+                justifyContent: "space-between",
+                backgroundColor: item.color,
+                borderWidth: active ? 3 : 1,
+                borderColor: active ? item.accent : C.line,
+                opacity: pressed ? 0.78 : 1,
+                transform: [{ scale: active ? 1.08 : 0.9 }],
+                boxShadow: active ? "0 10px 24px rgba(34,31,27,0.13)" : "none",
+              })}
+            >
+              <View style={{ width: 128, height: 128, borderRadius: 30, backgroundColor: `${item.accent}0D`, alignItems: "center", justifyContent: "center", overflow: "hidden", alignSelf: "center" }}>
+                {item.coverUri ? (
+                  <Image source={{ uri: item.coverUri }} resizeMode="cover" fadeDuration={0} style={{ width: 122, height: 122 }} />
+                ) : illustration ? (
+                  <Image
+                    source={illustration}
+                    resizeMode="contain"
+                    fadeDuration={0}
+                    style={{ width: 122, height: 122 }}
+                  />
+                ) : (
+                  <Icon width={23} height={23} color={item.accent} strokeWidth={2.5} />
+                )}
+              </View>
+              <View style={{ gap: 4 }}>
+                <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>{item.name}</Text>
+                <Text selectable numberOfLines={3} style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>{item.description}</Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      {canCreateConstellation ? <Pressable accessibilityRole="button" accessibilityLabel="Create your own constellation" onPress={() => setCreatorOpen(true)} style={{ alignSelf: "center", minHeight: 38, borderRadius: 19, borderWidth: 1, borderColor: C.clay, backgroundColor: C.paper, paddingHorizontal: 15, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <Plus width={17} height={17} color={C.clay} strokeWidth={2.5} />
+        <Text style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Create a constellation</Text>
+      </Pressable> : !globalLayout ? <View style={{ alignSelf: "center", borderRadius: 16, backgroundColor: "#F2EAF8", paddingHorizontal: 12, paddingVertical: 8 }}><Text selectable style={{ color: "#73529A", fontSize: 10, fontWeight: "900" }}>Premium members can create constellations</Text></View> : null}
+
+      <View style={{ marginHorizontal: 18, borderRadius: 20, borderCurve: "continuous", backgroundColor: selected.color, padding: 12, gap: 10, borderWidth: 1, borderColor: C.line }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text selectable style={{ color: C.ink, fontSize: 19, fontWeight: "900" }}>{selected.name}</Text>
+            {selected.custom && selected.requiresApproval ? <Text selectable style={{ color: selected.accent, fontSize: 10, fontWeight: "900" }}>Private · membership approval required</Text> : null}
+            {selected.custom ? <Text selectable style={{ color: C.muted, fontSize: 9.5, fontWeight: "800" }}>{selected.memberCount || 1}/10 network members · {selected.published ? "Published application-wide" : `${Math.max(0, 10 - (selected.memberCount || 1))} more to publish`}</Text> : null}
+          </View>
+          {selected.custom && selected.shareUrl ? <Pressable accessibilityRole="button" accessibilityLabel={`Share ${selected.name}`} onPress={() => Share.share({ title: selected.name, message: `Join ${selected.name} on KindredCube: ${selected.shareUrl}?ref=${selected.id}\nOpen in the app: kindredcube://constellations/${selected.id}?ref=${selected.id}` })} style={{ minHeight: 36, borderRadius: 18, backgroundColor: selected.accent, paddingHorizontal: 11, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>Share</Text></Pressable> : null}
+          {selected.custom && selected.creatorId === viewerProfile?.id ? <Pressable accessibilityRole="button" accessibilityLabel={`View ${selected.name} earnings`} onPress={openConstellationEarnings} style={{ minHeight: 36, borderRadius: 18, backgroundColor: "#E7F2EA", paddingHorizontal: 10, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.sage, fontSize: 10, fontWeight: "900" }}>Earnings</Text></Pressable> : null}
+          {selected.custom && selected.creatorId === viewerProfile?.id ? <Pressable accessibilityRole="button" accessibilityLabel={`Delete ${selected.name}`} onPress={confirmDeleteSelectedConstellation} style={{ width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: "#D9A8A1", backgroundColor: "#FFF1EF", alignItems: "center", justifyContent: "center" }}><Trash2 width={16} height={16} color="#A33D32" /></Pressable> : null}
+        </View>
+        {visibleProfiles.length && globalLayout ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+            {visibleProfiles.map(({ profile, strength, level }) => {
+              const cardWidth = Math.max(132, (width - 84) / 2);
+              return (
+                <Pressable key={likeProfileKeyValue(profile)} accessibilityRole="button" accessibilityLabel={`Explore ${profile.name}'s profile`} onPress={() => onProfilePress?.(profile)} style={{ width: cardWidth, borderRadius: 18, overflow: "hidden", backgroundColor: C.paper, borderWidth: 1, borderColor: C.line }}>
+                  <View style={{ width: cardWidth, height: cardWidth, overflow: "hidden", backgroundColor: "#E8E1D6" }}><ProfileImage profile={profile} size={cardWidth} /></View>
+                  <View style={{ padding: 9, gap: 4 }}>
+                    <Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>{profile.name}, {profile.age}</Text>
+                    <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 10, fontWeight: "800" }}>{profileGlobalCountry(profile)}</Text>
+                    <Text selectable style={{ color: selected.accent, fontSize: 9.5, fontWeight: "900" }}>{strength}% · {level}</Text>
+                    <View style={{ minHeight: 28, borderRadius: 14, backgroundColor: selected.accent, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 9.5, fontWeight: "900" }}>Explore</Text></View>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : visibleProfiles.length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 11 }}>
+            {visibleProfiles.map(({ profile, strength, level, reasons }) => (
+              <View key={likeProfileKeyValue(profile)} style={{ width: 92, gap: 5 }}>
+                <Pressable accessibilityRole="button" onPress={() => onProfilePress?.(profile)}>
+                <View style={{ width: 78, height: 78, borderRadius: 39, overflow: "hidden", borderWidth: 2, borderColor: C.paper, backgroundColor: C.paper, alignSelf: "center" }}>
+                  <ProfileImage profile={profile} size={74} />
+                </View>
+                </Pressable>
+                <Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 12, fontWeight: "900", textAlign: "center" }}>{profile.name}</Text>
+                <View style={{ borderRadius: 12, backgroundColor: `${selected.accent}16`, paddingVertical: 4, paddingHorizontal: 5 }}>
+                  <Text selectable style={{ color: selected.accent, fontSize: 9, fontWeight: "900", textAlign: "center" }}>{strength}% · {level}</Text>
+                </View>
+                <Text selectable numberOfLines={3} style={{ color: C.muted, fontSize: 8.5, lineHeight: 12, textAlign: "center" }}>{reasons.join("\n")}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Explore ${profile.name}'s profile`} onPress={() => onProfilePress?.(profile)} style={{ minHeight: 28, borderRadius: 14, backgroundColor: selected.accent, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 }}>
+                  <Text style={{ color: C.paper, fontSize: 9.5, fontWeight: "900" }}>Explore</Text>
+                </Pressable>
+              </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>No Kindreds have entered this constellation yet. Invite someone or check again as the community grows.</Text>
+        )}
+        {viewerProfile && viewerIsFeatured ? (
+          <View style={{ borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10, flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={{ width: 42, height: 42, borderRadius: 21, overflow: "hidden", backgroundColor: C.paper }}><ProfileImage profile={viewerProfile} size={42} /></View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Your profile is already featured here</Text>
+              <Text selectable style={{ color: C.muted, fontSize: 9.5, lineHeight: 13 }}>{selected.custom ? "You chose to join this constellation." : "Your profile setup and Kindred Type rank this among your strongest constellations."}</Text>
+            </View>
+          </View>
+        ) : viewerProfile && selected.custom ? (
+          <View style={{ borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10, flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={{ flex: 1, gap: 2 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Join this member-created constellation</Text><Text selectable style={{ color: C.muted, fontSize: 9.5, lineHeight: 13 }}>Membership follows the creator's approval settings.</Text></View>
+            <Pressable accessibilityRole="button" disabled={pendingCustomIds.includes(selected.id)} onPress={joinSelectedCustomConstellation} style={{ minHeight: 32, borderRadius: 16, backgroundColor: selected.accent, opacity: pendingCustomIds.includes(selected.id) ? 0.65 : 1, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>{pendingCustomIds.includes(selected.id) ? "Requested" : "Join"}</Text></Pressable>
+          </View>
+        ) : null}
+      </View>
+
+      <Modal visible={creatorOpen} transparent animationType="fade" onRequestClose={() => setCreatorOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(20,18,16,0.42)", alignItems: "center", justifyContent: "center", padding: 22 }}>
+          <View style={{ width: "100%", maxWidth: 430, borderRadius: 26, borderCurve: "continuous", backgroundColor: C.paper, padding: 19, gap: 12 }}>
+            <Text selectable style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>Create your constellation</Text>
+            <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>Build a common-ground space around a value, lifestyle, interest, or community.</Text>
+            <TextInput value={name} onChangeText={(value) => { setName(value); setGeneratedCover(null); }} maxLength={40} placeholder="Constellation name" placeholderTextColor="#948A7F" style={{ minHeight: 46, borderRadius: 15, borderWidth: 1, borderColor: C.line, paddingHorizontal: 12, color: C.ink, fontWeight: "800" }} />
+            <View style={{ minHeight: 150, borderRadius: 20, borderWidth: 1.5, borderStyle: "dashed", borderColor: C.line, backgroundColor: "#F8F4EE", alignItems: "center", justifyContent: "center", overflow: "hidden", gap: 8, padding: 10 }}>
+              {generatedCover ? <Image source={{ uri: `data:${generatedCover.mimeType};base64,${generatedCover.imageBase64}` }} resizeMode="contain" fadeDuration={0} style={{ width: 128, height: 128 }} /> : <><Sparkles width={26} height={26} color={C.clay} /><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900", textAlign: "center" }}>{coverGenerating ? "Creating your 3D constellation icon…" : "Your AI-generated 3D icon will appear here"}</Text></>}
+            </View>
+            <Pressable accessibilityRole="button" disabled={name.trim().length < 2 || coverGenerating} onPress={generateCover} style={{ minHeight: 40, borderRadius: 20, backgroundColor: C.ink, opacity: name.trim().length < 2 || coverGenerating ? 0.5 : 1, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }}><Sparkles width={16} height={16} color={C.paper} /><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>{coverGenerating ? "Generating…" : generatedCover ? "Regenerate 3D icon" : "Generate 3D icon"}</Text></Pressable>
+            <TextInput value={description} onChangeText={setDescription} maxLength={240} multiline placeholder="What brings people together here?" placeholderTextColor="#948A7F" style={{ minHeight: 82, borderRadius: 15, borderWidth: 1, borderColor: C.line, padding: 12, color: C.ink, textAlignVertical: "top" }} />
+            <Pressable accessibilityRole="switch" accessibilityState={{ checked: requiresApproval }} onPress={() => setRequiresApproval((current) => !current)} style={{ minHeight: 52, borderRadius: 15, borderWidth: 1, borderColor: C.line, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={{ width: 42, height: 24, borderRadius: 12, backgroundColor: requiresApproval ? C.sage : "#D8D2CA", padding: 3, alignItems: requiresApproval ? "flex-end" : "flex-start" }}><View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: C.paper }} /></View>
+              <View style={{ flex: 1, gap: 2 }}><Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>Approve new members</Text><Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 14 }}>When enabled, this is a private constellation and you approve every request.</Text></View>
+            </Pressable>
+            <Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 14 }}>Your constellation stays within your network until it reaches 10 accepted members. Then it is published across KindredCube.</Text>
+            {constellationNotice ? <Text selectable style={{ color: "#A33D32", fontSize: 10, fontWeight: "800" }}>{constellationNotice}</Text> : null}
+            <Button label={constellationBusy ? "Creating..." : "Create constellation"} disabled={!name.trim() || !generatedCover || constellationBusy || coverGenerating} onPress={createConstellation} />
+            <Pressable onPress={() => setCreatorOpen(false)} style={{ minHeight: 38, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.muted, fontWeight: "800" }}>Cancel</Text></Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={earningsOpen} transparent animationType="fade" onRequestClose={() => setEarningsOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(20,18,16,0.45)", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <View style={{ width: "100%", maxWidth: 440, maxHeight: "82%", borderRadius: 26, backgroundColor: C.paper, padding: 18, gap: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}><Text selectable style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>Creator earnings</Text><Pressable accessibilityLabel="Close earnings" onPress={() => setEarningsOpen(false)}><X width={22} height={22} color={C.ink} /></Pressable></View>
+            <Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>You earn 10% of recorded purchases made by new members attributed to this constellation. Pending commission becomes available after 30 days.</Text>
+            {earningsBusy ? <Text selectable style={{ color: C.muted, fontSize: 12 }}>Loading earnings…</Text> : earnings ? <>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {[{ label: "Pending", value: earnings.pendingCents }, { label: "Available", value: earnings.availableCents }, { label: "Paid", value: earnings.paidCents }].map((item) => <View key={item.label} style={{ flex: 1, borderRadius: 16, backgroundColor: "#F4EFE7", padding: 10, gap: 3 }}><Text selectable style={{ color: C.muted, fontSize: 9, fontWeight: "800" }}>{item.label}</Text><Text selectable style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>{formatMoney(item.value / 100)}</Text></View>)}
+              </View>
+              <Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>{earnings.referredUsers} referred purchasing member{earnings.referredUsers === 1 ? "" : "s"}</Text>
+              <ScrollView contentContainerStyle={{ gap: 7 }}>
+                {earnings.purchases.map((purchase, index) => <View key={`${purchase.createdAt}-${index}`} style={{ borderRadius: 14, borderWidth: 1, borderColor: C.line, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}><View style={{ flex: 1 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>{purchase.purchaseType.replace(/_/gu, " ")}</Text><Text selectable style={{ color: C.muted, fontSize: 9 }}>{new Date(purchase.createdAt).toLocaleDateString()} · {purchase.status}</Text></View><View style={{ alignItems: "flex-end" }}><Text selectable style={{ color: C.muted, fontSize: 9 }}>{formatMoney(purchase.grossAmountCents / 100)} purchase</Text><Text selectable style={{ color: C.sage, fontSize: 11, fontWeight: "900" }}>+{formatMoney(purchase.commissionAmountCents / 100)}</Text></View></View>)}
+                {!earnings.purchases.length ? <Text selectable style={{ color: C.muted, fontSize: 11, textAlign: "center", paddingVertical: 18 }}>No attributed purchases yet.</Text> : null}
+              </ScrollView>
+            </> : null}
+          </View>
+        </View>
+      </Modal>
+
+    </View>
   );
 }
 
@@ -22067,6 +22753,26 @@ function SignedInHome({
     selfieVerified: identityVerificationStatus === "verified" && identityVerificationMethod === "video_selfie",
     meetupVerified: privateProfile.meetupVerified === true || privateSettings.meetupVerified === true,
     promptAnswers: safeProfilePromptAnswers(privateProfile.promptAnswers),
+    discovery: {
+      id: initialUser?.id || "current-user-ready",
+      name: memberUsername || initialUser?.username || "You",
+      gender: (initialUser?.identity || privateProfile.identity || "Nonbinary") as DiscoveryCandidate["gender"],
+      seeking: (initialUser?.seeking || privateProfile.seeking || "Everyone") as DiscoveryCandidate["seeking"],
+      age: typeof privateProfile.dateOfBirth === "string" ? ageFromDate(new Date(`${privateProfile.dateOfBirth}T00:00:00`)) : 0,
+      culture: typeof privateProfile.culture === "string" ? privateProfile.culture : "",
+      role: typeof privateProfile.occupation === "string" ? privateProfile.occupation : "",
+      photoUri: currentReadyMeetPhotoUris[0],
+      photoUris: currentReadyMeetPhotoUris,
+      contactVerified: true,
+      idVerified: identityVerificationStatus === "verified" && identityVerificationMethod !== "video_selfie",
+      selfieVerified: identityVerificationStatus === "verified" && identityVerificationMethod === "video_selfie",
+      meetupVerified: privateProfile.meetupVerified === true || privateSettings.meetupVerified === true,
+      recentlyActive: true,
+      matching: {
+        ...privateProfile,
+        profileStrength: calculateProfileStrengthValue(privateProfile, identityVerificationStatus || "not_started", identityVerificationMethod || ""),
+      },
+    },
   };
   const selectedProfileIsConnected = selectedMemberProfile
     ? profileIsMatched(selectedMemberProfile) ||
@@ -22124,6 +22830,7 @@ function SignedInHome({
       communitiesInCommon={communityInCommonRecommendations}
       readyPeople={readyToMeetPeople}
       currentProfile={currentReadyMeetProfile}
+      canCreateConstellation={premiumActive}
       likedProfileKeys={likedProfiles}
       currentReadyToMeetAvailability={
         privateSettings.readyToMeetAvailability &&
@@ -23734,6 +24441,7 @@ function Qualifier({
 }
 
 export default function App() {
+  const pendingConstellationReferralKey = "kindredcube.pending-constellation-referral";
   const browserPath =
     typeof globalThis !== "undefined" && "location" in globalThis
       ? String(
@@ -23751,6 +24459,7 @@ export default function App() {
   const [passwordResetRequiresCurrentPassword, setPasswordResetRequiresCurrentPassword] =
     useState(false);
   const [sessionUser, setSessionUser] = useState<AuthenticatedUser | null>(null);
+  const [pendingConstellationReferralId, setPendingConstellationReferralId] = useState("");
   const [startInProfileEditor, setStartInProfileEditor] = useState(false);
   const [notificationTarget, setNotificationTarget] = useState<NotificationNavigationTarget | null>(null);
   const handledRootNotificationResponsesRef = useRef<Set<string>>(new Set());
@@ -23790,6 +24499,20 @@ export default function App() {
   useEffect(() => {
     if (sessionUser) writeLastSessionUser(sessionUser).catch(() => undefined);
   }, [sessionUser]);
+  useEffect(() => {
+    if (!sessionUser) return;
+    Promise.resolve(pendingConstellationReferralId || SecureStore.getItemAsync(pendingConstellationReferralKey))
+      .then(async (constellationId) => {
+        if (!constellationId) return;
+        try {
+          await claimConstellationReferral(constellationId);
+        } finally {
+          await SecureStore.deleteItemAsync(pendingConstellationReferralKey);
+          setPendingConstellationReferralId("");
+        }
+      })
+      .catch(() => undefined);
+  }, [sessionUser, pendingConstellationReferralId]);
   useEffect(() => {
     let active = true;
     const boot = async () => {
@@ -23860,6 +24583,13 @@ export default function App() {
       if (!url) return;
       try {
         const link = new URL(url);
+        const constellationMatch = link.pathname.match(/\/constellations\/([0-9a-f-]{36})/i)
+          || (link.hostname === "constellations" ? link.pathname.match(/^\/([0-9a-f-]{36})/i) : null);
+        const referralId = link.searchParams.get("ref") || constellationMatch?.[1] || "";
+        if (referralId && /^[0-9a-f-]{36}$/i.test(referralId)) {
+          SecureStore.setItemAsync(pendingConstellationReferralKey, referralId).catch(() => undefined);
+          setPendingConstellationReferralId(referralId);
+        }
         if (url.includes("reset-password")) {
           const token = link.searchParams.get("token") || "";
           setPasswordResetToken(token);

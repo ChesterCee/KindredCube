@@ -195,6 +195,56 @@ export class PaymentsService {
   }
 
   async processWebhook(event: Stripe.Event) {
+    if (event.type === "invoice.paid") {
+      const invoice = event.data.object as Stripe.Invoice;
+      if (invoice.billing_reason !== "subscription_cycle" || !invoice.amount_paid) return;
+      const invoiceShape = invoice as Stripe.Invoice & {
+        subscription?: string | Stripe.Subscription | null;
+        parent?: { subscription_details?: { subscription?: string | Stripe.Subscription | null } } | null;
+      };
+      const subscriptionValue = invoiceShape.subscription || invoiceShape.parent?.subscription_details?.subscription;
+      const subscriptionId = typeof subscriptionValue === "string" ? subscriptionValue : subscriptionValue?.id;
+      if (!subscriptionId) return;
+      const subscription = await this.client().subscriptions.retrieve(subscriptionId);
+      const userId = subscription.metadata?.user_id;
+      if (!userId) return;
+      await this.database.withUser(userId, async (client) => {
+        const accepted = await client.query(
+          `INSERT INTO stripe_payment_webhook_events (event_id, event_type)
+           VALUES ($1, $2) ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
+          [event.id, event.type],
+        );
+        if (!accepted.rowCount) return;
+        const order = await client.query<{ id: string }>(
+          `INSERT INTO payment_orders (
+             user_id, purchase_type, amount_cents, currency, status,
+             stripe_checkout_session_id, stripe_customer_id, stripe_subscription_id, paid_at
+           ) VALUES ($1, 'premium', $2, $3, 'paid', $4, $5, $6, now())
+           RETURNING id`,
+          [
+            userId,
+            invoice.amount_paid,
+            (invoice.currency || "usd").slice(0, 3),
+            `invoice:${invoice.id}`,
+            typeof invoice.customer === "string" ? invoice.customer : null,
+            subscriptionId,
+          ],
+        );
+        await client.query(
+          `INSERT INTO constellation_commissions (
+             creator_id, constellation_id, referred_user_id, payment_order_id,
+             gross_amount_cents, commission_rate_bps, commission_amount_cents, currency
+           )
+           SELECT referral.creator_id, referral.constellation_id, $1, $2, $3, 1000,
+                  GREATEST(1, round($3 * 0.10)::integer), $4
+             FROM constellation_referrals referral
+            WHERE referral.referred_user_id = $1
+           ON CONFLICT (payment_order_id) DO NOTHING`,
+          [userId, order.rows[0]!.id, invoice.amount_paid, (invoice.currency || "usd").slice(0, 3)],
+        );
+      });
+      return;
+    }
     if (event.type.startsWith("customer.subscription.")) {
       const subscription = event.data.object as Stripe.Subscription;
       const userId = subscription.metadata?.user_id;
@@ -255,6 +305,18 @@ export class PaymentsService {
         [typeof session.customer === "string" ? session.customer : null, typeof session.subscription === "string" ? session.subscription : null, userId, orderId],
       );
       if (!order.rows[0]) return;
+      await client.query(
+        `INSERT INTO constellation_commissions (
+           creator_id, constellation_id, referred_user_id, payment_order_id,
+           gross_amount_cents, commission_rate_bps, commission_amount_cents, currency
+         )
+         SELECT referral.creator_id, referral.constellation_id, $1, $2, $3, 1000,
+                GREATEST(1, round($3 * 0.10)::integer), 'usd'
+           FROM constellation_referrals referral
+          WHERE referral.referred_user_id = $1
+         ON CONFLICT (payment_order_id) DO NOTHING`,
+        [userId, orderId, order.rows[0].amount_cents],
+      );
       if (purchaseType === "wallet") {
         const walletIdempotencyKey = `wallet-topup:${orderId}`;
         const credited = await client.query(

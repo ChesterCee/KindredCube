@@ -914,6 +914,86 @@ export function getDiscoveryCandidates() {
   );
 }
 
+export type MemberConstellation = {
+  id: string;
+  creatorId: string;
+  name: string;
+  description: string;
+  requiresApproval: boolean;
+  memberCount: number;
+  membershipStatus: "pending" | "accepted" | "declined" | null;
+  published: boolean;
+  membersNeededToPublish: number;
+  coverUri: string;
+  shareUrl: string;
+};
+
+export function getMemberConstellations() {
+  return request<{ constellations: MemberConstellation[] }>("/v1/constellations", { method: "GET" }, true);
+}
+
+export function createMemberConstellation(input: {
+  name: string;
+  description: string;
+  requiresApproval: boolean;
+  imageBase64?: string;
+  mimeType?: string;
+}) {
+  return request<{ constellation: MemberConstellation }>("/v1/constellations", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }, true);
+}
+
+export function generateConstellationCover(name: string) {
+  return request<{ imageBase64: string; mimeType: "image/png" }>("/v1/constellations/generate-cover", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  }, true);
+}
+
+export function joinMemberConstellation(id: string) {
+  return request<{ status: "pending" | "accepted"; memberCount: number; published: boolean }>(
+    `/v1/constellations/${encodeURIComponent(id)}/join`,
+    { method: "POST" },
+    true,
+  );
+}
+
+export function deleteMemberConstellation(id: string) {
+  return request<{ deleted: true; id: string }>(
+    `/v1/constellations/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+    true,
+  );
+}
+
+export type ConstellationEarnings = {
+  commissionRatePercent: number;
+  pendingCents: number;
+  availableCents: number;
+  paidCents: number;
+  referredUsers: number;
+  purchases: Array<{
+    purchaseType: string;
+    grossAmountCents: number;
+    commissionAmountCents: number;
+    currency: string;
+    status: string;
+    createdAt: string;
+  }>;
+};
+
+export function claimConstellationReferral(id: string) {
+  return request<{ attributed: boolean; constellationId: string | null }>(
+    `/v1/constellations/${encodeURIComponent(id)}/referral`, { method: "POST" }, true,
+  );
+}
+
+export function getConstellationEarnings(id: string) {
+  return request<ConstellationEarnings>(`/v1/constellations/${encodeURIComponent(id)}/earnings`, { method: "GET" }, true);
+}
+
 export type ReadyToMeetAvailability = {
   available: boolean;
   availableAt?: string;

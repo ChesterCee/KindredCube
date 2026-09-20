@@ -36,6 +36,7 @@ import { NotificationWorkerService } from "./notification-worker.service";
 import { PostMeetChecksController } from "./post-meet-checks.controller";
 import { SupportController, SupportEmailRepliesController } from "./support.controller";
 import { InstagramController } from "./instagram.controller";
+import { ConstellationsController } from "./constellations.controller";
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { InstagramController } from "./instagram.controller";
     SupportController,
     SupportEmailRepliesController,
     InstagramController,
+    ConstellationsController,
     HealthController,
   ],
   providers: [

@@ -21,6 +21,7 @@ type DiscoveryRow = {
   selfie_verified: boolean;
   meetup_verified: boolean;
   trust_score: string | null;
+  constellation_ids?: string[] | null;
 };
 
 type DiscoveryRules = {
@@ -90,6 +91,7 @@ export class DiscoveryController {
                 d.area_latitude,
                 d.area_longitude,
                 d.recently_active_at,
+                ARRAY(SELECT cm.constellation_id::text FROM constellation_members cm WHERE cm.user_id = d.user_id AND cm.status = 'accepted') AS constellation_ids,
                 ${publicMeetupVerifiedSql("d.user_id")} AS meetup_verified,
                 ts.rolling_score::text AS trust_score,
                 ${publicStripeVerifiedSql("d.user_id")} AS identity_verified,
@@ -101,24 +103,10 @@ export class DiscoveryController {
             AND d.visible = true
             AND u.status = 'active'
             AND u.email_verified_at IS NOT NULL
-            AND COALESCE((d.matching_data->>'profileStrength')::numeric, 0) >= 25
             AND NOT EXISTS (
               SELECT 1 FROM user_blocks b
                WHERE (b.blocker_id = $1 AND b.blocked_profile_id = d.user_id::text)
                   OR (b.blocker_id = d.user_id AND b.blocked_profile_id = $1::text)
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM member_likes ml
-               WHERE (
-                 (ml.liker_id = $1 AND ml.liked_user_id = d.user_id)
-                 OR (ml.liker_id = d.user_id AND ml.liked_user_id = $1)
-               )
-                 AND ml.chat_started_at IS NOT NULL
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM chat_messages cm
-               WHERE (cm.sender_id = $1 AND cm.recipient_id = d.user_id)
-                  OR (cm.sender_id = d.user_id AND cm.recipient_id = $1)
             )
           ORDER BY COALESCE(ts.rolling_score, 0) DESC, d.recently_active_at DESC
           LIMIT 100`,
@@ -168,6 +156,7 @@ export class DiscoveryController {
                 d.area_latitude,
                 d.area_longitude,
                 d.recently_active_at,
+                ARRAY(SELECT cm.constellation_id::text FROM constellation_members cm WHERE cm.user_id = d.user_id AND cm.status = 'accepted') AS constellation_ids,
                 ${publicMeetupVerifiedSql("d.user_id")} AS meetup_verified,
                 ts.rolling_score::text AS trust_score,
                 ${publicStripeVerifiedSql("d.user_id")} AS identity_verified,
@@ -298,7 +287,10 @@ function activeMatchingData(matching: Record<string, unknown>): Record<string, u
 }
 
 function candidateToResponse(candidate: DiscoveryRow, age: number, distanceKm: number | undefined, origin: string) {
-  const matching = activeMatchingData(candidate.matching_data || {});
+  const matching = {
+    ...activeMatchingData(candidate.matching_data || {}),
+    constellationIds: candidate.constellation_ids || [],
+  };
   const photoVersion = typeof matching.photoVersion === "string" ? matching.photoVersion : "";
   const photoUris = Array.isArray(matching.photos)
     ? matching.photos
