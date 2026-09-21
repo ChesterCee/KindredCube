@@ -926,6 +926,14 @@ export type MemberConstellation = {
   membersNeededToPublish: number;
   coverUri: string;
   shareUrl: string;
+  originCity: string;
+  originCountry: string | null;
+  reachMiles: number | null;
+  countrywide: boolean;
+  experienceType: "community" | "moderated_match";
+  moderatorType: "ai" | "human";
+  featuredGender: "Man" | "Woman" | "Nonbinary";
+  audienceGender: "Men" | "Women" | "Everyone";
 };
 
 export function getMemberConstellations() {
@@ -938,6 +946,10 @@ export function createMemberConstellation(input: {
   requiresApproval: boolean;
   imageBase64?: string;
   mimeType?: string;
+  experienceType?: "community" | "moderated_match";
+  moderatorType?: "ai" | "human";
+  featuredGender?: "Man" | "Woman" | "Nonbinary";
+  audienceGender?: "Men" | "Women" | "Everyone";
 }) {
   return request<{ constellation: MemberConstellation }>("/v1/constellations", {
     method: "POST",
@@ -992,6 +1004,64 @@ export function claimConstellationReferral(id: string) {
 
 export function getConstellationEarnings(id: string) {
   return request<ConstellationEarnings>(`/v1/constellations/${encodeURIComponent(id)}/earnings`, { method: "GET" }, true);
+}
+
+export type ConstellationRoomMessage = {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  createdAt: string;
+  own: boolean;
+};
+
+export function getConstellationRoomMessages(roomKey: string) {
+  return request<{ messages: ConstellationRoomMessage[] }>(`/v1/constellations/rooms/${encodeURIComponent(roomKey)}/messages`, { method: "GET" }, true);
+}
+
+export function sendConstellationRoomMessage(roomKey: string, text: string) {
+  return request<ConstellationRoomMessage>(`/v1/constellations/rooms/${encodeURIComponent(roomKey)}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  }, true);
+}
+
+export function reportConstellationRoomMessage(roomKey: string, messageId: string, details: string) {
+  return request<{ reported: true; reportId: string }>(`/v1/constellations/rooms/${encodeURIComponent(roomKey)}/messages/${encodeURIComponent(messageId)}/report`, {
+    method: "POST",
+    body: JSON.stringify({ details }),
+  }, true);
+}
+
+export type ConstellationMatchRoom = {
+  sessionId: string;
+  featuredUserId: string | null;
+  candidateUserId: string | null;
+  question: string;
+  questionCount: number;
+  status: "conversation" | "match_check" | "matched" | "closed";
+  moderatorType: "ai" | "human";
+  featuredGender: "Man" | "Woman" | "Nonbinary";
+  audienceGender: "Men" | "Women" | "Everyone";
+  creatorId: string;
+  ownBalloonActive: boolean;
+  ownVote: "yes" | "not_yet" | "no" | null;
+};
+
+export function getConstellationMatchRoom(id: string) {
+  return request<ConstellationMatchRoom>(`/v1/constellations/${encodeURIComponent(id)}/match-room`, { method: "GET" }, true);
+}
+
+export function decideConstellationBalloon(id: string, keep: boolean, reasonCode?: string, privateNote?: string) {
+  return request<{ balloonActive: boolean }>(`/v1/constellations/${encodeURIComponent(id)}/match-room/balloon`, { method: "POST", body: JSON.stringify({ keep, reasonCode, privateNote }) }, true);
+}
+
+export function requestNextConstellationQuestion(id: string, question?: string) {
+  return request<{ question: string }>(`/v1/constellations/${encodeURIComponent(id)}/match-room/next-question`, { method: "POST", body: JSON.stringify({ question }) }, true);
+}
+
+export function voteConstellationMatch(id: string, vote: "yes" | "not_yet" | "no") {
+  return request<{ matched: boolean; status: string }>(`/v1/constellations/${encodeURIComponent(id)}/match-room/vote`, { method: "POST", body: JSON.stringify({ vote }) }, true);
 }
 
 export type ReadyToMeetAvailability = {

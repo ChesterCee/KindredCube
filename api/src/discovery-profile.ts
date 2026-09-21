@@ -38,6 +38,7 @@ export async function syncDiscoveryProfile(
     occupation: text(profile.occupation).slice(0, 120),
     work: text(profile.work).slice(0, 120),
     currentLocation: publicAreaLabel(profile.currentLocation).slice(0, 120),
+    currentCountry: publicCountryLabel(profile.currentLocation).slice(0, 120),
     hometown: text(profile.hometown).slice(0, 120),
     profileStrength: calculateProfileStrength(profile),
     minAge: Math.max(18, Math.min(100, Number(profile.minAge) || 18)),
@@ -136,6 +137,13 @@ function publicAreaLabel(value: unknown) {
     .split(",")
     .map((part) => part.trim())
     .find(Boolean) || "";
+}
+
+function publicCountryLabel(value: unknown) {
+  const location = text(value);
+  if (!location) return "";
+  const parts = location.split(",").map((part) => part.trim()).filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 1]! : "";
 }
 
 function stringList(value: unknown, maximum: number) {
