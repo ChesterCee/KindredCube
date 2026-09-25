@@ -475,6 +475,7 @@ export type SupportTicket = {
   closeReason?: string | null;
   closedAt?: string | null;
   createdAt: string;
+  editedAt?: string;
   updatedAt: string;
   messages?: Array<{
     id: string;
@@ -921,7 +922,7 @@ export type MemberConstellation = {
   description: string;
   requiresApproval: boolean;
   memberCount: number;
-  membershipStatus: "pending" | "accepted" | "declined" | null;
+  membershipStatus: "suggested" | "pending" | "accepted" | "declined" | null;
   published: boolean;
   membersNeededToPublish: number;
   coverUri: string;
@@ -934,6 +935,8 @@ export type MemberConstellation = {
   moderatorType: "ai" | "human";
   featuredGender: "Man" | "Woman" | "Nonbinary";
   audienceGender: "Men" | "Women" | "Everyone";
+  pitchAbout: string;
+  pitchLookingFor: string;
 };
 
 export function getMemberConstellations() {
@@ -950,9 +953,20 @@ export function createMemberConstellation(input: {
   moderatorType?: "ai" | "human";
   featuredGender?: "Man" | "Woman" | "Nonbinary";
   audienceGender?: "Men" | "Women" | "Everyone";
+  originLatitude?: number;
+  originLongitude?: number;
+  originCity?: string;
+  originCountry?: string;
 }) {
   return request<{ constellation: MemberConstellation }>("/v1/constellations", {
     method: "POST",
+    body: JSON.stringify(input),
+  }, true);
+}
+
+export function updateMemberConstellationPitch(id: string, input: { pitchAbout: string; pitchLookingFor: string }) {
+  return request<{ constellation: MemberConstellation }>(`/v1/constellations/${encodeURIComponent(id)}/pitch`, {
+    method: "PATCH",
     body: JSON.stringify(input),
   }, true);
 }
@@ -1012,17 +1026,62 @@ export type ConstellationRoomMessage = {
   senderName: string;
   text: string;
   createdAt: string;
+  editedAt?: string;
   own: boolean;
+  balloonCount: number;
+  balloonPumps: number;
+  viewerBalloonActive: boolean | null;
+  viewerInflationCount: number;
+  imageUri?: string;
+  host?: boolean;
+  senderPhotoUri?: string;
+  senderAge?: number;
+  senderCulture?: string;
+  senderRole?: string;
+  reactors: Array<{ userId: string; name: string; inflationCount: number; authorDecision?: "accepted" | "popped" | null }>;
 };
+
+export type ConstellationRoomMember = { id: string; name: string; gender: string; age?: number; culture: string; role: string; photoUri?: string };
+
+export function getConstellationRoomMembers(roomKey: string) {
+  return request<{ members: ConstellationRoomMember[] }>(`/v1/constellations/rooms/${encodeURIComponent(roomKey)}/members`, { method: "GET" }, true);
+}
 
 export function getConstellationRoomMessages(roomKey: string) {
   return request<{ messages: ConstellationRoomMessage[] }>(`/v1/constellations/rooms/${encodeURIComponent(roomKey)}/messages`, { method: "GET" }, true);
 }
 
-export function sendConstellationRoomMessage(roomKey: string, text: string) {
+export function reactToConstellationRoomMessage(roomKey: string, messageId: string, action: "inflate" | "pop", reasonCode?: string, privateNote?: string) {
+  return request<{ balloonActive: boolean; inflationCount: number }>(`/v1/constellations/rooms/${encodeURIComponent(roomKey)}/messages/${encodeURIComponent(messageId)}/balloon`, {
+    method: "POST",
+    body: JSON.stringify({ action, reasonCode, privateNote }),
+  }, true);
+}
+
+export function decideConstellationRoomBalloon(roomKey: string, messageId: string, reactorId: string, decision: "accepted" | "popped") {
+  return request<{ decision: "accepted" | "popped" }>(`/v1/constellations/rooms/${encodeURIComponent(roomKey)}/messages/${encodeURIComponent(messageId)}/balloons/${encodeURIComponent(reactorId)}/decision`, {
+    method: "POST",
+    body: JSON.stringify({ decision }),
+  }, true);
+}
+
+export function sendConstellationRoomMessage(roomKey: string, input: string | { text: string; imageBase64?: string; mimeType?: "image/jpeg" | "image/png" | "image/webp" }) {
   return request<ConstellationRoomMessage>(`/v1/constellations/rooms/${encodeURIComponent(roomKey)}/messages`, {
     method: "POST",
+    body: JSON.stringify(typeof input === "string" ? { text: input } : input),
+  }, true);
+}
+
+export function editConstellationRoomMessage(roomKey: string, messageId: string, text: string) {
+  return request<{ text: string; editedAt: string }>(`/v1/constellations/rooms/${encodeURIComponent(roomKey)}/messages/${encodeURIComponent(messageId)}`, {
+    method: "PATCH",
     body: JSON.stringify({ text }),
+  }, true);
+}
+
+export function deleteConstellationRoomMessage(roomKey: string, messageId: string) {
+  return request<{ deleted: true }>(`/v1/constellations/rooms/${encodeURIComponent(roomKey)}/messages/${encodeURIComponent(messageId)}`, {
+    method: "DELETE",
   }, true);
 }
 
@@ -1045,6 +1104,13 @@ export type ConstellationMatchRoom = {
   audienceGender: "Men" | "Women" | "Everyone";
   creatorId: string;
   ownBalloonActive: boolean;
+  ownBalloonInflationCount: number;
+  balloonStates: Array<{
+    userId: string;
+    active: boolean;
+    inflationCount: number;
+    poppedByFeatured: boolean;
+  }>;
   ownVote: "yes" | "not_yet" | "no" | null;
 };
 
@@ -1052,8 +1118,15 @@ export function getConstellationMatchRoom(id: string) {
   return request<ConstellationMatchRoom>(`/v1/constellations/${encodeURIComponent(id)}/match-room`, { method: "GET" }, true);
 }
 
-export function decideConstellationBalloon(id: string, keep: boolean, reasonCode?: string, privateNote?: string) {
-  return request<{ balloonActive: boolean }>(`/v1/constellations/${encodeURIComponent(id)}/match-room/balloon`, { method: "POST", body: JSON.stringify({ keep, reasonCode, privateNote }) }, true);
+export function updateConstellationBalloon(
+  id: string,
+  action: "inflate" | "pop_self" | "pop_other",
+  options: { targetUserId?: string; reasonCode?: string; privateNote?: string } = {},
+) {
+  return request<{ balloonActive: boolean; inflationCount: number; targetUserId: string }>(`/v1/constellations/${encodeURIComponent(id)}/match-room/balloon`, {
+    method: "POST",
+    body: JSON.stringify({ action, ...options }),
+  }, true);
 }
 
 export function requestNextConstellationQuestion(id: string, question?: string) {

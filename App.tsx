@@ -1,4 +1,4 @@
-﻿import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { StatusBar } from "expo-status-bar";
 import {
   RecordingPresets,
@@ -84,17 +84,23 @@ import {
   getDiscoveryCandidates,
   getMemberConstellations,
   createMemberConstellation,
-  generateConstellationCover,
+  updateMemberConstellationPitch,
   joinMemberConstellation,
   deleteMemberConstellation,
   getConstellationEarnings,
   ConstellationEarnings,
   ConstellationRoomMessage,
+  ConstellationRoomMember,
   getConstellationRoomMessages,
+  getConstellationRoomMembers,
   sendConstellationRoomMessage,
+  editConstellationRoomMessage,
+  deleteConstellationRoomMessage,
   reportConstellationRoomMessage,
+  reactToConstellationRoomMessage,
+  decideConstellationRoomBalloon,
   getConstellationMatchRoom,
-  decideConstellationBalloon,
+  updateConstellationBalloon,
   requestNextConstellationQuestion,
   voteConstellationMatch,
   ConstellationMatchRoom,
@@ -375,6 +381,7 @@ const SIGMA_CONSTELLATION_ART = require("./assets/sigma-constellation.png");
 const DOG_PEOPLE_CONSTELLATION_ART = require("./assets/dog-people-constellation.png");
 const FAITH_PURPOSE_CONSTELLATION_ART = require("./assets/faith-purpose-constellation.png");
 const FAMILY_CENTERED_CONSTELLATION_ART = require("./assets/family-centered-constellation.png");
+const FITNESS_NERDS_CONSTELLATION_ART = require("./assets/fitness-nerds-constellation.png");
 
 function formatMoney(amount: number, options: { signed?: boolean } = {}) {
   const prefix = options.signed && amount < 0 ? "-" : "";
@@ -737,6 +744,34 @@ const kindredTypeQuestions = [
     statement: "Family time should take priority over social status.",
   },
   {
+    key: "dogPeople_everydayLife",
+    category: "lifestyle",
+    title: "Lifestyle",
+    weight: "7%",
+    statement: "I want dogs to be part of my everyday home life.",
+  },
+  {
+    key: "dogPeople_sharedRoutines",
+    category: "lifestyle",
+    title: "Lifestyle",
+    weight: "7%",
+    statement: "Sharing walks, outdoor time, and routines with a dog would add joy to a relationship.",
+  },
+  {
+    key: "dogPeople_responsibleCare",
+    category: "lifestyle",
+    title: "Lifestyle",
+    weight: "7%",
+    statement: "Responsible pet care reflects patience, consistency, and compassion.",
+  },
+  {
+    key: "dogPeople_partnerComfort",
+    category: "lifestyle",
+    title: "Lifestyle",
+    weight: "7%",
+    statement: "It is important that my partner is comfortable building a life that includes dogs.",
+  },
+  {
     key: "ambition_purposeIncome",
     category: "ambition",
     title: "Ambition",
@@ -792,126 +827,10 @@ const kindredTypeQuestions = [
     weight: "3%",
     statement: "Laws should apply equally to everyone regardless of status.",
   },
-  {
-    key: "dogPeople_homeLife",
-    category: "lifestyle",
-    title: "Dogs & daily life",
-    weight: "Constellation",
-    statement: "I want dogs to be part of my everyday home life.",
-  },
-  {
-    key: "dogPeople_sharedRoutines",
-    category: "lifestyle",
-    title: "Dogs & daily life",
-    weight: "Constellation",
-    statement: "I enjoy planning walks, outings, and routines around a dog.",
-  },
-  {
-    key: "dogPeople_responsibleCare",
-    category: "lifestyle",
-    title: "Dogs & daily life",
-    weight: "Constellation",
-    statement: "Responsible care for animals is an important reflection of someone's values.",
-  },
-  {
-    key: "dogPeople_partnerComfort",
-    category: "lifestyle",
-    title: "Dogs & daily life",
-    weight: "Constellation",
-    statement: "It is important that my partner is comfortable sharing life with dogs.",
-  },
-  {
-    key: "sigma_independentPath",
-    category: "personality",
-    title: "Independent thinking",
-    weight: "Constellation",
-    statement: "I am comfortable choosing my own path even when it differs from what others expect.",
-  },
-  {
-    key: "sigma_solitude",
-    category: "personality",
-    title: "Independent thinking",
-    weight: "Constellation",
-    statement: "Time alone helps me think clearly, recharge, and make better decisions.",
-  },
-  {
-    key: "sigma_quietConfidence",
-    category: "personality",
-    title: "Independent thinking",
-    weight: "Constellation",
-    statement: "I value quiet confidence more than attention, popularity, or social status.",
-  },
-  {
-    key: "sigma_selfDirection",
-    category: "personality",
-    title: "Independent thinking",
-    weight: "Constellation",
-    statement: "I prefer relationships where both people are self-directed and respect each other's independence.",
-  },
-  {
-    key: "family_sharedHome",
-    category: "relationships",
-    title: "Family-centered life",
-    weight: "Constellation",
-    statement: "Building a stable, loving home is one of my most important life goals.",
-  },
-  {
-    key: "family_childrenCommunity",
-    category: "relationships",
-    title: "Family-centered life",
-    weight: "Constellation",
-    statement: "Children, relatives, or chosen family should be an active part of everyday life.",
-  },
-  {
-    key: "family_traditions",
-    category: "relationships",
-    title: "Family-centered life",
-    weight: "Constellation",
-    statement: "Creating and preserving family traditions matters to me.",
-  },
-  {
-    key: "family_longTermCare",
-    category: "relationships",
-    title: "Family-centered life",
-    weight: "Constellation",
-    statement: "Partners should plan together for the long-term care and wellbeing of their family.",
-  },
-  {
-    key: "faith_sharedPurpose",
-    category: "faithSpirituality",
-    title: "Faith & purpose",
-    weight: "Constellation",
-    statement: "I want a relationship grounded in a shared sense of faith, meaning, or higher purpose.",
-  },
-  {
-    key: "faith_service",
-    category: "faithSpirituality",
-    title: "Faith & purpose",
-    weight: "Constellation",
-    statement: "Serving other people and my community is an important expression of my beliefs.",
-  },
-  {
-    key: "faith_growthTogether",
-    category: "faithSpirituality",
-    title: "Faith & purpose",
-    weight: "Constellation",
-    statement: "I want a partner who will grow with me spiritually and in purpose.",
-  },
-  {
-    key: "faith_guidedLife",
-    category: "faithSpirituality",
-    title: "Faith & purpose",
-    weight: "Constellation",
-    statement: "My beliefs guide how I approach relationships, work, and major life choices.",
-  },
 ] as const;
 
 const constellationKindredTypeKeys: Record<string, readonly string[]> = {
   sigma: [
-    "sigma_independentPath",
-    "sigma_solitude",
-    "sigma_quietConfidence",
-    "sigma_selfDirection",
     "coreValues_personalGrowth",
     "coreValues_meaningfulLife",
     "ethics_honestyFeelings",
@@ -921,12 +840,15 @@ const constellationKindredTypeKeys: Record<string, readonly string[]> = {
     "ambition_calculatedRisks",
     "politicsSociety_individualResponsibility",
   ],
-  "dog-people": ["dogPeople_homeLife", "dogPeople_sharedRoutines", "dogPeople_responsibleCare", "dogPeople_partnerComfort"],
+  "dog-people": [
+    "dogPeople_everydayLife",
+    "dogPeople_sharedRoutines",
+    "dogPeople_responsibleCare",
+    "dogPeople_partnerComfort",
+    "ethics_responsibility",
+    "politicsSociety_communityHelp",
+  ],
   "faith-purpose": [
-    "faith_sharedPurpose",
-    "faith_service",
-    "faith_growthTogether",
-    "faith_guidedLife",
     "faithSpirituality_godReligion",
     "faithSpirituality_majorDecisions",
     "faithSpirituality_dailyReflection",
@@ -936,10 +858,6 @@ const constellationKindredTypeKeys: Record<string, readonly string[]> = {
     "politicsSociety_communityHelp",
   ],
   "family-centered": [
-    "family_sharedHome",
-    "family_childrenCommunity",
-    "family_traditions",
-    "family_longTermCare",
     "relationships_lifelongMarriage",
     "relationships_sharedFinances",
     "relationships_decisionsTogether",
@@ -947,6 +865,9 @@ const constellationKindredTypeKeys: Record<string, readonly string[]> = {
     "conflictPersonality_forgiveness",
     "lifestyle_financialDiscipline",
     "lifestyle_familyTime",
+  ],
+  "fitness-nerds": [
+    "lifestyle_physicalHealth",
   ],
 };
 const kindredTypeAnswerOptions = [
@@ -1532,7 +1453,7 @@ function Logo({
   transparent?: boolean;
 }) {
   const hiddenInsideDesktopShell = useContext(DesktopSidebarContentContext);
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   if (hiddenInsideDesktopShell) return null;
   const preferredWidth = size === "sidebar" ? 218 : size === "compact" ? 170 : 190;
   const logoWidth = Math.min(preferredWidth, width - 40);
@@ -5760,15 +5681,9 @@ function MessagesScreen({
       : chatProfiles;
   if (activeMemberChat) {
     return (
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={8}
-      >
-        <View style={{ flex: 1 }}>
-          <ReadyMeetChat currentUserId={currentUserId} profile={activeMemberChat} onBack={onCloseMemberChat} onProfilePress={onProfilePress} onBlock={onBlockMember} onReport={onReportMember} onMessageSent={onMemberMessageSent} readyNearby={memberReadyNearby} online={false} verificationStatus={verificationStatus} verificationMethod={verificationMethod} onVerificationStatusChange={onVerificationStatusChange} onVerificationMethodChange={onVerificationMethodChange} onCurrentUserMeetupVerified={onCurrentUserMeetupVerified} completedPostMeetCheckKeys={completedPostMeetCheckKeys} onPostMeetCheckCompleted={onPostMeetCheckCompleted} cachedMessages={activeMemberChat.id ? cachedChatMessagesByProfileId[activeMemberChat.id] || [] : []} onMessagesCached={onMessagesCached} />
-        </View>
-      </KeyboardAvoidingView>
+      <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+        <ReadyMeetChat currentUserId={currentUserId} profile={activeMemberChat} onBack={onCloseMemberChat} onProfilePress={onProfilePress} onBlock={onBlockMember} onReport={onReportMember} onMessageSent={onMemberMessageSent} readyNearby={memberReadyNearby} online={false} verificationStatus={verificationStatus} verificationMethod={verificationMethod} onVerificationStatusChange={onVerificationStatusChange} onVerificationMethodChange={onVerificationMethodChange} onCurrentUserMeetupVerified={onCurrentUserMeetupVerified} completedPostMeetCheckKeys={completedPostMeetCheckKeys} onPostMeetCheckCompleted={onPostMeetCheckCompleted} cachedMessages={activeMemberChat.id ? cachedChatMessagesByProfileId[activeMemberChat.id] || [] : []} onMessagesCached={onMessagesCached} />
+      </View>
     );
   }
   return (
@@ -10639,15 +10554,10 @@ function EditableProfileScreen({
             gap: 13,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Text selectable style={{ color: C.ink, fontFamily: BRAND_FONT, fontSize: 26, fontWeight: "900", flex: 1 }}>
-              {currentQuestion.title}
+              Statement {kindredTypeStep + 1} of {kindredTypeQuestions.length}
             </Text>
-            <View style={{ borderRadius: 999, backgroundColor: "#FCE5EE", paddingHorizontal: 10, paddingVertical: 6 }}>
-              <Text selectable style={{ color: "#A5164D", fontSize: 11, fontWeight: "900" }}>
-                {currentQuestion.weight}
-              </Text>
-            </View>
           </View>
           <Text selectable style={{ color: C.ink, fontSize: 20, lineHeight: 29, fontWeight: "900" }}>
             {currentQuestion.statement}
@@ -17068,6 +16978,7 @@ function ExploreRecommendations({
   onRefreshReadyToMeetPeople,
   onReadyToMeetAvailabilitySave,
   onProfilePress,
+  onCompleteProfile,
   onLike,
   onOpenChat,
   canUseReadyMeetChat,
@@ -17094,6 +17005,7 @@ function ExploreRecommendations({
   onRefreshReadyToMeetPeople?: () => void | Promise<void>;
   onReadyToMeetAvailabilitySave?: (availability: { available: boolean; availableAt?: string; expiresAt?: string; latitude?: number; longitude?: number }) => void | Promise<void>;
   onProfilePress?: (profile: Profile) => void;
+  onCompleteProfile?: () => void;
   onLike: (profile: Profile) => void;
   onOpenChat: (profile: Profile) => void;
   canUseReadyMeetChat: boolean;
@@ -17160,6 +17072,7 @@ function ExploreRecommendations({
         recommendations={(offlinePeople.length ? offlinePeople : similarInterests.map((item) => item.profile)).map((profile) => ({ profile, tag: "Nearby Kindred" }))}
         viewerProfile={currentProfile}
         onProfilePress={onProfilePress}
+        onCompleteProfile={onCompleteProfile}
         canCreateConstellation={canCreateConstellation}
       />
       </> : null}
@@ -17181,7 +17094,7 @@ type ExploreConstellation = {
   memberCount?: number;
   published?: boolean;
   shareUrl?: string;
-  membershipStatus?: "pending" | "accepted" | "declined" | null;
+  membershipStatus?: "suggested" | "pending" | "accepted" | "declined" | null;
   creatorId?: string;
   originCity?: string;
   originCountry?: string | null;
@@ -17191,6 +17104,8 @@ type ExploreConstellation = {
   moderatorType?: "ai" | "human";
   featuredGender?: "Man" | "Woman" | "Nonbinary";
   audienceGender?: "Men" | "Women" | "Everyone";
+  pitchAbout?: string;
+  pitchLookingFor?: string;
 };
 
 function memberConstellationToExplore(item: MemberConstellation): ExploreConstellation {
@@ -17218,6 +17133,8 @@ function memberConstellationToExplore(item: MemberConstellation): ExploreConstel
     moderatorType: item.moderatorType,
     featuredGender: item.featuredGender,
     audienceGender: item.audienceGender,
+    pitchAbout: item.pitchAbout,
+    pitchLookingFor: item.pitchLookingFor,
   };
 }
 
@@ -17258,6 +17175,15 @@ const DEFAULT_EXPLORE_CONSTELLATIONS: ExploreConstellation[] = [
     accent: "#A83E61",
     keywords: ["family", "children", "parent", "marriage", "commitment", "home"],
   },
+  {
+    id: "fitness-nerds",
+    name: "Fitness Nerds",
+    description: "Active Kindreds who make movement part of everyday life.",
+    explainer: "Fitness Nerds brings together people who exercise actively or sometimes and value movement, health, and an energetic lifestyle.",
+    color: "#E8F5EE",
+    accent: "#267A58",
+    keywords: ["fitness", "exercise", "workout", "gym", "running", "cycling", "yoga", "hiking", "sports", "active", "training"],
+  },
 ];
 
 type ConstellationMatch = TaggedRecommendation & {
@@ -17267,17 +17193,48 @@ type ConstellationMatch = TaggedRecommendation & {
 };
 
 function kindredTypeConstellationStrength(profile: Profile, constellationId: string) {
-  const responses = profileMatchingSignals(profile).compatibilityResponses || {};
+  const signals = profileMatchingSignals(profile);
+  const responses = signals.compatibilityResponses || {};
   const keys = constellationKindredTypeKeys[constellationId] || [];
   const values = keys
     .map((key) => responses[key]?.value)
     .filter((value): value is 1 | 2 | 3 | 4 | 5 => typeof value === "number");
   if (!values.length) return null;
-  return Math.round(values.reduce((total, value) => total + ((5 - value) / 4) * 100, 0) / values.length);
+  let score = values.reduce((total, value) => total + ((5 - value) / 4) * 100, 0) / values.length;
+  const profileText = [...(signals.interests || []), ...(signals.values || []), ...(signals.communities || []), ...(signals.relationshipGoals || [])].join(" ").toLocaleLowerCase("en-US");
+  if (constellationId === "dog-people") score = /dog|pet|animal|rescue/u.test(profileText) ? Math.min(100, score + 24) : score * 0.55;
+  if (constellationId === "faith-purpose" && signals.religion) score = Math.min(100, score + 8);
+  if (constellationId === "family-centered" && (signals.hasChildren || /family|children|marriage|long.?term/u.test(profileText))) score = Math.min(100, score + 10);
+  if (constellationId === "sigma" && ["INTJ", "INTP", "ISTP", "ENTJ"].includes(signals.personality || "")) score = Math.min(100, score + 10);
+  if (constellationId === "fitness-nerds") {
+    const exercise = (signals.lifestyle?.Exercise || "").trim().toLocaleLowerCase("en-US");
+    if (exercise === "active") score = Math.min(100, score + 18);
+    if (exercise === "sometimes") score = Math.min(100, score + 8);
+    if (/fitness|exercise|workout|gym|running|cycling|yoga|hiking|sports|active|training/u.test(profileText)) score = Math.min(100, score + 10);
+  }
+  return Math.round(score);
+}
+
+function profileIsEligibleForConstellations(profile?: Profile) {
+  if (!profile) return false;
+  const signals = profileMatchingSignals(profile);
+  const responses = signals.compatibilityResponses || {};
+  const answeredKindredTypeStatements = kindredTypeQuestions.filter((question) => {
+    const value = responses[question.key]?.value;
+    return typeof value === "number" && value >= 1 && value <= 5;
+  }).length;
+  return answeredKindredTypeStatements === kindredTypeQuestions.length
+    && Boolean(signals.relationshipGoals?.length)
+    && Boolean(signals.interests?.length)
+    && Boolean(signals.values?.length);
 }
 
 function rankedDefaultConstellationIds(profile: Profile) {
-  return DEFAULT_EXPLORE_CONSTELLATIONS
+  if (!profileIsEligibleForConstellations(profile)) return [];
+  const exercise = (profileMatchingSignals(profile).lifestyle?.Exercise || "").trim().toLocaleLowerCase("en-US");
+  const fitnessEligible = exercise === "active" || exercise === "sometimes";
+  const ranked = DEFAULT_EXPLORE_CONSTELLATIONS
+    .filter((constellation) => constellation.id !== "fitness-nerds")
     .map((constellation, index) => ({
       id: constellation.id,
       strength: kindredTypeConstellationStrength(profile, constellation.id) ?? 0,
@@ -17286,6 +17243,7 @@ function rankedDefaultConstellationIds(profile: Profile) {
     .sort((left, right) => right.strength - left.strength || left.index - right.index)
     .slice(0, 2)
     .map((item) => item.id);
+  return fitnessEligible ? [...ranked, "fitness-nerds"] : ranked;
 }
 
 function constellationMatch(item: TaggedRecommendation, constellation: ExploreConstellation): ConstellationMatch {
@@ -17324,6 +17282,16 @@ function constellationMatch(item: TaggedRecommendation, constellation: ExploreCo
     if (signals.religion) reasons.unshift(`Faith: ${signals.religion}`);
   }
   if (constellation.id === "family-centered" && (signals.hasChildren || /family|children|marriage|commitment|long.?term/u.test(allText))) score += 14;
+  if (constellation.id === "fitness-nerds") {
+    const exercise = (signals.lifestyle?.Exercise || "").trim().toLocaleLowerCase("en-US");
+    if (exercise === "active") {
+      score += 22;
+      reasons.unshift("Exercise: Active");
+    } else if (exercise === "sometimes") {
+      score += 12;
+      reasons.unshift("Exercise: Sometimes");
+    }
+  }
   const kindredTypeStrength = kindredTypeConstellationStrength(item.profile, constellation.id);
   if (kindredTypeStrength !== null) {
     score = Math.round(kindredTypeStrength * 0.72 + score * 0.28);
@@ -17339,6 +17307,14 @@ function constellationMatch(item: TaggedRecommendation, constellation: ExploreCo
   };
 }
 
+const balloonInterestLabel = (name: string, count: number) => count >= 3
+  ? `${name} would like to meet you`
+  : count === 2
+    ? `${name} would like to know you better`
+    : `${name} is curious about you`;
+
+const balloonStageLabel = (count: number) => count >= 3 ? "Meet you" : count === 2 ? "Know you" : "Curious";
+
 const BALLOON_REASONS = [
   ["children", "Children or parenting"], ["distance", "Distance"], ["work_lifestyle", "Work or lifestyle"],
   ["family_goals", "Family goals"], ["values", "Values"], ["attraction", "Attraction"],
@@ -17351,6 +17327,7 @@ function ModeratedMatchCircle({ constellation, profiles, viewerProfile, onProfil
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reasonCode, setReasonCode] = useState<string>("");
   const [privateNote, setPrivateNote] = useState("");
+  const [popTargetUserId, setPopTargetUserId] = useState<string | null>(null);
   const [moderatorDraft, setModeratorDraft] = useState("");
   const [notice, setNotice] = useState("");
   const refresh = useCallback(() => getConstellationMatchRoom(constellation.id).then(setRoom).catch((caught) => setNotice(caught instanceof Error ? caught.message : "The match circle could not be loaded.")), [constellation.id]);
@@ -17369,8 +17346,18 @@ function ModeratedMatchCircle({ constellation, profiles, viewerProfile, onProfil
   const submitPop = async () => {
     if (!reasonCode || busy) return;
     setBusy(true);
-    try { await decideConstellationBalloon(constellation.id, false, reasonCode, privateNote); setReasonOpen(false); setPrivateNote(""); await refresh(); }
+    try {
+      await updateConstellationBalloon(constellation.id, popTargetUserId ? "pop_other" : "pop_self", { targetUserId: popTargetUserId || undefined, reasonCode, privateNote });
+      setReasonOpen(false); setPrivateNote(""); setReasonCode(""); setPopTargetUserId(null); await refresh();
+    }
     catch (caught) { setNotice(caught instanceof Error ? caught.message : "Your private response could not be saved."); }
+    finally { setBusy(false); }
+  };
+  const inflateOwnBalloon = async () => {
+    if (busy || !room?.ownBalloonActive) return;
+    setBusy(true);
+    try { await updateConstellationBalloon(constellation.id, "inflate"); await refresh(); setNotice(""); }
+    catch (caught) { setNotice(caught instanceof Error ? caught.message : "Your balloon could not be inflated."); }
     finally { setBusy(false); }
   };
   const advance = async () => {
@@ -17391,20 +17378,26 @@ function ModeratedMatchCircle({ constellation, profiles, viewerProfile, onProfil
       {audience.map((item, index) => {
         const angle = (Math.PI * 2 * index / Math.max(1, audience.length)) - Math.PI / 2;
         const x = Math.cos(angle) * 105; const y = Math.sin(angle) * 105;
-        return <View key={likeProfileKeyValue(item.profile)} style={{ position: "absolute", transform: [{ translateX: x }, { translateY: y }], alignItems: "center" }}><View style={{ width: 48, height: 48, borderRadius: 24, overflow: "hidden", borderWidth: 2, borderColor: "#FF6E88" }}><ProfileImage profile={item.profile} size={44} /></View><Text style={{ position: "absolute", right: -8, top: -9, fontSize: 22 }}>🎈</Text></View>;
+        const participantId = likeProfileKeyValue(item.profile);
+        const balloon = room?.balloonStates.find((state) => state.userId === participantId);
+        const active = balloon?.active ?? true;
+        const inflationCount = balloon?.inflationCount ?? 0;
+        const balloonSize = Math.min(48, 20 + inflationCount * 3);
+        return <Pressable key={participantId} disabled={!isFeatured || !active} onPress={() => { setPopTargetUserId(participantId); setReasonCode(""); setPrivateNote(""); setReasonOpen(true); }} accessibilityRole={isFeatured && active ? "button" : undefined} accessibilityLabel={isFeatured && active ? `Punch ${item.profile.name}'s balloon` : `${item.profile.name}'s balloon has ${inflationCount} pumps`} style={{ position: "absolute", transform: [{ translateX: x }, { translateY: y }], alignItems: "center" }}><View style={{ width: 48, height: 48, borderRadius: 24, overflow: "hidden", borderWidth: 2, borderColor: active ? "#FF6E88" : "#8490AD", opacity: active ? 1 : 0.52 }}><ProfileImage profile={item.profile} size={44} /></View><Text style={{ position: "absolute", right: -Math.max(8, balloonSize / 3), top: -Math.max(9, balloonSize / 3), fontSize: balloonSize }}>{active ? "🎈" : "💥"}</Text>{active && inflationCount > 0 ? <View style={{ position: "absolute", right: -13, top: 22, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: "#EA3367", paddingHorizontal: 4, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 8.5, fontWeight: "900", fontVariant: ["tabular-nums"] }}>{inflationCount}</Text></View> : null}</Pressable>;
       })}
-      <View style={{ width: 116, height: 116, borderRadius: 58, overflow: "hidden", borderWidth: 4, borderColor: "#F5C84C", backgroundColor: "#273052" }}>{featured ? <ProfileImage profile={featured.profile} size={108} /> : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><Users width={32} height={32} color="#F5C84C" /></View>}</View>
+      <Pressable disabled={!featured} accessibilityRole={featured ? "button" : undefined} accessibilityLabel={featured ? `View ${featured.profile.name}'s profile` : "Waiting for the constellation creator"} onPress={() => featured && onProfilePress?.(featured.profile)} style={{ width: 116, height: 116, borderRadius: 58, overflow: "hidden", borderWidth: 4, borderColor: "#F5C84C", backgroundColor: "#273052" }}>{featured ? <ProfileImage profile={featured.profile} size={108} /> : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><Users width={32} height={32} color="#F5C84C" /></View>}</Pressable>
       <Text selectable style={{ color: C.paper, marginTop: 7, fontSize: 13, fontWeight: "900" }}>{featured ? featured.profile.name : `Waiting for a ${constellation.featuredGender?.toLowerCase() || "featured participant"}`}</Text>
-      <View style={{ position: "absolute", bottom: 0, alignItems: "center" }}>{moderator ? <View style={{ width: 38, height: 38, borderRadius: 19, overflow: "hidden", borderWidth: 2, borderColor: "#70C6FF" }}><ProfileImage profile={moderator} size={34} /></View> : <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: "#24345B", alignItems: "center", justifyContent: "center" }}><Sparkles width={18} height={18} color="#70C6FF" /></View>}<Text style={{ color: "#AFC5F6", fontSize: 8.5, fontWeight: "900" }}>{constellation.moderatorType === "ai" ? "AI moderator" : "Moderator"}</Text></View>
+      <View style={{ position: "absolute", bottom: 0, alignItems: "center" }}>{moderator && moderator.id !== featured?.profile.id ? <View style={{ width: 38, height: 38, borderRadius: 19, overflow: "hidden", borderWidth: 2, borderColor: "#70C6FF" }}><ProfileImage profile={moderator} size={34} /></View> : <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: "#24345B", alignItems: "center", justifyContent: "center" }}><Sparkles width={18} height={18} color="#70C6FF" /></View>}<Text style={{ color: "#AFC5F6", fontSize: 8.5, fontWeight: "900" }}>{constellation.moderatorType === "ai" ? "AI moderator" : "Moderator"}</Text></View>
     </View>
     <View style={{ borderRadius: 18, backgroundColor: "#1B2445", padding: 12, gap: 5 }}><Text selectable style={{ color: "#82CFFF", fontSize: 10, fontWeight: "900" }}>{constellation.moderatorType === "ai" ? "AI MODERATOR" : "MODERATOR"}</Text><Text selectable style={{ color: C.paper, fontSize: 14, lineHeight: 20, fontWeight: "800" }}>{room?.question || "Tell us your name, and what brings you here?"}</Text></View>
-    {isAudience && !isFeatured && room?.ownBalloonActive ? <Pressable accessibilityRole="button" onPress={() => setReasonOpen(true)} style={{ minHeight: 38, borderRadius: 19, borderWidth: 1, borderColor: "#FF6E88", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#FF91A5", fontSize: 11, fontWeight: "900" }}>🎈 Pop my balloon privately</Text></Pressable> : null}
+    {isAudience && !isFeatured && room?.ownBalloonActive ? <View style={{ flexDirection: "row", gap: 8 }}><Pressable accessibilityRole="button" disabled={busy} onPress={inflateOwnBalloon} style={{ flex: 1, minHeight: 40, borderRadius: 20, backgroundColor: "#EA3367", opacity: busy ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>🎈 Show more love · {room.ownBalloonInflationCount}</Text></Pressable><Pressable accessibilityRole="button" disabled={busy} onPress={() => { setPopTargetUserId(null); setReasonCode(""); setPrivateNote(""); setReasonOpen(true); }} style={{ minHeight: 40, borderRadius: 20, borderWidth: 1, borderColor: "#FF6E88", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#FF91A5", fontSize: 10, fontWeight: "900" }}>Punch mine</Text></Pressable></View> : null}
+    {isFeatured && room?.status === "conversation" ? <Text selectable style={{ color: "#AFC5F6", textAlign: "center", fontSize: 9.5, lineHeight: 14 }}>Balloon size shows each participant's interest. Tap a balloon to punch it privately.</Text> : null}
     {isAudience && !isFeatured && room && !room.ownBalloonActive ? <Text selectable style={{ color: "#AFC5F6", textAlign: "center", fontSize: 10, fontWeight: "800" }}>Your balloon is popped. Your reason remains private.</Text> : null}
     {isModerator && room?.status === "conversation" ? <View style={{ gap: 7 }}>{constellation.moderatorType === "human" ? <TextInput value={moderatorDraft} onChangeText={setModeratorDraft} maxLength={500} multiline placeholder="Write the next question" placeholderTextColor="#8490AD" style={{ minHeight: 48, maxHeight: 90, borderRadius: 16, backgroundColor: "#1B2445", color: C.paper, paddingHorizontal: 11, paddingVertical: 9, textAlignVertical: "top" }} /> : null}<Pressable accessibilityRole="button" disabled={busy || (constellation.moderatorType === "human" && !moderatorDraft.trim())} onPress={advance} style={{ minHeight: 38, borderRadius: 19, backgroundColor: "#F5C84C", alignItems: "center", justifyContent: "center", opacity: busy || (constellation.moderatorType === "human" && !moderatorDraft.trim()) ? 0.6 : 1 }}><Text style={{ color: "#172448", fontSize: 11, fontWeight: "900" }}>{constellation.moderatorType === "ai" ? "AI: Prepare next question" : "Ask next question"}</Text></Pressable></View> : null}
     {(isFeatured || isCandidate) && room?.status === "match_check" ? <View style={{ gap: 8 }}><Text selectable style={{ color: C.paper, fontSize: 13, textAlign: "center", fontWeight: "900" }}>Would you consider this a match?</Text><View style={{ flexDirection: "row", gap: 7 }}>{([['yes', '❤️ YES'], ['not_yet', 'NOT YET'], ['no', 'NO']] as const).map(([value, label]) => <Pressable key={value} disabled={busy} onPress={() => vote(value)} style={{ flex: 1, minHeight: 38, borderRadius: 19, backgroundColor: value === "yes" ? "#EA3367" : "#273052", alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 9.5, fontWeight: "900" }}>{label}</Text></Pressable>)}</View></View> : null}
     {(isFeatured || isCandidate) && room?.status === "matched" ? <View style={{ borderRadius: 18, backgroundColor: "#F5C84C", padding: 13, gap: 7, alignItems: "center" }}><Text selectable style={{ color: "#172448", fontSize: 16, fontWeight: "900" }}>✨ MATCH CONFIRMED ✨</Text><Text selectable style={{ color: "#172448", fontSize: 11, textAlign: "center" }}>Your constellation connection has become a match.</Text>{matchedProfile ? <Pressable accessibilityRole="button" onPress={() => onProfilePress?.(matchedProfile)} style={{ minHeight: 36, borderRadius: 18, backgroundColor: "#172448", paddingHorizontal: 15, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>Continue privately →</Text></Pressable> : null}</View> : null}
     {notice ? <Text accessibilityRole="alert" selectable style={{ color: "#FF9B9B", fontSize: 9.5 }}>{notice}</Text> : null}
-    <Modal visible={reasonOpen} transparent animationType="fade" onRequestClose={() => setReasonOpen(false)}><View style={{ flex: 1, backgroundColor: "rgba(9,12,26,0.75)", alignItems: "center", justifyContent: "center", padding: 22 }}><View style={{ width: "100%", maxWidth: 420, borderRadius: 25, backgroundColor: C.paper, padding: 18, gap: 11 }}><Text selectable style={{ color: C.ink, fontSize: 19, fontWeight: "900" }}>Why did you pop?</Text><Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>Only you and the matching system can use this answer. It is never shown to the featured person or other participants.</Text><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>{BALLOON_REASONS.map(([value, label]) => <Pressable key={value} onPress={() => setReasonCode(value)} style={{ minHeight: 34, borderRadius: 17, borderWidth: 1, borderColor: reasonCode === value ? C.clay : C.line, backgroundColor: reasonCode === value ? "#FFF0EA" : C.paper, paddingHorizontal: 10, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.ink, fontSize: 10, fontWeight: "800" }}>{label}</Text></Pressable>)}</View><TextInput value={privateNote} onChangeText={setPrivateNote} maxLength={500} multiline placeholder="Optional private detail" placeholderTextColor="#948A7F" style={{ minHeight: 70, borderRadius: 14, borderWidth: 1, borderColor: C.line, padding: 10, color: C.ink, textAlignVertical: "top" }} /><Button label={busy ? "Saving…" : "Pop balloon"} disabled={!reasonCode || busy} onPress={submitPop} /><Pressable onPress={() => setReasonOpen(false)} style={{ minHeight: 35, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.muted, fontWeight: "800" }}>Keep my balloon</Text></Pressable></View></View></Modal>
+    <Modal visible={reasonOpen} transparent animationType="fade" onRequestClose={() => { setReasonOpen(false); setPopTargetUserId(null); }}><View style={{ flex: 1, backgroundColor: "rgba(9,12,26,0.75)", alignItems: "center", justifyContent: "center", padding: 22 }}><View style={{ width: "100%", maxWidth: 420, borderRadius: 25, backgroundColor: C.paper, padding: 18, gap: 11 }}><Text selectable style={{ color: C.ink, fontSize: 19, fontWeight: "900" }}>{popTargetUserId ? "Why are you punching this balloon?" : "Why did you punch your balloon?"}</Text><Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>Your reason is private. It is used only to improve future introductions and is never shown to other participants.</Text><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>{BALLOON_REASONS.map(([value, label]) => <Pressable key={value} onPress={() => setReasonCode(value)} style={{ minHeight: 34, borderRadius: 17, borderWidth: 1, borderColor: reasonCode === value ? C.clay : C.line, backgroundColor: reasonCode === value ? "#FFF0EA" : C.paper, paddingHorizontal: 10, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.ink, fontSize: 10, fontWeight: "800" }}>{label}</Text></Pressable>)}</View><TextInput value={privateNote} onChangeText={setPrivateNote} maxLength={500} multiline placeholder="Optional private detail" placeholderTextColor="#948A7F" style={{ minHeight: 70, borderRadius: 14, borderWidth: 1, borderColor: C.line, padding: 10, color: C.ink, textAlignVertical: "top" }} /><Button label={busy ? "Saving…" : "Punch balloon"} disabled={!reasonCode || busy} onPress={submitPop} /><Pressable onPress={() => { setReasonOpen(false); setPopTargetUserId(null); }} style={{ minHeight: 35, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.muted, fontWeight: "800" }}>Cancel</Text></Pressable></View></View></Modal>
   </View>;
 }
 
@@ -17413,6 +17406,7 @@ function ConstellationProfilesPage({
   profiles,
   viewerProfile,
   viewerIsBroadcast,
+  viewerHasRoomAccess,
   onBack,
   onProfilePress,
   onJoin,
@@ -17425,6 +17419,7 @@ function ConstellationProfilesPage({
   profiles: readonly ConstellationMatch[];
   viewerProfile?: Profile;
   viewerIsBroadcast: boolean;
+  viewerHasRoomAccess?: boolean;
   onBack: () => void;
   onProfilePress?: (profile: Profile) => void;
   onJoin?: () => void;
@@ -17434,47 +17429,127 @@ function ConstellationProfilesPage({
   onDelete?: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const pagerRef = useRef<ScrollView>(null);
   const pageWidth = Math.max(1, width);
-  const logicalPages = Array.from({ length: Math.max(1, Math.ceil(profiles.length / 4)) }, (_, index) => profiles.slice(index * 4, index * 4 + 4));
-  const physicalPages = [...logicalPages].reverse();
   const [logicalPage, setLogicalPage] = useState(0);
   const [section, setSection] = useState<"room" | "members">("room");
+  const [genderFilter, setGenderFilter] = useState<"Everyone" | "Men" | "Women">("Everyone");
   const [roomMessages, setRoomMessages] = useState<ConstellationRoomMessage[]>([]);
+  const [roomMembers, setRoomMembers] = useState<ConstellationRoomMember[]>([]);
   const [roomDraft, setRoomDraft] = useState("");
+  const [roomPhoto, setRoomPhoto] = useState<{ uri: string; imageBase64: string; mimeType: "image/jpeg" | "image/png" | "image/webp" } | null>(null);
   const [roomBusy, setRoomBusy] = useState(false);
   const [roomNotice, setRoomNotice] = useState("");
-  const roomAccess = !constellation.custom || viewerIsBroadcast;
+  const [editingRoomMessage, setEditingRoomMessage] = useState<ConstellationRoomMessage | null>(null);
+  const [roomEditDraft, setRoomEditDraft] = useState("");
+  const [pitchExpanded, setPitchExpanded] = useState(false);
+  const roomScrollRef = useRef<ScrollView>(null);
+  const memberProfiles = [...profiles];
+  const knownMemberIds = new Set(memberProfiles.map(({ profile }) => likeProfileKeyValue(profile)));
+  const roomMemberSources = roomMembers.length ? roomMembers : roomMessages.filter((message) => !message.host).map((message) => ({ id: message.senderId, name: message.senderName, gender: "", age: message.senderAge, culture: message.senderCulture || "Kindred", role: message.senderRole || "", photoUri: message.senderPhotoUri }));
+  roomMemberSources.forEach((member) => {
+    if (knownMemberIds.has(member.id)) return;
+    const profile: Profile = { id: member.id, name: member.name, gender: member.gender || "", age: member.age || 0, culture: member.culture || "Kindred", role: member.role || "", portrait: 0, photoUri: member.photoUri, realMember: true };
+    memberProfiles.push(constellationMatch({ profile, tag: "Community member" }, constellation));
+    knownMemberIds.add(member.id);
+  });
+  const filteredMemberProfiles = constellation.custom || genderFilter === "Everyone"
+    ? memberProfiles
+    : memberProfiles.filter(({ profile }) => genderFilter === "Men" ? profile.gender === "Man" : profile.gender === "Woman");
+  const logicalPages = Array.from({ length: Math.max(1, Math.ceil(filteredMemberProfiles.length / 4)) }, (_, index) => filteredMemberProfiles.slice(index * 4, index * 4 + 4));
+  const physicalPages = [...logicalPages].reverse();
+  const roomAccess = !constellation.custom || Boolean(viewerHasRoomAccess);
   const startOffset = Math.max(0, (physicalPages.length - 1) * pageWidth);
   useEffect(() => {
     const timer = setTimeout(() => pagerRef.current?.scrollTo({ x: startOffset, animated: false }), 30);
     return () => clearTimeout(timer);
   }, [startOffset]);
+  useEffect(() => { setGenderFilter("Everyone"); setLogicalPage(0); }, [constellation.id]);
+  const refreshRoomMessages = useCallback(() => {
+    if (!roomAccess) return Promise.resolve();
+    return getConstellationRoomMessages(constellation.id)
+      .then((result) => { setRoomMessages(result.messages); setRoomNotice(""); })
+      .catch((caught) => setRoomNotice(caught instanceof Error ? caught.message : "The room could not be loaded."));
+  }, [constellation.id, roomAccess]);
   useEffect(() => {
     if (!roomAccess) return;
     let active = true;
-    const refresh = () => getConstellationRoomMessages(constellation.id)
-      .then((result) => { if (active) { setRoomMessages(result.messages); setRoomNotice(""); } })
-      .catch((caught) => { if (active) setRoomNotice(caught instanceof Error ? caught.message : "The room could not be loaded."); });
+    const refresh = async () => {
+      try {
+        const messageResult = await getConstellationRoomMessages(constellation.id);
+        const memberResult = await getConstellationRoomMembers(constellation.id).catch(() => ({ members: [] as ConstellationRoomMember[] }));
+        if (active) { setRoomMessages(messageResult.messages); setRoomMembers(memberResult.members); setRoomNotice(""); }
+      } catch (caught) {
+        if (active) setRoomNotice(caught instanceof Error ? caught.message : "The room could not be loaded.");
+      }
+    };
     refresh();
     const timer = setInterval(refresh, 6000);
     return () => { active = false; clearInterval(timer); };
   }, [constellation.id, roomAccess]);
-  const submitRoomMessage = async () => {
-    const text = roomDraft.trim();
-    if (!text || roomBusy || !roomAccess) return;
+  const reactToIntroduction = async (message: ConstellationRoomMessage, action: "inflate" | "pop", reasonCode?: string) => {
+    if (message.own || roomBusy) return;
     setRoomBusy(true);
     try {
-      const message = await sendConstellationRoomMessage(constellation.id, text);
+      await reactToConstellationRoomMessage(constellation.id, message.id, action, reasonCode);
+      await refreshRoomMessages();
+    } catch (caught) {
+      setRoomNotice(caught instanceof Error ? caught.message : "Your balloon response could not be saved.");
+    } finally {
+      setRoomBusy(false);
+    }
+  };
+  const choosePopReason = (message: ConstellationRoomMessage) => Alert.alert(
+    "Pop your balloon?",
+    "Your reason stays private and helps improve future introductions.",
+    [
+      { text: "Cancel", style: "cancel" },
+      { text: "Values", onPress: () => reactToIntroduction(message, "pop", "values") },
+      { text: "Distance", onPress: () => reactToIntroduction(message, "pop", "distance") },
+      { text: "Attraction", onPress: () => reactToIntroduction(message, "pop", "attraction") },
+      { text: "Something else", onPress: () => reactToIntroduction(message, "pop", "other") },
+    ],
+  );
+  const decideOnBalloon = async (message: ConstellationRoomMessage, reactorId: string, decision: "accepted" | "popped") => {
+    if (roomBusy) return;
+    setRoomBusy(true);
+    try {
+      await decideConstellationRoomBalloon(constellation.id, message.id, reactorId, decision);
+      await refreshRoomMessages();
+    } catch (caught) {
+      setRoomNotice(caught instanceof Error ? caught.message : "Your response could not be saved.");
+    } finally {
+      setRoomBusy(false);
+    }
+  };
+  const submitRoomMessage = async () => {
+    const text = roomDraft.trim();
+    if ((!text && !roomPhoto) || roomBusy || !roomAccess) return;
+    setRoomBusy(true);
+    try {
+      const message = await sendConstellationRoomMessage(constellation.id, { text, imageBase64: roomPhoto?.imageBase64, mimeType: roomPhoto?.mimeType });
       setRoomMessages((current) => [...current, message]);
       setRoomDraft("");
+      setRoomPhoto(null);
       setRoomNotice("");
     } catch (caught) {
       setRoomNotice(caught instanceof Error ? caught.message : "The message could not be sent.");
     } finally {
       setRoomBusy(false);
     }
+  };
+  const chooseRoomPhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) { setRoomNotice("Photo library permission is required to share a picture."); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", allowsEditing: true, quality: 0.72, base64: true });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const imageBase64 = await getPickerAssetBase64(asset);
+    if (!imageBase64) { setRoomNotice("That picture could not be read. Please choose another one."); return; }
+    const mimeType = asset.mimeType === "image/png" || asset.mimeType === "image/webp" ? asset.mimeType : "image/jpeg";
+    setRoomPhoto({ uri: asset.uri, imageBase64, mimeType });
+    setRoomNotice("");
   };
   const reportRoomMessage = (message: ConstellationRoomMessage) => {
     if (message.own) return;
@@ -17487,21 +17562,63 @@ function ConstellationProfilesPage({
       }).catch((caught) => Alert.alert("Could not block", caught instanceof Error ? caught.message : "Please try again.")) },
     ]);
   };
+  const editOwnRoomMessage = async () => {
+    if (!editingRoomMessage || roomBusy) return;
+    const text = roomEditDraft.trim();
+    if (!text && !editingRoomMessage.imageUri) { setRoomNotice("A picture message can have an empty caption, but a text message cannot be empty."); return; }
+    setRoomBusy(true);
+    try {
+      const result = await editConstellationRoomMessage(constellation.id, editingRoomMessage.id, text);
+      setRoomMessages((current) => current.map((message) => message.id === editingRoomMessage.id ? { ...message, text: result.text, editedAt: result.editedAt } : message));
+      setEditingRoomMessage(null);
+      setRoomEditDraft("");
+      setRoomNotice("");
+    } catch (caught) {
+      setRoomNotice(caught instanceof Error ? caught.message : "The message could not be edited.");
+    } finally {
+      setRoomBusy(false);
+    }
+  };
+  const deleteOwnRoomMessage = (message: ConstellationRoomMessage) => Alert.alert("Delete message?", "This removes the message and its balloon responses for everyone.", [
+    { text: "Cancel", style: "cancel" },
+    { text: "Delete", style: "destructive", onPress: async () => {
+      if (roomBusy) return;
+      setRoomBusy(true);
+      try {
+        await deleteConstellationRoomMessage(constellation.id, message.id);
+        setRoomMessages((current) => current.filter((item) => item.id !== message.id));
+        setRoomNotice("");
+      } catch (caught) {
+        setRoomNotice(caught instanceof Error ? caught.message : "The message could not be deleted.");
+      } finally {
+        setRoomBusy(false);
+      }
+    } },
+  ]);
+  const openRoomMessageActions = (message: ConstellationRoomMessage) => {
+    if (message.host) return;
+    if (!message.own) { reportRoomMessage(message); return; }
+    Alert.alert("Your message", "Choose an action.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Edit", onPress: () => { setRoomEditDraft(message.text); setEditingRoomMessage(message); } },
+      { text: "Delete", style: "destructive", onPress: () => deleteOwnRoomMessage(message) },
+    ]);
+  };
   const cardWidth = Math.max(138, (width - 54) / 2);
   return (
-    <View style={{ flex: 1, backgroundColor: constellation.color, paddingTop: insets.top + 8, paddingBottom: Math.max(14, insets.bottom), gap: 10 }}>
+    <KeyboardAvoidingView behavior={process.env.EXPO_OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={0} style={{ flex: 1, backgroundColor: constellation.color, paddingTop: insets.top + 8, paddingBottom: Math.max(14, insets.bottom), gap: 10 }}>
       <View style={{ paddingHorizontal: 18, minHeight: 54, flexDirection: "row", alignItems: "center", gap: 11 }}>
         <Pressable accessibilityRole="button" accessibilityLabel="Back to constellations" onPress={onBack} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: C.paper, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.line }}><ChevronLeft width={23} height={23} color={C.ink} /></Pressable>
-        <View style={{ flex: 1, gap: 2 }}><Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 25, fontWeight: "900" }}>{constellation.name}</Text>{constellation.custom && constellation.originCity ? <Text selectable numberOfLines={1} style={{ color: constellation.accent, fontSize: 10, fontWeight: "900" }}>Created in {constellation.originCity}</Text> : null}<Text selectable style={{ color: constellation.accent, fontSize: 11, fontWeight: "900" }}>{profiles.length} Kindred{profiles.length === 1 ? "" : "s"} broadcasting here</Text></View>
+        <View style={{ flex: 1, gap: 2 }}><Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 25, fontWeight: "900" }}>{section === "room" ? "Community Room" : "Members"}</Text><Text selectable numberOfLines={1} style={{ color: constellation.accent, fontSize: 11, fontWeight: "900" }}>{constellation.name}</Text>{constellation.custom && constellation.originCity ? <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 9.5, fontWeight: "800" }}>Created in {constellation.originCity}</Text> : null}</View>
       </View>
+      {!constellation.custom && section === "members" ? <View accessibilityRole="tablist" style={{ marginHorizontal: 18, minHeight: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.72)", borderWidth: 1, borderColor: C.line, padding: 4, flexDirection: "row", gap: 4 }}>{(["Everyone", "Men", "Women"] as const).map((option) => { const active = genderFilter === option; return <Pressable key={option} accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={() => { setGenderFilter(option); setLogicalPage(0); }} style={{ flex: 1, minHeight: 32, borderRadius: 16, backgroundColor: active ? constellation.accent : "transparent", alignItems: "center", justifyContent: "center" }}><Text style={{ color: active ? C.paper : C.ink, fontSize: 10.5, fontWeight: "900" }}>{option}</Text></Pressable>; })}</View> : null}
+      {constellation.custom ? <Pressable accessibilityRole="button" accessibilityState={{ expanded: pitchExpanded }} accessibilityLabel={`${pitchExpanded ? "Hide" : "Show"} ${constellation.name} pitch`} onPress={() => setPitchExpanded((current) => !current)} style={{ marginHorizontal: 18, borderRadius: 18, borderCurve: "continuous", backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, paddingHorizontal: 14, paddingVertical: 12, gap: 9 }}><View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><View style={{ flex: 1 }}><Text selectable style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>Pitch</Text><Text selectable numberOfLines={1} style={{ color: constellation.accent, fontSize: 9.5, fontWeight: "800" }}>{constellation.name}</Text></View><ChevronDown width={18} height={18} color={constellation.accent} style={{ transform: [{ rotate: pitchExpanded ? "180deg" : "0deg" }] }} /></View>{pitchExpanded ? <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10 }}><View style={{ gap: 3 }}><Text selectable style={{ color: constellation.accent, fontSize: 10, fontWeight: "900" }}>WHO I AM</Text><Text selectable style={{ color: C.ink, fontSize: 12, lineHeight: 18 }}>{constellation.pitchAbout || "The creator has not added their introduction yet."}</Text></View><View style={{ gap: 3 }}><Text selectable style={{ color: constellation.accent, fontSize: 10, fontWeight: "900" }}>WHO I’M LOOKING FOR</Text><Text selectable style={{ color: C.ink, fontSize: 12, lineHeight: 18 }}>{constellation.pitchLookingFor || "The creator has not added who they are looking for yet."}</Text></View></View> : null}</Pressable> : null}
       {onShare || onEarnings || onDelete ? <View style={{ paddingHorizontal: 18, flexDirection: "row", gap: 8 }}>{onShare ? <Pressable accessibilityRole="button" onPress={onShare} style={{ minHeight: 34, borderRadius: 17, backgroundColor: constellation.accent, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>Share</Text></Pressable> : null}{onEarnings ? <Pressable accessibilityRole="button" onPress={onEarnings} style={{ minHeight: 34, borderRadius: 17, backgroundColor: "#E7F2EA", paddingHorizontal: 13, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.sage, fontSize: 10, fontWeight: "900" }}>Earnings</Text></Pressable> : null}{onDelete ? <Pressable accessibilityRole="button" onPress={onDelete} style={{ minHeight: 34, borderRadius: 17, backgroundColor: "#FFF1EF", paddingHorizontal: 13, alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#A33D32", fontSize: 10, fontWeight: "900" }}>Delete</Text></Pressable> : null}</View> : null}
-      <View style={{ marginHorizontal: 18, minHeight: 42, borderRadius: 21, backgroundColor: "rgba(255,255,255,0.52)", padding: 4, flexDirection: "row", gap: 4 }}>
-        {(["room", "members"] as const).map((value) => <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: section === value }} onPress={() => setSection(value)} style={{ flex: 1, minHeight: 34, borderRadius: 17, backgroundColor: section === value ? C.ink : "transparent", alignItems: "center", justifyContent: "center" }}><Text style={{ color: section === value ? C.paper : C.ink, fontSize: 11, fontWeight: "900" }}>{value === "room" ? "Community Room" : "Members"}</Text></Pressable>)}
-      </View>
-      {section === "room" ? <View style={{ flex: 1, marginHorizontal: 18, borderRadius: 22, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, overflow: "hidden" }}>
-        {!roomAccess ? <View style={{ flex: 1, padding: 20, alignItems: "center", justifyContent: "center", gap: 9 }}><MessageCircle width={32} height={32} color={constellation.accent} /><Text selectable style={{ color: C.ink, fontSize: 17, fontWeight: "900", textAlign: "center" }}>Join to enter this room</Text><Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>Member-created constellation rooms are available after joining or approval.</Text>{onJoin ? <Pressable accessibilityRole="button" disabled={joinPending} onPress={onJoin} style={{ minHeight: 38, borderRadius: 19, backgroundColor: constellation.accent, opacity: joinPending ? 0.6 : 1, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>{joinPending ? "Requested" : "Join constellation"}</Text></Pressable> : null}</View> : <>{constellation.experienceType === "moderated_match" ? <ModeratedMatchCircle constellation={constellation} profiles={profiles} viewerProfile={viewerProfile} onProfilePress={onProfilePress} /> : null}<ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 9 }}>
-          {!roomMessages.length ? <View style={{ paddingVertical: 40, alignItems: "center", gap: 7 }}><MessageCircle width={30} height={30} color={constellation.accent} /><Text selectable style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>Start the conversation</Text><Text selectable style={{ color: C.muted, fontSize: 11, textAlign: "center" }}>This is a public room for everyone in {constellation.name}.</Text></View> : roomMessages.map((message) => <Pressable key={message.id} onLongPress={() => reportRoomMessage(message)} delayLongPress={350} style={{ alignSelf: message.own ? "flex-end" : "flex-start", maxWidth: "84%", borderRadius: 17, backgroundColor: message.own ? `${constellation.accent}20` : "#F3EFE8", borderWidth: 1, borderColor: message.own ? `${constellation.accent}55` : C.line, paddingHorizontal: 11, paddingVertical: 8, gap: 3 }}><Text selectable style={{ color: message.own ? constellation.accent : C.ink, fontSize: 9.5, fontWeight: "900" }}>{message.own ? "You" : message.senderName}</Text><Text selectable style={{ color: C.ink, fontSize: 13, lineHeight: 18 }}>{message.text}</Text><Text selectable style={{ color: C.muted, fontSize: 8.5, alignSelf: "flex-end" }}>{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</Text></Pressable>)}
-        </ScrollView><View style={{ borderTopWidth: 1, borderTopColor: C.line, padding: 9, flexDirection: "row", alignItems: "flex-end", gap: 8 }}><TextInput value={roomDraft} onChangeText={setRoomDraft} maxLength={1000} multiline placeholder={`Message ${constellation.name}`} placeholderTextColor="#948A7F" style={{ flex: 1, minHeight: 42, maxHeight: 100, borderRadius: 18, backgroundColor: "#F5F1EA", paddingHorizontal: 12, paddingVertical: 10, color: C.ink }} /><Pressable accessibilityRole="button" disabled={!roomDraft.trim() || roomBusy} onPress={submitRoomMessage} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: constellation.accent, opacity: !roomDraft.trim() || roomBusy ? 0.45 : 1, alignItems: "center", justifyContent: "center" }}><Send width={18} height={18} color={C.paper} /></Pressable></View>{roomNotice ? <Text accessibilityRole="alert" selectable style={{ color: "#A33D32", fontSize: 9.5, fontWeight: "800", paddingHorizontal: 10, paddingBottom: 6 }}>{roomNotice}</Text> : null}</>}
+      {section === "members" ? <Pressable accessibilityRole="button" accessibilityLabel={`Start a conversation in ${constellation.name}`} onPress={() => setSection("room")} style={{ marginHorizontal: 18, minHeight: 58, borderRadius: 20, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 11, boxShadow: "0 5px 16px rgba(34,31,27,0.08)" }}><View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: `${constellation.accent}18`, alignItems: "center", justifyContent: "center" }}><MessageCircle width={20} height={20} color={constellation.accent} /></View><View style={{ flex: 1, gap: 2 }}><Text selectable style={{ color: C.ink, fontSize: 13, fontWeight: "900" }}>Break the ice</Text><Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 10 }}>Say something that could spark a connection.</Text></View><ChevronRight width={18} height={18} color={constellation.accent} /></Pressable> : <Pressable accessibilityRole="button" accessibilityLabel="Back to members" onPress={() => setSection("members")} style={{ marginHorizontal: 18, alignSelf: "flex-start", minHeight: 34, borderRadius: 17, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 5 }}><ChevronLeft width={15} height={15} color={C.ink} /><Text style={{ color: C.ink, fontSize: 10, fontWeight: "900" }}>Members</Text></Pressable>}
+      {section === "room" ? <View style={{ flex: roomMessages.length || !roomAccess ? 1 : undefined, height: roomMessages.length || !roomAccess ? undefined : Math.min(410, Math.max(300, height * 0.48)), marginHorizontal: 18, marginVertical: roomMessages.length || !roomAccess ? 0 : "auto", borderRadius: 22, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, overflow: "hidden" }}>
+        {!roomAccess ? <View style={{ flex: 1, padding: 20, alignItems: "center", justifyContent: "center", gap: 9 }}><MessageCircle width={32} height={32} color={constellation.accent} /><Text selectable style={{ color: C.ink, fontSize: 17, fontWeight: "900", textAlign: "center" }}>Join to enter this room</Text><Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>Member-created constellation rooms are available after joining or approval.</Text>{onJoin ? <Pressable accessibilityRole="button" disabled={joinPending} onPress={onJoin} style={{ minHeight: 38, borderRadius: 19, backgroundColor: constellation.accent, opacity: joinPending ? 0.6 : 1, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>{joinPending ? "Requested" : "Join constellation"}</Text></Pressable> : null}</View> : <>{constellation.experienceType === "moderated_match" ? <ModeratedMatchCircle constellation={constellation} profiles={profiles} viewerProfile={viewerProfile} onProfilePress={onProfilePress} /> : null}<ScrollView ref={roomScrollRef} keyboardShouldPersistTaps="handled" style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 9 }} onContentSizeChange={() => roomScrollRef.current?.scrollToEnd({ animated: true })}>
+          {!roomMessages.length ? <View style={{ flex: 1, minHeight: 145, paddingVertical: 22, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", gap: 7 }}><MessageCircle width={30} height={30} color={constellation.accent} /><Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>Break the ice</Text><Text selectable style={{ color: C.muted, fontSize: 11, lineHeight: 17, textAlign: "center" }}>Share something genuine, curious, or fun. A Kindred might connect with you and inflate your balloon.</Text></View> : roomMessages.map((message) => <View key={message.id} style={{ alignSelf: message.own ? "flex-end" : "flex-start", maxWidth: "95%", gap: 5, paddingLeft: 45, position: "relative" }}>{(() => { const senderProfile = message.own ? viewerProfile : memberProfiles.find(({ profile }) => likeProfileKeyValue(profile) === message.senderId || profile.id === message.senderId)?.profile; return <View style={{ position: "absolute", left: 0, top: 0, width: 38, height: 38, borderRadius: 19, overflow: "hidden", backgroundColor: message.host ? "#FFF0C9" : C.line, borderWidth: 1, borderColor: C.paper }}>{message.host ? <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><Sparkles width={19} height={19} color="#B87900" /></View> : senderProfile ? <ProfileImage profile={senderProfile} size={38} /> : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><Users width={17} height={17} color={C.muted} /></View>}</View>; })()}<Pressable accessibilityHint={message.own ? "Long press to edit or delete" : "Long press for safety options"} onLongPress={() => openRoomMessageActions(message)} delayLongPress={350} style={{ borderRadius: 17, backgroundColor: message.host ? "#FFF8E5" : message.own ? `${constellation.accent}20` : "#F3EFE8", borderWidth: 1, borderColor: message.host ? "#EBCB7D" : message.own ? `${constellation.accent}55` : C.line, paddingHorizontal: 11, paddingVertical: 8, gap: 3 }}><Text selectable style={{ color: message.own ? constellation.accent : C.ink, fontSize: 9.5, fontWeight: "900" }}>{message.own ? "You" : message.host ? "Amara · Constellation host" : message.senderName}</Text>{message.imageUri ? <Image source={{ uri: message.imageUri }} resizeMode="cover" fadeDuration={0} style={{ width: 220, maxWidth: "100%", aspectRatio: 1, borderRadius: 13, backgroundColor: C.line }} /> : null}{message.text ? <Text selectable style={{ color: C.ink, fontSize: 13, lineHeight: 18 }}>{message.text}</Text> : null}<View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}><Text selectable style={{ color: C.muted, fontSize: 8.5 }}>{message.balloonCount ? `🎈 ${message.balloonCount} · ${message.balloonPumps} pumps` : "No balloons yet"}</Text><Text selectable style={{ color: C.muted, fontSize: 8.5 }}>{message.editedAt ? "Edited · " : ""}{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</Text></View></Pressable>{message.own && message.reactors?.length ? <View style={{ alignSelf: "flex-end", maxWidth: 260, borderRadius: 15, backgroundColor: "#FFF7F9", borderWidth: 1, borderColor: "#FFD1DC", padding: 8, gap: 6 }}><Text selectable style={{ color: "#A51F49", fontSize: 9.5, fontWeight: "900" }}>Interested Kindreds</Text>{message.reactors.map((reactor) => { const reactorMatch = memberProfiles.find(({ profile }) => likeProfileKeyValue(profile) === reactor.userId || profile.id === reactor.userId); return <View key={reactor.userId} style={{ minHeight: 48, flexDirection: "row", alignItems: "center", gap: 8 }}><View style={{ width: 48 + Math.min(3, reactor.inflationCount) * 12, height: 48 + Math.min(3, reactor.inflationCount) * 12, borderRadius: 999, backgroundColor: "#EF4D76", borderWidth: 2, borderColor: "#FFB3C5", alignItems: "center", justifyContent: "center", padding: 4, boxShadow: "0 4px 12px rgba(239,77,118,0.28)" }}><Text style={{ color: C.paper, fontSize: 8, fontWeight: "900", textAlign: "center" }}>{balloonStageLabel(reactor.inflationCount)}</Text></View><View style={{ flex: 1, gap: 2 }}><Text selectable style={{ color: C.ink, fontSize: 10.5, fontWeight: "900" }}>{balloonInterestLabel(reactor.name, reactor.inflationCount)}</Text>{reactor.authorDecision ? <Text selectable style={{ color: reactor.authorDecision === "accepted" ? C.sage : C.muted, fontSize: 8.5, fontWeight: "800" }}>{reactor.authorDecision === "accepted" ? "Balloon accepted" : "Balloon popped"}</Text> : <View style={{ flexDirection: "row", gap: 6 }}><Pressable disabled={roomBusy} onPress={() => decideOnBalloon(message, reactor.userId, "accepted")} style={{ minHeight: 27, borderRadius: 14, backgroundColor: C.sage, paddingHorizontal: 9, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 8.5, fontWeight: "900" }}>Accept</Text></Pressable><Pressable disabled={roomBusy} onPress={() => decideOnBalloon(message, reactor.userId, "popped")} style={{ minHeight: 27, borderRadius: 14, borderWidth: 1, borderColor: C.line, paddingHorizontal: 9, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.muted, fontSize: 8.5, fontWeight: "900" }}>Pop</Text></Pressable>{reactorMatch ? <Pressable onPress={() => onProfilePress?.(reactorMatch.profile)} style={{ minHeight: 27, borderRadius: 14, backgroundColor: constellation.accent, paddingHorizontal: 9, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 8.5, fontWeight: "900" }}>View</Text></Pressable> : null}</View>}</View></View>; })}<Text selectable style={{ color: C.muted, fontSize: 8, lineHeight: 12 }}>Starting an unmatched direct message requires KindredPass, Premium, or Wallet funds.</Text></View> : null}{!message.own && !message.host ? <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 6 }}><Pressable disabled={roomBusy} onPress={() => reactToIntroduction(message, "inflate")} style={{ width: message.viewerInflationCount ? 54 + Math.min(3, message.viewerInflationCount) * 12 : 76, height: message.viewerInflationCount ? 54 + Math.min(3, message.viewerInflationCount) * 12 : 36, borderRadius: 999, backgroundColor: message.viewerInflationCount ? "#EF4D76" : "#FFF0F4", borderWidth: 1.5, borderColor: "#FFB3C5", padding: 5, alignItems: "center", justifyContent: "center", boxShadow: message.viewerInflationCount ? "0 4px 12px rgba(239,77,118,0.28)" : "none" }}><Text style={{ color: message.viewerInflationCount ? C.paper : "#C82658", fontSize: 8.5, fontWeight: "900", textAlign: "center" }}>{message.viewerInflationCount ? balloonStageLabel(message.viewerInflationCount) : "🎈 Inflate"}</Text></Pressable><Pressable disabled={roomBusy} onPress={() => choosePopReason(message)} style={{ minHeight: 31, borderRadius: 16, backgroundColor: message.viewerBalloonActive === false ? "#ECE8E2" : C.paper, borderWidth: 1, borderColor: C.line, paddingHorizontal: 10, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.muted, fontSize: 9.5, fontWeight: "900" }}>💥 Pop</Text></Pressable></View> : null}</View>)}
+        </ScrollView><View style={{ borderTopWidth: 1, borderTopColor: C.line, padding: 9, flexDirection: "row", alignItems: "flex-end", gap: 8 }}><Pressable accessibilityRole="button" accessibilityLabel={roomPhoto ? "Choose a different picture" : "Add a picture"} onPress={chooseRoomPhoto} style={{ width: 42, height: 42, borderRadius: 14, overflow: "hidden", backgroundColor: "#F5F1EA", borderWidth: 1, borderColor: roomPhoto ? constellation.accent : C.line, alignItems: "center", justifyContent: "center" }}>{roomPhoto ? <Image source={{ uri: roomPhoto.uri }} resizeMode="cover" fadeDuration={0} style={{ width: 42, height: 42 }} /> : <Camera width={18} height={18} color={constellation.accent} />}</Pressable><TextInput value={roomDraft} onChangeText={setRoomDraft} maxLength={1000} multiline placeholder="Break the ice… a Kindred might connect with you." placeholderTextColor="#948A7F" style={{ flex: 1, minHeight: 42, maxHeight: 100, borderRadius: 18, backgroundColor: "#F5F1EA", paddingHorizontal: 12, paddingVertical: 10, color: C.ink }} /><Pressable accessibilityRole="button" disabled={(!roomDraft.trim() && !roomPhoto) || roomBusy} onPress={submitRoomMessage} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: constellation.accent, opacity: (!roomDraft.trim() && !roomPhoto) || roomBusy ? 0.45 : 1, alignItems: "center", justifyContent: "center" }}><Send width={18} height={18} color={C.paper} /></Pressable></View>{roomNotice ? <Text accessibilityRole="alert" selectable style={{ color: "#A33D32", fontSize: 9.5, fontWeight: "800", paddingHorizontal: 10, paddingBottom: 6 }}>{roomNotice}</Text> : null}</>}
       </View> : <><ScrollView
         ref={pagerRef}
         horizontal
@@ -17519,19 +17636,28 @@ function ConstellationProfilesPage({
             {pageProfiles.map(({ profile, strength, level }) => (
               <Pressable key={likeProfileKeyValue(profile)} accessibilityRole="button" accessibilityLabel={`Explore ${profile.name}'s profile`} onPress={() => onProfilePress?.(profile)} style={{ width: cardWidth, borderRadius: 20, overflow: "hidden", backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, boxShadow: "0 8px 20px rgba(34,31,27,0.10)" }}>
                 <View style={{ width: cardWidth, height: cardWidth, backgroundColor: "#E8E1D6", overflow: "hidden" }}><ProfileImage profile={profile} size={cardWidth} /></View>
-                <View style={{ padding: 9, gap: 3 }}><Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>{profile.name}, {profile.age}</Text><Text selectable numberOfLines={1} style={{ color: constellation.accent, fontSize: 9.5, fontWeight: "900" }}>{strength}% · {level}</Text><Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 9.5 }}>{profile.role || profile.culture}</Text></View>
+                <View style={{ padding: 9, gap: 3 }}><Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 14, fontWeight: "900" }}>{profile.name}{profile.age > 0 ? `, ${profile.age}` : ""}</Text><Text selectable numberOfLines={1} style={{ color: constellation.accent, fontSize: 9.5, fontWeight: "900" }}>{strength}% · {level}</Text><Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 9.5 }}>{profile.role || profile.culture}</Text></View>
               </Pressable>
             ))}
-            {!pageProfiles.length ? <View style={{ width: "100%", borderRadius: 22, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 20, gap: 6 }}><Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>This constellation is still forming</Text><Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>Profiles will appear here as matching Kindreds complete their setup.</Text></View> : null}
+            {!pageProfiles.length ? <View style={{ width: "100%", borderRadius: 22, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 20, gap: 6 }}><Text selectable style={{ color: C.ink, fontSize: 16, fontWeight: "900" }}>{genderFilter === "Everyone" ? "No Kindreds have entered this constellation yet" : `No ${genderFilter.toLocaleLowerCase("en-US")} are showing here yet`}</Text><Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>{genderFilter === "Everyone" ? "Invite someone or check again later." : "Choose Everyone or check again later."}</Text></View> : null}
           </View>
         ))}
       </ScrollView>
       <View style={{ marginHorizontal: 18, gap: 8 }}>
         {physicalPages.length > 1 ? <View style={{ alignSelf: "center", minHeight: 34, borderRadius: 17, backgroundColor: "rgba(34,31,27,0.78)", paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 6 }}><Text style={{ fontSize: 14 }}>👉</Text><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>{logicalPage < logicalPages.length - 1 ? "Swipe right for more" : "Swipe left to go back"}</Text></View> : null}
-        {viewerProfile && viewerIsBroadcast ? <View style={{ borderRadius: 18, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 }}><View style={{ width: 42, height: 42, borderRadius: 21, overflow: "hidden" }}><ProfileImage profile={viewerProfile} size={42} /></View><View style={{ flex: 1, gap: 2 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Your profile is already being broadcast here</Text><Text selectable style={{ color: C.muted, fontSize: 9.5, lineHeight: 13 }}>{constellation.custom ? "You joined this member-created constellation." : "Your profile and Kindred Type rank this among your strongest constellations."}</Text></View></View> : constellation.custom && viewerProfile && onJoin ? <View style={{ borderRadius: 18, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 }}><View style={{ flex: 1 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Join this constellation</Text><Text selectable style={{ color: C.muted, fontSize: 9.5 }}>Member-created constellations are opt-in.</Text></View><Pressable accessibilityRole="button" disabled={joinPending} onPress={onJoin} style={{ minHeight: 34, borderRadius: 17, backgroundColor: constellation.accent, opacity: joinPending ? 0.6 : 1, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>{joinPending ? "Requested" : "Join"}</Text></Pressable></View> : null}
+        {constellation.custom && viewerProfile && onJoin ? <View style={{ borderRadius: 18, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 }}><View style={{ flex: 1 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Join this constellation</Text><Text selectable style={{ color: C.muted, fontSize: 9.5 }}>Member-created constellations are opt-in.</Text></View><Pressable accessibilityRole="button" disabled={joinPending} onPress={onJoin} style={{ minHeight: 34, borderRadius: 17, backgroundColor: constellation.accent, opacity: joinPending ? 0.6 : 1, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>{joinPending ? "Requested" : "Join"}</Text></Pressable></View> : null}
       </View>
       </>}
-    </View>
+      <Modal visible={Boolean(editingRoomMessage)} transparent animationType="fade" onRequestClose={() => setEditingRoomMessage(null)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(20,18,16,0.42)", padding: 24, alignItems: "center", justifyContent: "center" }}>
+          <View style={{ width: "100%", maxWidth: 460, borderRadius: 24, backgroundColor: C.paper, padding: 18, gap: 13 }}>
+            <Text selectable style={{ color: C.ink, fontSize: 19, fontWeight: "900" }}>Edit message</Text>
+            <TextInput value={roomEditDraft} onChangeText={setRoomEditDraft} maxLength={1000} multiline autoFocus placeholder="Update your message" placeholderTextColor="#948A7F" style={{ minHeight: 110, maxHeight: 220, borderRadius: 18, backgroundColor: "#F5F1EA", paddingHorizontal: 13, paddingVertical: 12, color: C.ink, textAlignVertical: "top" }} />
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 9 }}><Pressable disabled={roomBusy} onPress={() => setEditingRoomMessage(null)} style={{ minHeight: 40, borderRadius: 20, borderWidth: 1, borderColor: C.line, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.ink, fontWeight: "900" }}>Cancel</Text></Pressable><Pressable disabled={roomBusy} onPress={editOwnRoomMessage} style={{ minHeight: 40, borderRadius: 20, backgroundColor: constellation.accent, opacity: roomBusy ? 0.55 : 1, paddingHorizontal: 18, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontWeight: "900" }}>Save</Text></Pressable></View>
+          </View>
+        </View>
+      </Modal>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -17539,12 +17665,14 @@ function CommonGroundAtlas({
   recommendations,
   viewerProfile,
   onProfilePress,
+  onCompleteProfile,
   globalLayout = false,
   canCreateConstellation = false,
 }: {
   recommendations: readonly TaggedRecommendation[];
   viewerProfile?: Profile;
   onProfilePress?: (profile: Profile) => void;
+  onCompleteProfile?: () => void;
   globalLayout?: boolean;
   canCreateConstellation?: boolean;
 }) {
@@ -17562,14 +17690,19 @@ function CommonGroundAtlas({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [requiresApproval, setRequiresApproval] = useState(true);
-  const [experienceType, setExperienceType] = useState<"community" | "moderated_match">("community");
+  const [experienceType, setExperienceType] = useState<"community" | "moderated_match">("moderated_match");
   const [moderatorType, setModeratorType] = useState<"ai" | "human">("ai");
   const [featuredGender, setFeaturedGender] = useState<"Man" | "Woman" | "Nonbinary">("Man");
   const [audienceGender, setAudienceGender] = useState<"Men" | "Women" | "Everyone">("Women");
-  const [generatedCover, setGeneratedCover] = useState<{ imageBase64: string; mimeType: "image/png" } | null>(null);
-  const [coverGenerating, setCoverGenerating] = useState(false);
+  const [coverChoice, setCoverChoice] = useState<"profile" | "upload">("profile");
+  const [uploadedCover, setUploadedCover] = useState<{ imageBase64: string; mimeType: "image/jpeg" | "image/png" | "image/webp"; uri: string } | null>(null);
   const [constellationBusy, setConstellationBusy] = useState(false);
   const [constellationNotice, setConstellationNotice] = useState("");
+  const [pitchOpen, setPitchOpen] = useState(false);
+  const [pitchConstellationId, setPitchConstellationId] = useState("");
+  const [pitchAbout, setPitchAbout] = useState("");
+  const [pitchLookingFor, setPitchLookingFor] = useState("");
+  const [pitchBusy, setPitchBusy] = useState(false);
   const [earningsOpen, setEarningsOpen] = useState(false);
   const [earningsBusy, setEarningsBusy] = useState(false);
   const [earnings, setEarnings] = useState<ConstellationEarnings | null>(null);
@@ -17591,40 +17724,63 @@ function CommonGroundAtlas({
 
   useEffect(() => {
     getMemberConstellations()
-      .then((result) => setCustomConstellations(result.constellations.map(memberConstellationToExplore)))
+      .then((result) => {
+        setCustomConstellations(result.constellations.map(memberConstellationToExplore));
+        setJoinedCustomIds(result.constellations.filter((item) => item.membershipStatus === "accepted" || item.membershipStatus === "suggested").map((item) => item.id));
+        setPendingCustomIds(result.constellations.filter((item) => item.membershipStatus === "pending").map((item) => item.id));
+      })
       .catch(() => setCustomConstellations([]));
     SecureStore.getItemAsync(joinedStorageKey)
       .then((saved) => {
         if (!saved) return;
         const parsed = JSON.parse(saved) as unknown;
-        if (Array.isArray(parsed)) setJoinedCustomIds(parsed.filter((item): item is string => typeof item === "string"));
+        if (Array.isArray(parsed)) setJoinedCustomIds((current) => [...new Set([...current, ...parsed.filter((item): item is string => typeof item === "string")])]);
       })
       .catch(() => undefined);
     SecureStore.getItemAsync(pendingStorageKey)
       .then((saved) => {
         if (!saved) return;
         const parsed = JSON.parse(saved) as unknown;
-        if (Array.isArray(parsed)) setPendingCustomIds(parsed.filter((item): item is string => typeof item === "string"));
+        if (Array.isArray(parsed)) setPendingCustomIds((current) => [...new Set([...current, ...parsed.filter((item): item is string => typeof item === "string")])]);
       })
       .catch(() => undefined);
   }, []);
+  useEffect(() => {
+    if (!customConstellations.length) return;
+    SecureStore.getItemAsync("kindredcube.pendingConstellationId")
+      .then((pendingId) => {
+        if (!pendingId || !customConstellations.some((item) => item.id === pendingId)) return;
+        setSelectedId(pendingId);
+        setConstellationOpen(true);
+        SecureStore.deleteItemAsync("kindredcube.pendingConstellationId").catch(() => undefined);
+      })
+      .catch(() => undefined);
+  }, [customConstellations]);
 
   const saveCustomConstellations = useCallback((next: ExploreConstellation[]) => {
     setCustomConstellations(next);
     SecureStore.setItemAsync(storageKey, JSON.stringify(next)).catch(() => undefined);
   }, []);
 
-  const visibleProfiles = recommendations
+  const viewerConstellationEligible = profileIsEligibleForConstellations(viewerProfile);
+  const recommendationProfiles = recommendations
     .filter((item) => {
+      if (!profileIsEligibleForConstellations(item.profile)) return false;
       if (!selected.custom) return rankedDefaultConstellationIds(item.profile).includes(selected.id);
       const memberships = item.profile.discovery?.matching?.constellationIds;
       return Array.isArray(memberships) && memberships.includes(selected.id);
     })
     .map((item) => constellationMatch(item, selected))
     .sort((left, right) => right.strength - left.strength);
-  const viewerIsFeatured = selected.custom
+  const viewerQualifiesForSelected = !globalLayout && viewerConstellationEligible && (selected.custom
     ? selected.creatorId === viewerProfile?.id || joinedCustomIds.includes(selected.id)
-    : Boolean(viewerProfile && rankedDefaultConstellationIds(viewerProfile).includes(selected.id));
+    : Boolean(viewerProfile && rankedDefaultConstellationIds(viewerProfile).includes(selected.id)));
+  const viewerKey = viewerProfile ? likeProfileKeyValue(viewerProfile) : "";
+  const viewerAlreadyListed = Boolean(viewerKey && recommendationProfiles.some(({ profile }) => likeProfileKeyValue(profile) === viewerKey));
+  const visibleProfiles = viewerQualifiesForSelected && viewerProfile && !viewerAlreadyListed
+    ? [...recommendationProfiles, constellationMatch({ profile: viewerProfile, tag: "Your profile" }, selected)]
+    : recommendationProfiles;
+  const viewerIsFeatured = Boolean(viewerKey && visibleProfiles.some(({ profile }) => likeProfileKeyValue(profile) === viewerKey));
   const joinSelectedCustomConstellation = async () => {
     if (!selected.custom || joinedCustomIds.includes(selected.id) || pendingCustomIds.includes(selected.id)) return;
     try {
@@ -17681,46 +17837,99 @@ function CommonGroundAtlas({
     }
   };
 
-  const generateCover = async () => {
-    const trimmedName = name.trim();
-    if (trimmedName.length < 2 || coverGenerating) return;
-    setCoverGenerating(true);
+  const chooseConstellationPicture = async () => {
     setConstellationNotice("");
-    try {
-      setGeneratedCover(await generateConstellationCover(trimmedName));
-    } catch (caught) {
-      setGeneratedCover(null);
-      setConstellationNotice(caught instanceof Error ? caught.message : "The AI icon could not be generated.");
-    } finally {
-      setCoverGenerating(false);
-    }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) { setConstellationNotice("Photo library permission is required to choose a constellation picture."); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", allowsEditing: true, aspect: [1, 1], quality: 0.72, base64: true });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const imageBase64 = await getPickerAssetBase64(asset);
+    if (!imageBase64) { setConstellationNotice("That picture could not be read. Please choose another one."); return; }
+    const mimeType = asset.mimeType === "image/png" || asset.mimeType === "image/webp" ? asset.mimeType : "image/jpeg";
+    setUploadedCover({ imageBase64, mimeType, uri: asset.uri });
+    setCoverChoice("upload");
   };
 
   const createConstellation = async () => {
     const trimmedName = name.trim();
-    if (!trimmedName || !generatedCover || constellationBusy) return;
+    if (!trimmedName || (coverChoice === "upload" && !uploadedCover) || constellationBusy) return;
     setConstellationBusy(true);
     setConstellationNotice("");
     try {
+      let coverPayload = uploadedCover;
+      if (coverChoice === "profile") {
+        const profilePhotoUri = viewerProfile ? profilePrimaryPhotoUri(viewerProfile) : "";
+        if (!profilePhotoUri) throw new Error("Upload a profile picture before using it for your constellation.");
+        let imageBase64 = "";
+        if (process.env.EXPO_OS === "web") {
+          const response = await fetch(profilePhotoUri);
+          if (!response.ok) throw new Error("Your profile picture could not be loaded.");
+          const blob = await response.blob();
+          imageBase64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error("Your profile picture could not be read."));
+            reader.onload = () => resolve(typeof reader.result === "string" ? reader.result.split(",")[1] || "" : "");
+            reader.readAsDataURL(blob);
+          });
+        } else {
+          const localUri = await cacheRemoteImage(profilePhotoUri);
+          imageBase64 = await LegacyFileSystem.readAsStringAsync(localUri, { encoding: LegacyFileSystem.EncodingType.Base64 });
+        }
+        if (!imageBase64) throw new Error("Your profile picture could not be prepared. Please upload a constellation picture instead.");
+        coverPayload = { imageBase64, mimeType: "image/jpeg", uri: profilePhotoUri };
+      }
+      let automaticOrigin: { originLatitude?: number; originLongitude?: number; originCity?: string; originCountry?: string } = {};
+      try {
+        let permission = await Location.getForegroundPermissionsAsync();
+        if (!permission.granted && permission.canAskAgain) permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.granted) {
+          const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          automaticOrigin = { originLatitude: position.coords.latitude, originLongitude: position.coords.longitude };
+          const places = await Location.reverseGeocodeAsync(position.coords).catch(() => []);
+          const place = places[0];
+          if (place) automaticOrigin = { ...automaticOrigin, originCity: place.city || place.subregion || place.region || "Current area", originCountry: place.country || undefined };
+        }
+      } catch {
+        // The API can still use coordinates already saved by automatic profile location.
+      }
       const result = await createMemberConstellation({
         name: trimmedName.slice(0, 40),
-        description: description.trim().slice(0, 240) || "A constellation created by a KindredCube member.",
+        description: `${trimmedName} is a member-created constellation.`.slice(0, 240),
         requiresApproval,
-        imageBase64: generatedCover.imageBase64,
-        mimeType: generatedCover.mimeType,
-        experienceType,
+        imageBase64: coverPayload?.imageBase64,
+        mimeType: coverPayload?.mimeType,
+        experienceType: "moderated_match",
         moderatorType,
         featuredGender,
         audienceGender,
+        ...automaticOrigin,
       });
       const item = memberConstellationToExplore(result.constellation);
       saveCustomConstellations([...customConstellations, item]);
       setSelectedId(item.id);
-      setName(""); setDescription(""); setRequiresApproval(true); setExperienceType("community"); setModeratorType("ai"); setFeaturedGender("Man"); setAudienceGender("Women"); setGeneratedCover(null); setCreatorOpen(false);
+      setPitchConstellationId(item.id); setPitchAbout(""); setPitchLookingFor("");
+      setName(""); setDescription(""); setRequiresApproval(true); setExperienceType("moderated_match"); setModeratorType("ai"); setFeaturedGender("Man"); setAudienceGender("Women"); setUploadedCover(null); setCoverChoice("profile"); setCreatorOpen(false); setPitchOpen(true);
     } catch (caught) {
       setConstellationNotice(caught instanceof Error ? caught.message : "The constellation could not be created.");
     } finally {
       setConstellationBusy(false);
+    }
+  };
+
+  const savePitch = async () => {
+    if (!pitchConstellationId || !pitchAbout.trim() || !pitchLookingFor.trim() || pitchBusy) return;
+    setPitchBusy(true);
+    setConstellationNotice("");
+    try {
+      const result = await updateMemberConstellationPitch(pitchConstellationId, { pitchAbout: pitchAbout.trim(), pitchLookingFor: pitchLookingFor.trim() });
+      const updated = memberConstellationToExplore(result.constellation);
+      saveCustomConstellations(customConstellations.map((item) => item.id === updated.id ? updated : item));
+      setPitchOpen(false); setPitchConstellationId(""); setPitchAbout(""); setPitchLookingFor(""); setConstellationOpen(true);
+    } catch (caught) {
+      setConstellationNotice(caught instanceof Error ? caught.message : "Your pitch could not be saved.");
+    } finally {
+      setPitchBusy(false);
     }
   };
 
@@ -17764,6 +17973,8 @@ function CommonGroundAtlas({
                   ? FAITH_PURPOSE_CONSTELLATION_ART
                   : item.id === "family-centered"
                     ? FAMILY_CENTERED_CONSTELLATION_ART
+                    : item.id === "fitness-nerds"
+                      ? FITNESS_NERDS_CONSTELLATION_ART
                     : null;
           return (
             <Pressable
@@ -17804,12 +18015,15 @@ function CommonGroundAtlas({
                 <Text selectable style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>{item.name}</Text>
                 {item.custom && item.originCity ? <Text selectable numberOfLines={1} style={{ color: item.accent, fontSize: 10, fontWeight: "900" }}>Created in {item.originCity}</Text> : null}
                 <Text selectable numberOfLines={3} style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>{item.description}</Text>
-                {item.custom ? <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 9, fontWeight: "800" }}>{item.memberCount || 1} member{(item.memberCount || 1) === 1 ? "" : "s"} · {item.countrywide ? `Across ${item.originCountry || "the country"}` : `Within ${item.reachMiles || 100} miles`}</Text> : null}
+                {item.custom ? <Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 9, fontWeight: "800" }}>{item.countrywide ? `Across ${item.originCountry || "the country"}` : `Within ${item.reachMiles || 100} miles`}</Text> : null}
               </View>
             </Pressable>
           );
         })}
       </ScrollView>
+      <View style={{ marginHorizontal: 18, borderRadius: 20, borderCurve: "continuous", backgroundColor: selected.color, borderWidth: 1, borderColor: C.line, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 }}>
+        {viewerProfile && !viewerConstellationEligible ? <><View style={{ flex: 1, gap: 2 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Complete your profile to find your constellation</Text><Text selectable style={{ color: C.muted, fontSize: 9.5, lineHeight: 13 }}>Finish your Kindred Type, values, interests, and relationship goals so we can place you accurately.</Text></View><View style={{ gap: 6 }}><Pressable accessibilityRole="button" accessibilityLabel={`Explore ${selected.name}`} onPress={() => setConstellationOpen(true)} style={{ minHeight: 32, borderRadius: 16, backgroundColor: selected.accent, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 }}><Text style={{ color: C.paper, fontSize: 9.5, fontWeight: "900" }}>Explore</Text><ChevronRight width={13} height={13} color={C.paper} strokeWidth={2.5} /></Pressable>{onCompleteProfile ? <Pressable accessibilityRole="button" accessibilityLabel="Complete your profile" onPress={onCompleteProfile} style={{ minHeight: 30, borderRadius: 15, borderWidth: 1, borderColor: selected.accent, paddingHorizontal: 10, alignItems: "center", justifyContent: "center" }}><Text style={{ color: selected.accent, fontSize: 8.5, fontWeight: "900" }}>Complete Profile</Text></Pressable> : null}</View></> : <>{viewerProfile && viewerIsFeatured ? <><View style={{ width: 44, height: 44, borderRadius: 22, overflow: "hidden", backgroundColor: C.paper }}><ProfileImage profile={viewerProfile} size={44} /></View><View style={{ flex: 1, gap: 2 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Your profile is featured here</Text><Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 9.5 }}>{selected.name}</Text></View></> : <View style={{ flex: 1, gap: 2 }}><Text selectable numberOfLines={1} style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>{selected.name}</Text><Text selectable numberOfLines={1} style={{ color: C.muted, fontSize: 9.5 }}>{selected.custom ? "Explore this member-created constellation." : "Explore Kindreds in this constellation."}</Text></View>}<Pressable accessibilityRole="button" accessibilityLabel={`Explore ${selected.name}`} onPress={() => setConstellationOpen(true)} style={{ minHeight: 36, borderRadius: 18, backgroundColor: selected.accent, paddingHorizontal: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>Explore</Text><ChevronRight width={14} height={14} color={C.paper} strokeWidth={2.5} /></Pressable></>}
+      </View>
       {canCreateConstellation ? <Pressable accessibilityRole="button" accessibilityLabel="Create your own constellation" onPress={() => setCreatorOpen(true)} style={{ alignSelf: "center", minHeight: 38, borderRadius: 19, borderWidth: 1, borderColor: C.clay, backgroundColor: C.paper, paddingHorizontal: 15, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
         <Plus width={17} height={17} color={C.clay} strokeWidth={2.5} />
         <Text style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Create a constellation</Text>
@@ -17820,7 +18034,7 @@ function CommonGroundAtlas({
           <View style={{ flex: 1, gap: 2 }}>
             <Text selectable style={{ color: C.ink, fontSize: 19, fontWeight: "900" }}>{selected.name}</Text>
             {selected.custom && selected.requiresApproval ? <Text selectable style={{ color: selected.accent, fontSize: 10, fontWeight: "900" }}>Private · membership approval required</Text> : null}
-            {selected.custom ? <Text selectable style={{ color: C.muted, fontSize: 9.5, fontWeight: "800" }}>{selected.memberCount || 1}/10 network members · {selected.published ? "Published application-wide" : `${Math.max(0, 10 - (selected.memberCount || 1))} more to publish`}</Text> : null}
+
           </View>
           {selected.custom && selected.shareUrl ? <Pressable accessibilityRole="button" accessibilityLabel={`Share ${selected.name}`} onPress={() => Share.share({ title: selected.name, message: `Join ${selected.name} on KindredCube: ${selected.shareUrl}?ref=${selected.id}\nOpen in the app: kindredcube://constellations/${selected.id}?ref=${selected.id}` })} style={{ minHeight: 36, borderRadius: 18, backgroundColor: selected.accent, paddingHorizontal: 11, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.paper, fontSize: 10, fontWeight: "900" }}>Share</Text></Pressable> : null}
           {selected.custom && selected.creatorId === viewerProfile?.id ? <Pressable accessibilityRole="button" accessibilityLabel={`View ${selected.name} earnings`} onPress={openConstellationEarnings} style={{ minHeight: 36, borderRadius: 18, backgroundColor: "#E7F2EA", paddingHorizontal: 10, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.sage, fontSize: 10, fontWeight: "900" }}>Earnings</Text></Pressable> : null}
@@ -17863,15 +18077,13 @@ function CommonGroundAtlas({
               </View>
             ))}
           </ScrollView>
-        ) : (
-          <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>No Kindreds have entered this constellation yet. Invite someone or check again as the community grows.</Text>
-        )}
+        ) : null}
         {viewerProfile && viewerIsFeatured ? (
           <View style={{ borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10, flexDirection: "row", alignItems: "center", gap: 10 }}>
             <View style={{ width: 42, height: 42, borderRadius: 21, overflow: "hidden", backgroundColor: C.paper }}><ProfileImage profile={viewerProfile} size={42} /></View>
             <View style={{ flex: 1, gap: 2 }}>
               <Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Your profile is already featured here</Text>
-              <Text selectable style={{ color: C.muted, fontSize: 9.5, lineHeight: 13 }}>{selected.custom ? "You chose to join this constellation." : "Your profile setup and Kindred Type rank this among your strongest constellations."}</Text>
+              <Text selectable style={{ color: C.muted, fontSize: 9.5, lineHeight: 13 }}>{selected.custom ? selected.membershipStatus === "suggested" ? "KindredCube privately identified this as a possible fit. Inflate your balloon to come forward or pop it to opt out." : "You chose to join this constellation." : "Your profile setup and Kindred Type rank this among your strongest constellations."}</Text>
             </View>
           </View>
         ) : viewerProfile && selected.custom ? (
@@ -17888,12 +18100,14 @@ function CommonGroundAtlas({
           profiles={visibleProfiles}
           viewerProfile={viewerProfile}
           viewerIsBroadcast={viewerIsFeatured}
+          viewerHasRoomAccess={!selected.custom || selected.creatorId === viewerProfile?.id || joinedCustomIds.includes(selected.id)}
           onBack={() => setConstellationOpen(false)}
           onProfilePress={(profile) => {
+            if (selected.custom) SecureStore.setItemAsync("kindredcube.pendingConstellationId", selected.id).catch(() => undefined);
             setConstellationOpen(false);
             setTimeout(() => onProfilePress?.(profile), 240);
           }}
-          onJoin={selected.custom ? joinSelectedCustomConstellation : undefined}
+          onJoin={selected.custom && viewerConstellationEligible ? joinSelectedCustomConstellation : undefined}
           joinPending={pendingCustomIds.includes(selected.id)}
           onShare={selected.custom && selected.shareUrl ? () => Share.share({ title: selected.name, message: `Join ${selected.name} on KindredCube: ${selected.shareUrl}?ref=${selected.id}\nOpen in the app: kindredcube://constellations/${selected.id}?ref=${selected.id}` }) : undefined}
           onEarnings={selected.custom && selected.creatorId === viewerProfile?.id ? () => { setConstellationOpen(false); setTimeout(openConstellationEarnings, 240); } : undefined}
@@ -17906,24 +18120,36 @@ function CommonGroundAtlas({
           <ScrollView style={{ width: "100%", maxWidth: 430, maxHeight: "92%", borderRadius: 26, borderCurve: "continuous", backgroundColor: C.paper }} contentContainerStyle={{ padding: 19, gap: 12 }}>
             <Text selectable style={{ color: C.ink, fontSize: 21, fontWeight: "900" }}>Create your constellation</Text>
             <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 17 }}>Build a common-ground space around a value, lifestyle, interest, or community.</Text>
-            <TextInput value={name} onChangeText={(value) => { setName(value); setGeneratedCover(null); }} maxLength={40} placeholder="Constellation name" placeholderTextColor="#948A7F" style={{ minHeight: 46, borderRadius: 15, borderWidth: 1, borderColor: C.line, paddingHorizontal: 12, color: C.ink, fontWeight: "800" }} />
-            <View style={{ minHeight: 150, borderRadius: 20, borderWidth: 1.5, borderStyle: "dashed", borderColor: C.line, backgroundColor: "#F8F4EE", alignItems: "center", justifyContent: "center", overflow: "hidden", gap: 8, padding: 10 }}>
-              {generatedCover ? <Image source={{ uri: `data:${generatedCover.mimeType};base64,${generatedCover.imageBase64}` }} resizeMode="contain" fadeDuration={0} style={{ width: 128, height: 128 }} /> : <><Sparkles width={26} height={26} color={C.clay} /><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900", textAlign: "center" }}>{coverGenerating ? "Creating your 3D constellation icon…" : "Your AI-generated 3D icon will appear here"}</Text></>}
-            </View>
-            <Pressable accessibilityRole="button" disabled={name.trim().length < 2 || coverGenerating} onPress={generateCover} style={{ minHeight: 40, borderRadius: 20, backgroundColor: C.ink, opacity: name.trim().length < 2 || coverGenerating ? 0.5 : 1, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }}><Sparkles width={16} height={16} color={C.paper} /><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>{coverGenerating ? "Generating…" : generatedCover ? "Regenerate 3D icon" : "Generate 3D icon"}</Text></Pressable>
-            <TextInput value={description} onChangeText={setDescription} maxLength={240} multiline placeholder="What brings people together here?" placeholderTextColor="#948A7F" style={{ minHeight: 82, borderRadius: 15, borderWidth: 1, borderColor: C.line, padding: 12, color: C.ink, textAlignVertical: "top" }} />
-            <View style={{ gap: 7 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Constellation experience</Text><View style={{ flexDirection: "row", gap: 7 }}>{([['community', 'Community room'], ['moderated_match', 'Moderated match']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setExperienceType(value)} style={{ flex: 1, minHeight: 39, borderRadius: 19, borderWidth: 1, borderColor: experienceType === value ? C.clay : C.line, backgroundColor: experienceType === value ? "#FFF0EA" : C.paper, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.ink, fontSize: 10, fontWeight: "900" }}>{label}</Text></Pressable>)}</View></View>
-            {experienceType === "moderated_match" ? <View style={{ borderRadius: 17, backgroundColor: "#F2F4FA", padding: 11, gap: 10 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Moderator</Text><View style={{ flexDirection: "row", gap: 7 }}>{([['ai', 'AI moderator'], ['human', 'I will moderate']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setModeratorType(value)} style={{ flex: 1, minHeight: 36, borderRadius: 18, backgroundColor: moderatorType === value ? "#172448" : C.paper, alignItems: "center", justifyContent: "center" }}><Text style={{ color: moderatorType === value ? C.paper : C.ink, fontSize: 9.5, fontWeight: "900" }}>{label}</Text></Pressable>)}</View><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Featured participant</Text><View style={{ flexDirection: "row", gap: 6 }}>{(['Man', 'Woman', 'Nonbinary'] as const).map((value) => <Pressable key={value} onPress={() => setFeaturedGender(value)} style={{ flex: 1, minHeight: 34, borderRadius: 17, backgroundColor: featuredGender === value ? C.clay : C.paper, alignItems: "center", justifyContent: "center" }}><Text style={{ color: featuredGender === value ? C.paper : C.ink, fontSize: 8.5, fontWeight: "900" }}>{value}</Text></Pressable>)}</View><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Outside circle</Text><View style={{ flexDirection: "row", gap: 6 }}>{(['Women', 'Men', 'Everyone'] as const).map((value) => <Pressable key={value} onPress={() => setAudienceGender(value)} style={{ flex: 1, minHeight: 34, borderRadius: 17, backgroundColor: audienceGender === value ? C.clay : C.paper, alignItems: "center", justifyContent: "center" }}><Text style={{ color: audienceGender === value ? C.paper : C.ink, fontSize: 8.5, fontWeight: "900" }}>{value}</Text></Pressable>)}</View></View> : null}
+            <TextInput value={name} onChangeText={setName} maxLength={40} placeholder="Constellation name" placeholderTextColor="#948A7F" style={{ minHeight: 46, borderRadius: 15, borderWidth: 1, borderColor: C.line, paddingHorizontal: 12, color: C.ink, fontWeight: "800" }} />
+            <Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>Constellation picture</Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>{([['profile', 'Use my profile picture'], ['upload', 'Upload a picture']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setCoverChoice(value)} style={{ flex: 1, minHeight: 40, borderRadius: 20, backgroundColor: coverChoice === value ? C.ink : "#F4EFE7", paddingHorizontal: 9, alignItems: "center", justifyContent: "center" }}><Text style={{ color: coverChoice === value ? C.paper : C.ink, fontSize: 9.5, fontWeight: "900", textAlign: "center" }}>{label}</Text></Pressable>)}</View>
+            <View style={{ minHeight: 150, borderRadius: 20, borderWidth: 1.5, borderStyle: "dashed", borderColor: C.line, backgroundColor: "#F8F4EE", alignItems: "center", justifyContent: "center", overflow: "hidden", gap: 8, padding: 10 }}>{coverChoice === "profile" && viewerProfile ? <><View style={{ width: 128, height: 128, borderRadius: 30, overflow: "hidden" }}><ProfileImage profile={viewerProfile} size={128} /></View><Text selectable style={{ color: C.muted, fontSize: 9.5, fontWeight: "800" }}>Your current profile picture</Text></> : uploadedCover ? <Image source={{ uri: uploadedCover.uri }} resizeMode="cover" fadeDuration={0} style={{ width: 128, height: 128, borderRadius: 30 }} /> : <><Camera width={28} height={28} color={C.clay} /><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900", textAlign: "center" }}>Choose a square picture for this constellation</Text></>}</View>
+            {coverChoice === "upload" ? <Pressable accessibilityRole="button" onPress={chooseConstellationPicture} style={{ minHeight: 40, borderRadius: 20, backgroundColor: C.ink, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }}><Camera width={16} height={16} color={C.paper} /><Text style={{ color: C.paper, fontSize: 11, fontWeight: "900" }}>{uploadedCover ? "Choose a different picture" : "Choose picture"}</Text></Pressable> : null}
+            <View style={{ borderRadius: 17, backgroundColor: "#F2F4FA", padding: 11, gap: 10 }}><Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>Who would you like to meet?</Text><Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 14 }}>KindredCube privately suggests compatible profiles. They decide whether to inflate their balloon and come forward or pop it and opt out.</Text><View style={{ flexDirection: "row", gap: 6 }}>{(['Women', 'Men', 'Everyone'] as const).map((value) => <Pressable key={value} onPress={() => setAudienceGender(value)} style={{ flex: 1, minHeight: 36, borderRadius: 18, backgroundColor: audienceGender === value ? C.clay : C.paper, alignItems: "center", justifyContent: "center" }}><Text style={{ color: audienceGender === value ? C.paper : C.ink, fontSize: 9.5, fontWeight: "900" }}>{value}</Text></Pressable>)}</View><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Conversation guide</Text><View style={{ flexDirection: "row", gap: 7 }}>{([['ai', 'AI moderator'], ['human', 'I will moderate']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setModeratorType(value)} style={{ flex: 1, minHeight: 36, borderRadius: 18, backgroundColor: moderatorType === value ? "#172448" : C.paper, alignItems: "center", justifyContent: "center" }}><Text style={{ color: moderatorType === value ? C.paper : C.ink, fontSize: 9.5, fontWeight: "900" }}>{label}</Text></Pressable>)}</View></View>
             <Pressable accessibilityRole="switch" accessibilityState={{ checked: requiresApproval }} onPress={() => setRequiresApproval((current) => !current)} style={{ minHeight: 52, borderRadius: 15, borderWidth: 1, borderColor: C.line, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
               <View style={{ width: 42, height: 24, borderRadius: 12, backgroundColor: requiresApproval ? C.sage : "#D8D2CA", padding: 3, alignItems: requiresApproval ? "flex-end" : "flex-start" }}><View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: C.paper }} /></View>
               <View style={{ flex: 1, gap: 2 }}><Text selectable style={{ color: C.ink, fontSize: 12, fontWeight: "900" }}>Approve new members</Text><Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 14 }}>When enabled, this is a private constellation and you approve every request.</Text></View>
             </Pressable>
-            <Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 14 }}>Your constellation starts within 100 miles of your city. Its reach expands as accepted membership grows.</Text>
+            <Text selectable style={{ color: C.muted, fontSize: 10, lineHeight: 14 }}>Suggested profiles remain private to this constellation. Other members can still discover it and request to join manually.</Text>
             {constellationNotice ? <Text selectable style={{ color: "#A33D32", fontSize: 10, fontWeight: "800" }}>{constellationNotice}</Text> : null}
-            <Button label={constellationBusy ? "Creating..." : "Create constellation"} disabled={!name.trim() || !generatedCover || constellationBusy || coverGenerating} onPress={createConstellation} />
+            <Button label={constellationBusy ? "Creating..." : "Create constellation"} disabled={!name.trim() || (coverChoice === "upload" && !uploadedCover) || constellationBusy} onPress={createConstellation} />
             <Pressable onPress={() => setCreatorOpen(false)} style={{ minHeight: 38, alignItems: "center", justifyContent: "center" }}><Text style={{ color: C.muted, fontWeight: "800" }}>Cancel</Text></Pressable>
           </ScrollView>
         </View>
+      </Modal>
+
+      <Modal visible={pitchOpen} transparent animationType="fade" onRequestClose={() => undefined}>
+        <KeyboardAvoidingView behavior={process.env.EXPO_OS === "ios" ? "padding" : "height"} style={{ flex: 1, backgroundColor: "rgba(20,18,16,0.48)", alignItems: "center", justifyContent: "center", padding: 22 }}>
+          <ScrollView keyboardShouldPersistTaps="handled" style={{ width: "100%", maxWidth: 430, maxHeight: "88%", borderRadius: 26, borderCurve: "continuous", backgroundColor: C.paper }} contentContainerStyle={{ padding: 19, gap: 12 }}>
+            <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: "#FFF0EA", alignItems: "center", justifyContent: "center" }}><MessageCircle width={22} height={22} color={C.clay} /></View>
+            <Text selectable style={{ color: C.ink, fontSize: 22, fontWeight: "900" }}>Make your pitch</Text>
+            <Text selectable style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>Introduce yourself and tell potential members who you hope to meet. This appears under the collapsible Pitch heading.</Text>
+            <View style={{ gap: 6 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Who are you?</Text><TextInput value={pitchAbout} onChangeText={setPitchAbout} maxLength={800} multiline placeholder="Share what matters to you, your personality, and what makes this constellation meaningful." placeholderTextColor="#948A7F" style={{ minHeight: 112, borderRadius: 16, borderWidth: 1, borderColor: C.line, padding: 12, color: C.ink, textAlignVertical: "top" }} /></View>
+            <View style={{ gap: 6 }}><Text selectable style={{ color: C.ink, fontSize: 11, fontWeight: "900" }}>Who are you looking for?</Text><TextInput value={pitchLookingFor} onChangeText={setPitchLookingFor} maxLength={800} multiline placeholder="Describe the people, qualities, values, and kind of connection you are looking for." placeholderTextColor="#948A7F" style={{ minHeight: 112, borderRadius: 16, borderWidth: 1, borderColor: C.line, padding: 12, color: C.ink, textAlignVertical: "top" }} /></View>
+            {constellationNotice ? <Text accessibilityRole="alert" selectable style={{ color: "#A33D32", fontSize: 10, fontWeight: "800" }}>{constellationNotice}</Text> : null}
+            <Button label={pitchBusy ? "Saving pitch..." : "Save pitch"} disabled={!pitchAbout.trim() || !pitchLookingFor.trim() || pitchBusy} onPress={savePitch} />
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={earningsOpen} transparent animationType="fade" onRequestClose={() => setEarningsOpen(false)}>
@@ -22479,6 +22705,8 @@ function SignedInHome({
     const type = typeof data.type === "string" ? data.type : "";
     const destination = typeof data.destination === "string" ? data.destination : "";
     if (destination === "explore") {
+      const constellationId = typeof data.constellationId === "string" ? data.constellationId : "";
+      if (constellationId) await SecureStore.setItemAsync("kindredcube.pendingConstellationId", constellationId);
       setPendingNotificationTarget({ type: "explore" });
       return;
     }
@@ -23097,6 +23325,11 @@ function SignedInHome({
         await refreshReadyToMeetPeople();
       }}
       onProfilePress={setSelectedMemberProfile}
+      onCompleteProfile={() => {
+        setTab("profile");
+        setProfileEditorVersion((value) => value + 1);
+        setProfileEditing(true);
+      }}
       onLike={(profile) => rememberLike(profile, "explore")}
       onOpenChat={openMemberChat}
       canUseReadyMeetChat={premiumActive || kindredPassActive || readyMeetPassActive}

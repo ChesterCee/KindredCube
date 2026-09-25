@@ -209,7 +209,7 @@ export class PushNotificationsService {
         body: matched ? "You both liked each other. Open KindredCube to start chatting." : "Open Liked You to see the new activity.",
         sound: "default",
         priority: "high",
-        channelId: "likes",
+        channelId: "messages",
         badge: Math.max(1, badgeCount),
         data: {
           type: matched ? "match" : "like",
@@ -223,6 +223,95 @@ export class PushNotificationsService {
         `Queued ${messages.length} like push notification(s) for recipient ${recipientId}; platforms=${summarizePushPlatforms(tokens.rows)}.`,
       );
     });
+  }
+
+  async sendConstellationFitNotification(recipientId: string, creatorId: string, constellationId: string, constellationName: string) {
+    await this.database.withUser(recipientId, async (client) => {
+      const tokens = await activePushTokens(client, recipientId);
+      if (!tokens.rowCount) return;
+      const creator = await client.query<{ display_name: string }>(
+        `SELECT COALESCE(profile.display_name, users.public_username, 'A Kindred') AS display_name
+           FROM users LEFT JOIN discovery_profiles profile ON profile.user_id = users.id
+          WHERE users.id = $1`,
+        [creatorId],
+      );
+      const creatorName = creator.rows[0]?.display_name || "A Kindred";
+      const badgeCount = await notificationBadgeCount(client, recipientId);
+      await sendExpoPush(tokens.rows.map<ExpoPushMessage>((row) => ({
+        to: row.token,
+        title: "A new constellation may fit you",
+        body: `${creatorName} created ${constellationName}. View their profile, then inflate your balloon to come forward or pop it to opt out.`,
+        sound: "default",
+        priority: "high",
+        channelId: "messages",
+        badge: Math.max(1, badgeCount),
+        data: {
+          type: "constellation_fit",
+          destination: "explore",
+          constellationId,
+          creatorId,
+        },
+      })), this.logger);
+      this.logger.log(`Queued constellation-fit notification for recipient ${recipientId} and constellation ${constellationId}.`);
+    });
+  }
+
+  async sendConstellationReactionNotification(recipientId: string, reactorId: string, constellationId: string, messageId: string) {
+    await this.database.withUser(recipientId, async (client) => {
+      const tokens = await activePushTokens(client, recipientId);
+      if (!tokens.rowCount) return;
+      const reactor = await client.query<{ display_name: string }>(
+        `SELECT COALESCE(profile.display_name, users.public_username, 'A Kindred') AS display_name
+           FROM users LEFT JOIN discovery_profiles profile ON profile.user_id = users.id
+          WHERE users.id = $1`,
+        [reactorId],
+      );
+      const reactorName = reactor.rows[0]?.display_name || "A Kindred";
+      const badgeCount = await notificationBadgeCount(client, recipientId);
+      await sendExpoPush(tokens.rows.map<ExpoPushMessage>((row) => ({
+        to: row.token,
+        title: `${reactorName} inflated your balloon`,
+        body: "Open your constellation introduction to see who is interested and decide whether to connect.",
+        sound: "default",
+        priority: "high",
+        channelId: "messages",
+        badge: Math.max(1, badgeCount),
+        data: { type: "constellation_reaction", destination: "explore", constellationId, messageId, reactorId },
+      })), this.logger);
+    });
+  }
+
+  async sendConstellationRoomNotification(roomKey: string, senderId: string, senderName: string, preview: string, host: boolean) {
+    const recipients = await this.database.query<{ user_id: string }>(
+      `SELECT DISTINCT audience.user_id
+         FROM (
+           SELECT participant.user_id
+             FROM constellation_room_participants participant
+            WHERE participant.room_key = $1
+           UNION
+           SELECT member.user_id
+             FROM constellation_members member
+            WHERE member.constellation_id::text = $1 AND member.status = 'accepted'
+         ) audience
+        WHERE ($3::boolean OR audience.user_id <> $2)`,
+      [roomKey, senderId, host],
+    );
+    const body = preview.trim().replace(/\s+/g, " ").slice(0, 150) || (host ? "Amara has a question for the room." : "Shared a picture in your constellation.");
+    await Promise.all(recipients.rows.map(({ user_id: recipientId }) => this.database.withUser(recipientId, async (client) => {
+      const tokens = await activePushTokens(client, recipientId);
+      if (!tokens.rowCount) return;
+      const badgeCount = await notificationBadgeCount(client, recipientId);
+      await sendExpoPush(tokens.rows.map<ExpoPushMessage>((row) => ({
+        to: row.token,
+        title: host ? "Amara · Constellation host" : `${senderName} broke the ice`,
+        body,
+        sound: "default",
+        priority: "high",
+        channelId: "messages",
+        badge: Math.max(1, badgeCount),
+        data: { type: host ? "constellation_host" : "constellation_room", destination: "explore", constellationId: roomKey, senderId },
+      })), this.logger);
+    })));
   }
 
   async sendScheduledNotification(job: { user_id: string; other_user_id: string | null; kind: string; meeting_started_at: Date | null }): Promise<"sent" | "skipped" | "retry"> {

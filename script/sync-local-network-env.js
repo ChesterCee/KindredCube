@@ -85,7 +85,7 @@ const allowedOrigins = [
 ].join(",");
 
 writeEnv(path.join(rootDir, ".env"), {
-  EXPO_PUBLIC_API_URL: productionApiUrl,
+  EXPO_PUBLIC_API_URL: apiUrl,
 });
 
 if (useLocalApi) {
@@ -105,6 +105,7 @@ if (!useLocalApi) {
 if (startExpo) {
   const expoCli = path.join(rootDir, "node_modules", "expo", "bin", "cli");
   const extraArgs = process.argv.includes("--clear") ? ["--clear"] : [];
+  if (process.argv.includes("--dev-client")) extraArgs.push("--dev-client");
   console.log(`Expo Go address: exp://${ip}:8081`);
   const result = spawnSync(
     process.execPath,

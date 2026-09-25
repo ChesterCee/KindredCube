@@ -595,10 +595,12 @@ export class ChatService {
             AND e.entitlement IN ('premium', 'kindred_pass')
             AND (e.expires_at IS NULL OR e.expires_at > now())
        ),
-       ready_meet_wallet AS (
-         SELECT 1 FROM wallet_ledger w
-          WHERE w.user_id = $1
-            AND w.entry_type = 'ready_to_meet_chat'
+       wallet_access AS (
+         SELECT 1 FROM wallet_accounts account
+          WHERE account.user_id = $1 AND account.balance_cents > 0
+         UNION ALL
+         SELECT 1 FROM wallet_ledger ledger
+          WHERE ledger.user_id = $1 AND ledger.entry_type = 'ready_to_meet_chat'
        ),
        ready_meet_invitation AS (
          SELECT status
@@ -613,7 +615,7 @@ export class ChatService {
          EXISTS (SELECT 1 FROM blocked) AS blocked,
          EXISTS (SELECT 1 FROM mutual_like) AS mutual_like,
          EXISTS (SELECT 1 FROM active_plan) AS active_plan,
-         EXISTS (SELECT 1 FROM ready_meet_wallet) AS ready_meet_wallet,
+         EXISTS (SELECT 1 FROM wallet_access) AS ready_meet_wallet,
          (SELECT status FROM ready_meet_invitation) AS invitation_status`,
       [userId, otherUserId],
     );
@@ -630,7 +632,7 @@ export class ChatService {
     if (row.invitation_status === "pending") throw new ForbiddenException("The chat invitation must be accepted before more messages can be sent.");
     if (row.invitation_status === "declined") throw new ForbiddenException("This chat invitation was declined.");
     if (row.invitation_status !== "accepted" && !row.mutual_like && !row.active_plan && !row.ready_meet_wallet) {
-      throw new ForbiddenException("Chat opens after a mutual match or an active chat entitlement.");
+      throw new ForbiddenException("Direct messages require KindredPass, Premium, or funds in your KindredCube Wallet.");
     }
   }
 
